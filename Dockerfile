@@ -10,7 +10,7 @@
 # Configuration ################################################################
 
 # Start with the python 3.10 Jupyter scipy-notebook docker-image.
-FROM jupyter/scipy-notebook:x86_64-python-3.10
+FROM jupyter/scipy-notebook:aarch64-python-3.10
 # Note the Maintainer.
 MAINTAINER Noah C. Benson <nben@uw.edu>
 
@@ -53,7 +53,7 @@ RUN chown -R $NB_USER /home/$NB_USER/.local
 # subject for neuropythy to use if needed.
 # Download the required FreeSurfer subjects.
 RUN apt-get update \
- && apt-get install --yes --no-install-recommends curl
+ && apt-get install --yes --no-install-recommends build-essential cmake curl git
 RUN curl -L -o /data/required_subjects/fsaverage.tar.gz \
       https://github.com/noahbenson/neuropythy/wiki/files/fsaverage.tar.gz \
  && cd /data/required_subjects \
@@ -79,7 +79,8 @@ USER $NB_USER
 # Install some stuff we are likely to need, including neuropythy.
 
 RUN mamba update -y -n base mamba
-RUN mamba update --all -y
+RUN mamba update --all -y 
+RUN ln -s /opt/conda/lib/libstdc++.so.6.0.34 /opt/conda/lib/libstdc++.so.6
 #RUN mamba install -y -cconda-forge nibabel s3fs
 RUN mamba install -y -cconda-forge \
         ipywidgets \
@@ -88,9 +89,23 @@ RUN mamba install -y -cconda-forge \
         webcolors \
         jsonschema-with-format-nongpl \
         'tornado == 6.1'
-RUN pip install --upgrade setuptools
 RUN pip install ipycanvas pyyaml neuropythy nibabel s3fs
-RUN pip install diplib
+
+# RUN pip install diplib
+# Build diplib from Source
+USER root
+RUN rm -rf /opt/conda/lib/python3.10/site-packages/backports && \
+      rm -rf /opt/conda/lib/python3.10/site-packages/setuptools* && \
+      rm -rf /opt/conda/lib/python3.10/site-packages/_distutils_hack && \
+      pip install build setuptools wheel --upgrade
+RUN git clone https://github.com/DIPlib/diplib.git /opt/diplib && \
+    mkdir -p /opt/diplib/target && \
+    cd /opt/diplib/target && \
+    cmake .. -DCMAKE_INSTALL_PREFIX=/opt/diplib && \
+    make -j check && \
+    make -j install && \
+    make pip_install
+USER $NB_USER
 
 # Install collapsible cell extensions...
 #RUN mamba install -cconda-forge jupyter_contrib_nbextensions \
