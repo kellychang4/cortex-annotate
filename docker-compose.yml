@@ -10,6 +10,5 @@ services:
          - ${PWD}/cache:/cache
          - ${PWD}/config:/config
          - ${PWD}:/git
-         - /Volumes/Leviathan/CRCNS/datasets:/data
       environment:
         - DOCKER_STACKS_JUPYTER_CMD=notebook
