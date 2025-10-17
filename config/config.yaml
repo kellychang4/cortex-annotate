@@ -23,22 +23,22 @@ init: |
   import numpy as np
   import neuropythy as ny
 
-  # We also want to create an object that tracks the S3 path/data for the 
-  # NOD dataset. We use the cache path "/cache/<dataset>" because the /cache
-  # directory is always available for use with cache files inside of the docker
-  # container that runs the annotation tool.
+  # We also want to create an object that tracks the S3 path/data for the NSD.
+  # We use the cache path "/cache/<dataset>" because the /cache directory is 
+  # always available for use with cache files inside of the docker container 
+  # that runs the annotation tool.
   dataset_path = ny.util.pseudo_path(
-    source_path = "s3://openneuro.org/ds004496/derivatives", 
-    cache_path  = "/cache/nod"
+    source_path = "s3://natural-scenes-dataset/nsddata/",
+    cache_path  = "/cache/nsd"
   )
 
   # We will specifically load these population receptive fields (pRF) files in
   # order to draw visual area annotations on the retinotopic maps for each
   # subject.
   prf_files = {
-    "polar_angle"        : "angle.mgz",
-    "eccentricity"       : "eccen.mgz",
-    "variance_explained" : "vexpl.mgz",
+    "polar_angle"        : "prfangle.mgz",
+    "eccentricity"       : "prfeccentricity.mgz",
+    "variance_explained" : "prfR2.mgz",
   }
 
   # This occipital pole mask is used with neuropythy"s flatmap code; the tuple
@@ -49,41 +49,18 @@ init: |
 # We assume in this example that the libraries neuropythy and numpy have been
 # imported (as ny and np respectively) in the init section (see below).
 targets:
-  # The NOD dataset contains 30 subjects, listed below. The 
-  # "Subject ID" entry will be a dropdown menu in the annotation tool because it
-  # is a list of multiple choices rather than a code-block or a list with a
-  # single entry.
+  # The NSD contains 8 subjects, listed below. The "Subject ID" entry will be
+  # a dropdown menu in the annotation tool because it is a list of multiple
+  # choices rather than a code-block or a list with a single entry.
   Subject ID:
-    - sub-01
-    - sub-02
-    - sub-03
-    - sub-04
-    - sub-05
-    - sub-06
-    - sub-07
-    - sub-08
-    - sub-09
-    - sub-10
-    - sub-11
-    - sub-12
-    - sub-13
-    - sub-14
-    - sub-15
-    - sub-16
-    - sub-17
-    - sub-18
-    - sub-19
-    - sub-20
-    - sub-21
-    - sub-22
-    - sub-23
-    - sub-24
-    - sub-25
-    - sub-26
-    - sub-27
-    - sub-28
-    - sub-29
-    - sub-30
+    - subj01
+    - subj02
+    - subj03
+    - subj04
+    - subj05
+    - subj06
+    - subj07
+    - subj08
   # The "subject" entry is a multi-line string, so it is interpreted as a Python
   # code snippet. This snippet is compiled into a function whose parameter list 
   # contains only the variable `target`. The `target` will be a dictionary with
@@ -117,23 +94,25 @@ targets:
     hemi = target["Hemisphere"] # string
     subj = target["subject"]    # Subject object
 
-    # convert hemisphere to BIDS and freesurfer hemisphere convention
-    fs_hemi   = f"{hemi[0].lower()}h"
-    bids_hemi = f"{hemi[0].upper()}"
+    # convert hemisphere to freesurfer hemisphere convention
+    fs_hemi = f"{hemi[0].lower()}h"
 
-    # Load retinotopic mapping data, CHN-Retintopy specific location.
-    prop_base = f"{sid}_ses-all_task-logbar_hemi-{bids_hemi}_space-fsnative"
-    prop_path = dataset_path.subpath(
-      "prf-estimation", sid, "prfs", f"{prop_base}_prf")
+    # Load retinotopic mapping data from the freesurfer label directory, 
+    # NSD specific location.
+    prop_path = dataset_path.subpath("freesurfer", sid, "label")
     props = {
-      k: ny.load(prop_path.subpath(f"{prop_base}_{filename}"))
+      k: ny.load(prop_path.subpath(f"{fs_hemi}.{filename}"))
          for (k, filename) in prf_files.items()
     }
 
-    # Variance Explained ----
-    # CHN-Retinotopy stores the variance explained as values from 0 to 1. Here, 
-    # we convert the variance explained to a percentage from 0% to 100%.
-    props["variance_explained"] = props["variance_explained"] * 100
+    # Polar Angle ----
+    # NSD stores the polar angle coordinates as values between 0 and 360 degrees
+    # (Cartesian coordinate system where 0 corresponds to the right horizontal 
+    # meridian, 90 corresponds to the upper vertical meridian, etc.). Here, we 
+    # convert the polar angle into Neuropythy"s "visual" format (i.e., 0 degrees
+    # is the upper vertical meridian, 90 degrees is the right horizontal
+    # meridian, and -90 degrees is the left horizontal meridian.
+    props["polar_angle"] = np.mod(90 - props["polar_angle"] + 180, 360) - 180
     
     # Grab the appropriate coretx/hemisphere object.
     cortex = subj.hemis[fs_hemi]
@@ -149,7 +128,7 @@ targets:
   # pole. This uses the `occpole_mask` defined in the `init` section above.
   flatmap: |
     cortex = target["cortex"]
-    return cortex.mask_flatmap(occpole_mask, map_right = "right", radius = np.pi / 2)
+    return cortex.mask_flatmap(occpole_mask, map_right="right", radius=np.pi/2)
 
 annotations:
   # V1 contours:
