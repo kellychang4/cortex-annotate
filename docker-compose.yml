@@ -9,6 +9,8 @@ services:
          - ${PWD}/save:/save
          - ${PWD}/cache:/cache
          - ${PWD}/config:/config
+         - ${PWD}/.npythyrc:/home/jovyan/.npythyrc
+         - ${HOME}/.hcp-passwd:/home/jovyan/.hcp-passwd
          - ${PWD}:/git
       environment:
         - DOCKER_STACKS_JUPYTER_CMD=notebook

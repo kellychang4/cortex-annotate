@@ -1,0 +1,5 @@
+{
+  "hcp_subject_paths" : "/cache/hcp", 
+  "hcp_auto_download" : true, 
+  "hcp_credentials"   : "~/.hcp-passwd"
+}
