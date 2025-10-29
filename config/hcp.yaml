@@ -254,7 +254,6 @@ targets:
 
     # convert hemisphere to freesurfer hemisphere convention
     fs_hemi = f"{hemi[0].lower()}h"
-    print(fs_hemi)
 
     # Grab the appropriate coretx/hemisphere object.
     cortex = subj.hemis[fs_hemi]
