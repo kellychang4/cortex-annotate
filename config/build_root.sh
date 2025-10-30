@@ -9,3 +9,5 @@
 # something or configure something during the docker build process, you can put
 # the required commands in this file instead of editing the Dockerfile directly.
 
+apt-get update && \
+ apt-get install --yes --no-install-recommends git-annex

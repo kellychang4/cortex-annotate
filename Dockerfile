@@ -4,15 +4,16 @@
 # Example build:
 #   docker build --no-cache --tag cortex-annotate `pwd`
 #
-#   (but really, use `docker-compose up` instead).
+#   (but really, use `docker compose up` instead).
 #
 
 # Configuration ################################################################
 
 # Start with the python 3.10 Jupyter scipy-notebook docker-image.
-FROM jupyter/scipy-notebook:aarch64-python-3.10
-# Note the Maintainer.
-MAINTAINER Noah C. Benson <nben@uw.edu>
+FROM --platform=linux/amd64 jupyter/scipy-notebook:x86_64-python-3.10 AS build-amd64
+FROM --platform=linux/arm64 jupyter/scipy-notebook:aarch64-python-3.10 AS build-arm64
+
+FROM build-$BUILDARCH
 
 
 # The Root Operations ##########################################################
@@ -75,12 +76,12 @@ RUN curl -L -o /data/required_subjects/fsaverage_sym.tar.gz \
 # First, do the stuff that takes a long time but doesn't depend on anything from
 # the filesystem outside this Dockerfile. That way if we tweak the files, we
 # won't usually have to rebuild these dependencies.
-USER $NB_USER
-# Install some stuff we are likely to need, including neuropythy.
 
+# Install some stuff we are likely to need, including neuropythy.
+USER $NB_USER
 RUN mamba update -y -n base mamba
 RUN mamba update --all -y 
-RUN ln -s /opt/conda/lib/libstdc++.so.6.0.34 /opt/conda/lib/libstdc++.so.6
+RUN ln -s /opt/conda/lib/libstdc++.so.6.0.34 /opt/conda/lib/libstdc++.so.6 || true
 #RUN mamba install -y -cconda-forge nibabel s3fs
 RUN mamba install -y -cconda-forge \
         ipywidgets \
@@ -94,9 +95,10 @@ RUN pip install ipycanvas pyyaml neuropythy nibabel s3fs
 # Build diplib from Source
 USER root
 RUN rm -rf /opt/conda/lib/python3.10/site-packages/backports && \
-      rm -rf /opt/conda/lib/python3.10/site-packages/setuptools* && \
-      rm -rf /opt/conda/lib/python3.10/site-packages/_distutils_hack && \
-      pip install build setuptools wheel --upgrade
+    rm -rf /opt/conda/lib/python3.10/site-packages/setuptools* && \
+    rm -rf /opt/conda/lib/python3.10/site-packages/_distutils_hack && \
+    rm -rf /opt/conda/lib/python3.10/site-packages/distutils-precedence.pth && \
+    pip install build setuptools wheel --upgrade
 RUN git clone https://github.com/DIPlib/diplib.git /opt/diplib && \
     mkdir -p /opt/diplib/target && \
     cd /opt/diplib/target && \
@@ -121,7 +123,8 @@ RUN pip install -r /build/requirements.txt
 #          'jupyter-client == 7.3.2' \
 #          'jupyter-server < 2.0.0'
 
-# Copy USER Files ##############################################################
+
+# Copy User Files ##############################################################
 
 USER $NB_USER
 # Now, do things that depend on the local files. COPY statements should go in
