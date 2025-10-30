@@ -70,7 +70,7 @@ RUN curl -L -o /data/required_subjects/fsaverage_sym.tar.gz \
  && rm ./fsaverage_sym.tar.gz
 
 
-# The User Operations ##########################################################
+# The USER Operations ##########################################################
 
 # First, do the stuff that takes a long time but doesn't depend on anything from
 # the filesystem outside this Dockerfile. That way if we tweak the files, we
@@ -90,8 +90,8 @@ RUN mamba install -y -cconda-forge \
         jsonschema-with-format-nongpl \
         'tornado == 6.1'
 RUN pip install ipycanvas pyyaml neuropythy nibabel s3fs
+RUN pip install datalad==1.2.2 datalad-next==1.5.0
 
-# RUN pip install diplib
 # Build diplib from Source
 USER root
 RUN rm -rf /opt/conda/lib/python3.10/site-packages/backports && \
@@ -105,13 +105,16 @@ RUN git clone https://github.com/DIPlib/diplib.git /opt/diplib && \
     make -j check && \
     make -j install && \
     make pip_install
-USER $NB_USER
+RUN apt-get update \
+ && apt-get install --yes --no-install-recommends git-annex
+
 
 # Install collapsible cell extensions...
 #RUN mamba install -cconda-forge jupyter_contrib_nbextensions \
-# && jupyter contrib nbextension install --user \
+# && jupyter contrib nbextension install --USER \
 # && jupyter nbextension enable collapsible_headings/main \
 # && jupyter nbextension enable select_keymap/main
+USER $NB_USER
 RUN mkdir -p /home/$NB_USER/.jupyter/custom
 # Copy the config directory's requirements over and install them.
 COPY config/requirements.txt /build/
@@ -122,10 +125,9 @@ RUN pip install -r /build/requirements.txt
 #          'jupyter-client == 7.3.2' \
 #          'jupyter-server < 2.0.0'
 
+# Copy USER Files ##############################################################
 
-# Copy User Files ##############################################################
-
-user $NB_USER
+USER $NB_USER
 # Now, do things that depend on the local files. COPY statements should go in
 # this section rather than earlier when possible.
 COPY docker/jupyter_notebook_config.py /home/$NB_USER/.jupyter/
@@ -144,7 +146,7 @@ COPY src/ /src/
 # Custom Build Scripts #########################################################
 
 # The last thing we do is run any custom build scripts. The root scripts get run
-# first, then the user script.
+# first, then the USER script.
 USER root
 COPY config/build_root.sh /build/
 RUN chmod 755 /build/build_root.sh

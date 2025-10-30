@@ -18,27 +18,52 @@ display:
     markersize: 2
 
 init: |
-  # Several code-blocks in this config.yaml file use the numpy and neuropythy
-  # libraries, so we load them here.
+  # Several code-blocks in this config.yaml file use the numpy, neuropythy, 
+  # datalad, and os.path libraries, so we load them here.
+  import os
   import numpy as np
+  import os.path as op
   import neuropythy as ny
+  import datalad.api as dl
 
-  # We also want to create an object that tracks the S3 path/data for the NSD.
-  # We use the cache path "/cache/<dataset>" because the /cache directory is 
-  # always available for use with cache files inside of the docker container 
-  # that runs the annotation tool.
-  dataset_path = ny.util.pseudo_path(
-    source_path = "s3://natural-scenes-dataset/nsddata/",
-    cache_path  = "/cache/nsd"
+  # Prepare dataset location.
+  dataset_path = op.join("/cache", "studyforrest")
+  os.makedirs(dataset_path, exist_ok = True)
+
+  # We also want to create an object that tracks the S3 path/data for the 
+  # Study Forrest dataset. We use the cache path "/cache/<dataset>" because the 
+  # /cache directory is always available for use with cache files inside of the 
+  # docker container that runs the annotation tool.
+  dataset_path = ny.util.pseudo_path(source_path = dataset_path)
+
+  # We also clone the Study Forrest dataset to cache/<dataset> with Datalad.
+  dataset_dl = dl.clone(
+    source = "https://github.com/psychoinformatics-de/studyforrest-data-retinotopy",
+    path   = dataset_path.actual_source_path, 
+    result_renderer = "disabled"
   )
+
+  # We will define the Freesurfer files required.
+  fs_files = [
+    op.join("label", "lh.aparc.a2009s.annot"), 
+    op.join("label", "rh.aparc.a2009s.annot"), 
+    op.join(  "mri", "ribbon.mgz"),
+    op.join( "surf", "lh.curv"),
+    op.join( "surf", "rh.curv"),
+    op.join( "surf", "lh.inflated"),
+    op.join( "surf", "rh.inflated"),
+    op.join( "surf", "lh.sphere"),
+    op.join( "surf", "rh.sphere"),
+    op.join( "surf", "lh.white"),
+    op.join( "surf", "rh.white"),
+  ]
 
   # We will specifically load these population receptive fields (pRF) files in
   # order to draw visual area annotations on the retinotopic maps for each
-  # subject.
+  # subject. The Study Forrest dataset does *NOT* have variance explained maps.
   prf_files = {
-    "polar_angle"        : "prfangle.mgz",
-    "eccentricity"       : "prfeccentricity.mgz",
-    "variance_explained" : "prfR2.mgz",
+    "polar_angle"  : "combined_pipeline_polar_<fs_hemi>.mgh",
+    "eccentricity" : "combined_pipeline_eccentricity_<fs_hemi>.mgh",
   }
 
   # This occipital pole mask is used with neuropythy"s flatmap code; the tuple
@@ -49,18 +74,30 @@ init: |
 # We assume in this example that the libraries neuropythy and numpy have been
 # imported (as ny and np respectively) in the init section (see below).
 targets:
-  # The NSD contains 8 subjects, listed below. The "Subject ID" entry will be
-  # a dropdown menu in the annotation tool because it is a list of multiple
-  # choices rather than a code-block or a list with a single entry.
+  # The Study Forrest contains 20 subjects, listed below. The "Subject ID" entry
+  # will be a dropdown menu in the annotation tool because it is a list of 
+  # multiple choices rather than a code-block or a list with a single entry.
   Subject ID:
-    - subj01
-    - subj02
-    - subj03
-    - subj04
-    - subj05
-    - subj06
-    - subj07
-    - subj08
+    - sub-01
+    - sub-02
+    - sub-03
+    - sub-04
+    - sub-05
+    - sub-06
+    - sub-07
+    - sub-08
+    - sub-09
+    - sub-10
+    - sub-11
+    - sub-12
+    - sub-13
+    - sub-14
+    - sub-15
+    - sub-16
+    - sub-17
+    - sub-18
+    - sub-19
+    - sub-20
   # The "subject" entry is a multi-line string, so it is interpreted as a Python
   # code snippet. This snippet is compiled into a function whose parameter list 
   # contains only the variable `target`. The `target` will be a dictionary with
@@ -69,10 +106,15 @@ targets:
     # Get the subject ID that the user chose from the above selection list.
     sid = target["Subject ID"]
 
+    # Here, we use datalad.get() to download the required Freesurfer files.
+    fs_path = op.join("src", "freesurfer", sid)
+    for filename in fs_files: # for each freesurfer file
+      dataset_dl.get(op.join(fs_path, filename), result_renderer = "disabled")
+
     # Find a sub-path for the subject"s FreeSurfer directory; we get the
     # dataset_path variable from the `init` section of the config.yaml file; 
     # see above.
-    fs_path = dataset_path.subpath("freesurfer", sid)
+    fs_path = dataset_path.subpath(fs_subj)
 
     # Load and return a FreeSurfer subject object for this path.
     return ny.freesurfer_subject(fs_path)
@@ -97,21 +139,28 @@ targets:
     # convert hemisphere to freesurfer hemisphere convention
     fs_hemi = f"{hemi[0].lower()}h"
 
+    # Here, we use datalad.get() to download the required retinotopy files.
+    prop_path = op.join(sid, "surface_maps")
+    for filename in prf_files.values(): # for each prf file
+      dataset_dl.get(op.join(prop_path, filename.replace("<fs_hemi>", fs_hemi)), 
+        result_renderer = "disabled")
+
     # Load retinotopic mapping data from the freesurfer label directory, 
-    # NSD specific location.
-    prop_path = dataset_path.subpath("freesurfer", sid, "label")
+    # Study Forrest specific location.
+    prop_path = dataset_path.subpath(prop_path)
     props = {
-      k: ny.load(prop_path.subpath(f"{fs_hemi}.{filename}"))
+      k: ny.load(prop_path.subpath(filename.replace("<fs_hemi>", fs_hemi)))
          for (k, filename) in prf_files.items()
     }
 
     # Polar Angle ----
-    # NSD stores the polar angle coordinates as values between 0 and 360 degrees
-    # (Cartesian coordinate system where 0 corresponds to the right horizontal 
-    # meridian, 90 corresponds to the upper vertical meridian, etc.). Here, we 
-    # convert the polar angle into Neuropythy"s "visual" format (i.e., 0 degrees
-    # is the upper vertical meridian, 90 degrees is the right horizontal
-    # meridian, and -90 degrees is the left horizontal meridian.
+    # The Study Forrest dataset stores the polar angle coordinates as values 
+    # between 0 and 360 degrees (Cartesian coordinate system where 0 corresponds
+    # to the right horizontal meridian, 90 corresponds to the upper vertical 
+    # meridian, etc.). Here, we convert the polar angle into Neuropythy"s 
+    # "visual" format (i.e., 0 degrees is the upper vertical meridian, 90 
+    # degrees is the right horizontal meridian, and -90 degrees is the left 
+    # horizontal meridian.
     props["polar_angle"] = np.mod(90 - props["polar_angle"] + 180, 360) - 180
     
     # Grab the appropriate coretx/hemisphere object.
@@ -136,17 +185,17 @@ annotations:
     type: point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "curvature"]
   V1 UVM (ventral):
     fixed_head: V1 Foveal Point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "curvature"]
   V1 LVM (dorsal):
     fixed_head: V1 Foveal Point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "curvature"]
   V1 Periphery:
     fixed_head:
       requires: V1 UVM (ventral)
@@ -158,23 +207,23 @@ annotations:
         return annotations["V1 LVM (dorsal)"][-1,:]
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "curvature"]
   # V2 contours:
   V2 Foveal Point:
     type: point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "curvature"]
   V2 UVM (ventral):
     fixed_head: V2 Foveal Point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "curvature"]
   V2 LVM (dorsal):
     fixed_head: V2 Foveal Point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "curvature"]
   V2 Ventral Periphery:
     fixed_head:
       requires: V2 UVM (ventral)
@@ -186,7 +235,7 @@ annotations:
         return annotations["V1 UVM (ventral)"][-1,:]
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "curvature"]
   V2 Dorsal Periphery:
     fixed_head:
       requires: V2 LVM (dorsal)
@@ -198,23 +247,23 @@ annotations:
         return annotations["V1 LVM (dorsal)"][-1,:]
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "curvature"]
   # V3 contours:
   V3 Foveal Point:
     type: point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "curvature"]
   V3 UVM (ventral):
     fixed_head: V3 Foveal Point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "curvature"]
   V3 LVM (dorsal):
     fixed_head: V3 Foveal Point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "curvature"]
   V3 Ventral Periphery:
     fixed_head:
       requires: V3 UVM (ventral)
@@ -226,7 +275,7 @@ annotations:
         return annotations["V2 UVM (ventral)"][-1,:]
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "curvature"]
   V3 Dorsal Periphery:
     fixed_head:
       requires: V3 LVM (dorsal)
@@ -238,7 +287,7 @@ annotations:
         return annotations["V2 LVM (dorsal)"][-1,:]
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "curvature"]
 
 figures:
   term: |
@@ -251,9 +300,6 @@ figures:
     ny.cortex_plot(target["flatmap"], color="polar_angle", axes=axes)
   eccentricity: |
     ny.cortex_plot(target["flatmap"], color="eccentricity", axes=axes)
-  variance_explained: |
-    ny.cortex_plot(target["flatmap"], color="variance_explained", axes=axes,
-                   cmap="hot", vmin=0, vmax=100)
   curvature: |
     ny.cortex_plot(target["flatmap"], axes=axes)
 
