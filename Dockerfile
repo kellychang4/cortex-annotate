@@ -81,7 +81,7 @@ USER $NB_USER
 
 RUN mamba update -y -n base mamba
 RUN mamba update --all -y 
-RUN ln -s /opt/conda/lib/libstdc++.so.6.0.34 /opt/conda/lib/libstdc++.so.6
+RUN ln -s /opt/conda/lib/libstdc++.so.6.0.34 /opt/conda/lib/libstdc++.so.6 || true
 #RUN mamba install -y -cconda-forge nibabel s3fs
 RUN mamba install -y -cconda-forge \
         ipywidgets \
@@ -92,13 +92,13 @@ RUN mamba install -y -cconda-forge \
         'tornado == 6.1'
 RUN pip install ipycanvas pyyaml neuropythy nibabel s3fs
 
-# RUN pip install diplib
 # Build diplib from Source
 USER root
 RUN rm -rf /opt/conda/lib/python3.10/site-packages/backports && \
-      rm -rf /opt/conda/lib/python3.10/site-packages/setuptools* && \
-      rm -rf /opt/conda/lib/python3.10/site-packages/_distutils_hack && \
-      pip install build setuptools wheel --upgrade
+    rm -rf /opt/conda/lib/python3.10/site-packages/setuptools* && \
+    rm -rf /opt/conda/lib/python3.10/site-packages/_distutils_hack && \
+    rm -rf /opt/conda/lib/python3.10/site-packages/distutils-precedence.pth && \
+    pip install build setuptools wheel --upgrade
 RUN git clone https://github.com/DIPlib/diplib.git /opt/diplib && \
     mkdir -p /opt/diplib/target && \
     cd /opt/diplib/target && \
@@ -106,13 +106,13 @@ RUN git clone https://github.com/DIPlib/diplib.git /opt/diplib && \
     make -j check && \
     make -j install && \
     make pip_install
-USER $NB_USER
 
 # Install collapsible cell extensions...
 #RUN mamba install -cconda-forge jupyter_contrib_nbextensions \
 # && jupyter contrib nbextension install --user \
 # && jupyter nbextension enable collapsible_headings/main \
 # && jupyter nbextension enable select_keymap/main
+USER $NB_USER
 RUN mkdir -p /home/$NB_USER/.jupyter/custom
 # Copy the config directory's requirements over and install them.
 COPY config/requirements.txt /build/
@@ -126,7 +126,7 @@ RUN pip install -r /build/requirements.txt
 
 # Copy User Files ##############################################################
 
-user $NB_USER
+USER $NB_USER
 # Now, do things that depend on the local files. COPY statements should go in
 # this section rather than earlier when possible.
 COPY docker/jupyter_notebook_config.py /home/$NB_USER/.jupyter/
