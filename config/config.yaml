@@ -36,12 +36,24 @@ init: |
   # order to draw visual area annotations on the retinotopic maps for each
   # subject.
   prf_files = {
-    "polar_angle"        : "prfangle.mgz",
-    "eccentricity"       : "prfeccentricity.mgz",
-    "variance_explained" : "prfR2.mgz",
+    "polar_angle"  : "prfangle.mgz",
+    "eccentricity" : "prfeccentricity.mgz",
+    "prf_vexpl"    : "prfR2.mgz",
   }
 
-  # This occipital pole mask is used with neuropythy"s flatmap code; the tuple
+  # Here, we load these functional localizer (fLoc) files in order to draw 
+  # higher order visual areas annotations on for each subject.
+  floc_files = {
+    "bodies"     : "flocbodiestval.mgz",
+    "faces"      : "flocfacestval.mgz",
+    "places"     : "flocplacestval.mgz",
+    "floc_vexpl" : "flocR2.mgz",
+  }
+
+  # We combine the pRF and fLoc files into a single dictionary for later use.
+  prop_files = { **prf_files, **floc_files }
+
+  # This occipital pole mask is used with neuropythy's flatmap code; the tuple
   # indicates that the FreeSurfer parcellation property uses the value 43 to
   # indicate the occipital pole of the brain (file: *.aparc.a2009s.annot).
   occpole_mask = ( "parcellation", 43 ) 
@@ -97,12 +109,12 @@ targets:
     # convert hemisphere to freesurfer hemisphere convention
     fs_hemi = f"{hemi[0].lower()}h"
 
-    # Load retinotopic mapping data from the freesurfer label directory, 
-    # NSD specific location.
+    # Load retinotopic mapping and fLoc data from the Freesurfer label 
+    # directory, NSD specific location.
     prop_path = dataset_path.subpath("freesurfer", sid, "label")
     props = {
       k: ny.load(prop_path.subpath(f"{fs_hemi}.{filename}"))
-         for (k, filename) in prf_files.items()
+         for (k, filename) in prop_files.items()
     }
 
     # Polar Angle ----
@@ -136,17 +148,17 @@ annotations:
     type: point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V1 UVM (ventral):
     fixed_head: V1 Foveal Point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V1 LVM (dorsal):
     fixed_head: V1 Foveal Point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V1 Periphery:
     fixed_head:
       requires: V1 UVM (ventral)
@@ -158,23 +170,23 @@ annotations:
         return annotations["V1 LVM (dorsal)"][-1,:]
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   # V2 contours:
   V2 Foveal Point:
     type: point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V2 UVM (ventral):
     fixed_head: V2 Foveal Point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V2 LVM (dorsal):
     fixed_head: V2 Foveal Point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V2 Ventral Periphery:
     fixed_head:
       requires: V2 UVM (ventral)
@@ -186,7 +198,7 @@ annotations:
         return annotations["V1 UVM (ventral)"][-1,:]
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V2 Dorsal Periphery:
     fixed_head:
       requires: V2 LVM (dorsal)
@@ -198,23 +210,23 @@ annotations:
         return annotations["V1 LVM (dorsal)"][-1,:]
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   # V3 contours:
   V3 Foveal Point:
     type: point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V3 UVM (ventral):
     fixed_head: V3 Foveal Point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V3 LVM (dorsal):
     fixed_head: V3 Foveal Point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V3 Ventral Periphery:
     fixed_head:
       requires: V3 UVM (ventral)
@@ -226,7 +238,7 @@ annotations:
         return annotations["V2 UVM (ventral)"][-1,:]
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V3 Dorsal Periphery:
     fixed_head:
       requires: V3 LVM (dorsal)
@@ -238,7 +250,11 @@ annotations:
         return annotations["V2 LVM (dorsal)"][-1,:]
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
+  # pFus-faces (FFA1):
+  #   grid:
+  #     - ["faces", "eccentricity"]
+  #     - ["curvature", ""]
 
 figures:
   term: |
@@ -247,15 +263,18 @@ figures:
     (xmax,ymax) = np.max(xy, axis=1)
     axes.set_xlim((xmin,xmax))
     axes.set_ylim((ymin,ymax))
+  _: |
+    ny.cortex_plot(target["flatmap"], color = key, cmap = "temperature_dark", 
+      vmin = -8, vmax = 8, axes = axes)
   polar_angle: |
-    ny.cortex_plot(target["flatmap"], color="polar_angle", axes=axes)
+    ny.cortex_plot(target["flatmap"], color = "polar_angle", axes = axes)
   eccentricity: |
-    ny.cortex_plot(target["flatmap"], color="eccentricity", axes=axes)
-  variance_explained: |
-    ny.cortex_plot(target["flatmap"], color="variance_explained", axes=axes,
-                   cmap="hot", vmin=0, vmax=100)
+    ny.cortex_plot(target["flatmap"], color = "eccentricity", axes=axes)
+  prf_vexpl: |
+    ny.cortex_plot(target["flatmap"], color = "prf_vexpl", cmap = "hot", 
+      vmin = 0, vmax = 100, axes = axes)
   curvature: |
-    ny.cortex_plot(target["flatmap"], axes=axes)
+    ny.cortex_plot(target["flatmap"], axes = axes)
 
 review: |
   #from annotate import watershed_contours
