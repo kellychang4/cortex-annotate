@@ -56,7 +56,12 @@ init: |
   # This occipital pole mask is used with neuropythy's flatmap code; the tuple
   # indicates that the FreeSurfer parcellation property uses the value 43 to
   # indicate the occipital pole of the brain (file: *.aparc.a2009s.annot).
-  occpole_mask = ( "parcellation", 43 ) 
+  mask_options = {
+    "Occipital Lateral".    : ( "parcellation", 19 ),
+    "Fusiform Gyrus"        : ( "parcellation", 21), 
+    "Parahippocampal Gyrus" : ( "parcellation", 23), 
+    "Occipital Pole"        : ( "parcellation", 43 ), 
+  }
 
 # We assume in this example that the libraries neuropythy and numpy have been
 # imported (as ny and np respectively) in the init section (see below).
@@ -251,10 +256,42 @@ annotations:
     grid:
       - ["polar_angle", "eccentricity"]
       - ["curvature", "prf_vexpl"]
-  # pFus-faces (FFA1):
-  #   grid:
-  #     - ["faces", "eccentricity"]
-  #     - ["curvature", ""]
+  # pFus-faces contours:
+  pFus-faces (FFA1):
+    type: point
+    grid:
+      - ["faces", "polar_angle"]
+      - ["curvature", "eccentricity"]
+  # mFus-faces contours:
+  mFus-faces (FFA2):
+    type: point
+    grid:
+      - ["faces", "polar_angle"]
+      - ["curvature", "eccentricity"]
+  # IOG-faces contours:
+  IOG-faces (OFA):
+    type: point
+    grid:
+      - ["faces", "polar_angle"]
+      - ["curvature", "eccentricity"]
+  # ITG-bodies contours:
+  ITG-bodies:
+    type: point
+    grid:
+      - ["bodies", "polar_angle"]
+      - ["curvature", "eccentricity"]
+  # LOS-bodies contours:
+  LOS-bodies:
+    type: point
+    grid:
+      - ["bodies", "polar_angle"]
+      - ["curvature", "eccentricity"]
+  # CoS-places contours:
+  CoS-places (PPA):
+    type: point
+    grid:
+      - ["places", "polar_angle"]
+      - ["curvature", "eccentricity"]
 
 figures:
   term: |
