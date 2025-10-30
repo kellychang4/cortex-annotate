@@ -4,15 +4,16 @@
 # Example build:
 #   docker build --no-cache --tag cortex-annotate `pwd`
 #
-#   (but really, use `docker-compose up` instead).
+#   (but really, use `docker compose up` instead).
 #
 
 # Configuration ################################################################
 
 # Start with the python 3.10 Jupyter scipy-notebook docker-image.
-FROM jupyter/scipy-notebook:aarch64-python-3.10
-# Note the Maintainer.
-MAINTAINER Noah C. Benson <nben@uw.edu>
+FROM --platform=linux/amd64 jupyter/scipy-notebook:x86_64-python-3.10 AS build-amd64
+FROM --platform=linux/arm64 jupyter/scipy-notebook:aarch64-python-3.10 AS build-arm64
+
+FROM build-$BUILDARCH
 
 
 # The Root Operations ##########################################################
