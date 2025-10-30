@@ -90,7 +90,6 @@ RUN mamba install -y -cconda-forge \
         jsonschema-with-format-nongpl \
         'tornado == 6.1'
 RUN pip install ipycanvas pyyaml neuropythy nibabel s3fs
-RUN pip install datalad==1.2.2 datalad-next==1.5.0
 
 # Build diplib from Source
 USER root
@@ -105,9 +104,6 @@ RUN git clone https://github.com/DIPlib/diplib.git /opt/diplib && \
     make -j check && \
     make -j install && \
     make pip_install
-RUN apt-get update \
- && apt-get install --yes --no-install-recommends git-annex
-
 
 # Install collapsible cell extensions...
 #RUN mamba install -cconda-forge jupyter_contrib_nbextensions \
