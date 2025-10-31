@@ -47,7 +47,6 @@ init: |
     "bodies"     : "flocbodiestval.mgz",
     "faces"      : "flocfacestval.mgz",
     "places"     : "flocplacestval.mgz",
-    "floc_vexpl" : "flocR2.mgz",
   }
 
   # We combine the pRF and fLoc files into a single dictionary for later use.
@@ -56,12 +55,7 @@ init: |
   # This occipital pole mask is used with neuropythy's flatmap code; the tuple
   # indicates that the FreeSurfer parcellation property uses the value 43 to
   # indicate the occipital pole of the brain (file: *.aparc.a2009s.annot).
-  mask_options = {
-    "Occipital Lateral"     : ( "parcellation", 19 ),
-    "Fusiform Gyrus"        : ( "parcellation", 21), 
-    "Parahippocampal Gyrus" : ( "parcellation", 23), 
-    "Occipital Pole"        : ( "parcellation", 43 ), 
-  }
+  occpole_mask = ( "parcellation", 43 )
 
 # We assume in this example that the libraries neuropythy and numpy have been
 # imported (as ny and np respectively) in the init section (see below).
@@ -99,46 +93,7 @@ targets:
   Hemisphere:
     - Left Hemisphere
     - Right Hemisphere
-  wang15: |
-    import os.path as op
-    import neuropythy.commands as nycmd
-    
-    # Extract the subject ID, hemisphere name, and Subject object.
-    sid  = target["Subject ID"] # string
-    hemi = target["Hemisphere"] # string
-    subj = target["subject"]    # Subject object
 
-    # convert hemisphere to freesurfer hemisphere convention
-    fs_hemi = f"{hemi[0].lower()}h"
-
-    # Get the subject's cache-path; this is tracked by neuropythy.
-    fs_path = subj.pseudo_path.cache_path
-
-    # Possibly, this atlas has already been applied to this subject; if so, we
-    # don't need to (re-)run neuropythy's atlas command (which applies the atlas
-    # to the subject and saves it as a file).
-    wang_path = op.join(fs_path, "surf", f"{fs_hemi}.wang15_mplbl.mgz")
-
-    if not op.isfile(wang_path):
-      # Make sure the fsaverage-alignment has already been loaded into cache;
-      # because the atlas command operates on the filesystem while the subject
-      # and cache path load things lazily, we need to make sure these have
-      # already been downloaded before we run the command.
-      subj.hemis["lh"].surface("fsaverage")
-      subj.hemis["lh"].surface("fsaverage")
-
-      # Now run the atlas command.
-      nycmd.atlas.main(["-awang15", "-fmgz", fs_path])
-
-    # Load and return the file.
-    return ny.load(wang_path)
-  # The "View" is a choice for the user; as a list of four options. This will 
-  # select what location the flatmap treats as center.
-  View: 
-    - Occipital Pole
-    - Occipital Lateral
-    - Fusiform Gyrus
-    - Parahippocampal Gyrus
   # The "cortex" key in the target data is for the cortical surface object,
   # which is managed and loaded by neuropythy from the subject"s FreeSurfer
   # object. Note that the "cortex" entry is like the "subject" entry in that it
@@ -171,9 +126,6 @@ targets:
     # is the upper vertical meridian, 90 degrees is the right horizontal
     # meridian, and -90 degrees is the left horizontal meridian.
     props["polar_angle"] = np.mod(90 - props["polar_angle"] + 180, 360) - 180
-
-    # Add the Wang et al. (2015) atlas, loaded in the above "wang15" section.
-    props["wang15"] = target["wang15"]
     
     # Grab the appropriate coretx/hemisphere object.
     cortex = subj.hemis[fs_hemi]
@@ -188,27 +140,8 @@ targets:
   # projection of the inflated native surface that is centered on the selected 
   # view.
   flatmap: |
-    cortex   = target["cortex"]
-    viewname = target["View"]
-
     return cortex.mask_flatmap(
-      mask_options[viewname], map_right="right", radius=np.pi/2)
-
-builtin_annotations:
-  Wang2015 Atlas:
-    type: points
-    plot_options:
-      color: [0.9, 0.9, 0.9]
-      markersize: 1
-      visible: false
-    data: |
-      fmap = target["flatmap"]
-      (u,v) = fmap.tess.indexed_edges
-      w  = fmap.prop("wang15")
-      xy = fmap.coordinates
-      ii = w[u] != w[v]
-      dat = np.mean([xy[:,u[ii]], xy[:,v[ii]]], axis=0)
-      return [dat.T]
+      occpole_mask, map_right = "right", radius = np.pi/2)
 
 annotations:
   # V1 contours:
@@ -321,44 +254,62 @@ annotations:
       - ["curvature", "prf_vexpl"]
   # hV4 contours:
   #TODO: insert remaining occipital ROIs
-  # pFus-faces contours:
-  pFus-faces (FFA1):
-    type: point
+  # pFus-faces boundary:
+  pFus-faces (FFA1) Boundary:
+    type: boundary
     grid:
       - ["faces", "polar_angle"]
       - ["curvature", "eccentricity"]
-  # mFus-faces contours:
-  mFus-faces (FFA2):
-    # change to loops/boundaries -> config/README.md
-    # type: boundary
-    # closed: true
+    plot_options:
+      color: [0.97, 0.97, 0.97]
+      markersize: 0
+      linewidth: 2
+  # mFus-faces boundary:
+  mFus-faces (FFA2) Boundary:
+    type: boundary
     grid:
       - ["faces", "polar_angle"]
       - ["curvature", "eccentricity"]
-  # IOG-faces contours:
-  IOG-faces (OFA):
-    type: point
+    plot_options:
+      color: [0.97, 0.97, 0.97]
+      markersize: 0
+      linewidth: 2
+  # IOG-faces boundary:
+  IOG-faces (OFA) Boundary:
+    type: boundary
     grid:
       - ["faces", "polar_angle"]
       - ["curvature", "eccentricity"]
-  # ITG-bodies contours:
-  ITG-bodies:
-    type: point
+    plot_options:
+      color: [0.97, 0.97, 0.97]
+      markersize: 0
+      linewidth: 2
+  # ITG-bodies boundary:
+  ITG-bodies Boundary:
+    type: boundary
     grid:
       - ["bodies", "polar_angle"]
       - ["curvature", "eccentricity"]
-  # LOS-bodies contours:
-  LOS-bodies:
-    type: point
+  # LOS-bodies boundary:
+  LOS-bodies Boundary:
+    type: boundary
     grid:
       - ["bodies", "polar_angle"]
       - ["curvature", "eccentricity"]
-  # CoS-places contours:
-  CoS-places (PPA):
-    type: point
+    plot_options:
+      color: [0.97, 0.97, 0.97]
+      markersize: 0
+      linewidth: 2
+  # CoS-places boundary:
+  CoS-places (PPA) Boundary:
+    type: boundary
     grid:
       - ["places", "polar_angle"]
       - ["curvature", "eccentricity"]
+    plot_options:
+      color: [0.97, 0.97, 0.97]
+      markersize: 0
+      linewidth: 2
 
 figures:
   term: |
@@ -432,11 +383,12 @@ review: |
   save_hooks["v123-labels.mgz"] = lambda filename: ny.save(filename, labels)
   # Plot the results:
   ny.cortex_plot(
-      fmap,
-      color=fmap_labels,
-      cmap="rainbow",
-      mask=(fmap_labels > 0),
-      axes=axes,
-      alpha=0.5)
+    fmap,
+    color = fmap_labels,
+    cmap  = "rainbow",
+    mask  = (fmap_labels > 0),
+    axes  = axes,
+    alpha = 0.5
+  )
   axes.axis("equal")
   axes.axis("off")
