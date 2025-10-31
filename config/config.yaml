@@ -140,6 +140,7 @@ targets:
   # projection of the inflated native surface that is centered on the selected 
   # view.
   flatmap: |
+    cortex = target["cortex"]
     return cortex.mask_flatmap(
       occpole_mask, map_right = "right", radius = np.pi/2)
 
