@@ -55,7 +55,9 @@ class AnnotationState:
             with os.popen(f'ls {self.git_path}') as f: f.read()
             # Having performed an ls, go ahead and check git's opinion about the
             # origin.
-            cmd = f'cd {self.git_path} && git config --get remote.origin.url'
+            cmd  = f'cd {self.git_path}'
+            cmd += f" && git config --global --add safe.directory {self.git_path}"
+            cmd +=  " && git config --get remote.origin.url"
             with os.popen(cmd) as p:
                 repo_url = p.read().strip()
             repo_split = repo_url.split('/')

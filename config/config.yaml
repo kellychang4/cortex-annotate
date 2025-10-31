@@ -17,6 +17,7 @@ display:
     color: [0.55, 0.55, 0.9]
     markersize: 2
 
+
 init: |
   # Several code-blocks in this config.yaml file use the numpy and neuropythy
   # libraries, so we load them here.
@@ -36,9 +37,9 @@ init: |
   # order to draw visual area annotations on the retinotopic maps for each
   # subject.
   prf_files = {
-    "polar_angle"        : "angle_adj.mgz",
-    "eccentricity"       : "eccen.mgz",
-    "variance_explained" : "vexpl.mgz",
+    "polar_angle"  : "angle_adj.mgz",
+    "eccentricity" : "eccen.mgz",
+    "prf_vexpl"    : "vexpl.mgz",
   }
 
   # This occipital pole mask is used with neuropythy"s flatmap code; the tuple
@@ -106,7 +107,7 @@ targets:
     # Get the subject ID that the user chose from the above selection list.
     sid = target["Subject ID"]
 
-    # Find a sub-path for the subject"s FreeSurfer directory; we get the
+    # Find a sub-path for the subject's FreeSurfer directory; we get the
     # dataset_path variable from the `init` section of the config.yaml file; 
     # see above.
     fs_path = dataset_path.subpath("freesurfer", sid)
@@ -144,7 +145,7 @@ targets:
     # Variance Explained ----
     # NYU-Retinotopy stores the variance explained as values from 0 to 1. Here, 
     # we convert the variance explained to a percentage from 0% to 100%.
-    props["variance_explained"] = props["variance_explained"] * 100
+    props["prf_vexpl"] = props["prf_vexpl"] * 100
     
     # Grab the appropriate coretx/hemisphere object.
     cortex = subj.hemis[fs_hemi]
@@ -160,7 +161,8 @@ targets:
   # pole. This uses the `occpole_mask` defined in the `init` section above.
   flatmap: |
     cortex = target["cortex"]
-    return cortex.mask_flatmap(occpole_mask, map_right = "right", radius = np.pi / 2)
+    return cortex.mask_flatmap(occpole_mask, map_right = "right",
+              radius = np.pi / 2)
 
 annotations:
   # V1 contours:
@@ -168,17 +170,17 @@ annotations:
     type: point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V1 UVM (ventral):
     fixed_head: V1 Foveal Point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V1 LVM (dorsal):
     fixed_head: V1 Foveal Point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V1 Periphery:
     fixed_head:
       requires: V1 UVM (ventral)
@@ -190,23 +192,23 @@ annotations:
         return annotations["V1 LVM (dorsal)"][-1,:]
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   # V2 contours:
   V2 Foveal Point:
     type: point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V2 UVM (ventral):
     fixed_head: V2 Foveal Point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V2 LVM (dorsal):
     fixed_head: V2 Foveal Point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V2 Ventral Periphery:
     fixed_head:
       requires: V2 UVM (ventral)
@@ -218,7 +220,7 @@ annotations:
         return annotations["V1 UVM (ventral)"][-1,:]
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V2 Dorsal Periphery:
     fixed_head:
       requires: V2 LVM (dorsal)
@@ -230,23 +232,23 @@ annotations:
         return annotations["V1 LVM (dorsal)"][-1,:]
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   # V3 contours:
   V3 Foveal Point:
     type: point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V3 UVM (ventral):
     fixed_head: V3 Foveal Point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V3 LVM (dorsal):
     fixed_head: V3 Foveal Point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V3 Ventral Periphery:
     fixed_head:
       requires: V3 UVM (ventral)
@@ -258,7 +260,7 @@ annotations:
         return annotations["V2 UVM (ventral)"][-1,:]
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V3 Dorsal Periphery:
     fixed_head:
       requires: V3 LVM (dorsal)
@@ -270,24 +272,25 @@ annotations:
         return annotations["V2 LVM (dorsal)"][-1,:]
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
 
 figures:
   term: |
     xy = target["flatmap"].coordinates
-    (xmin,ymin) = np.min(xy, axis=1)
-    (xmax,ymax) = np.max(xy, axis=1)
-    axes.set_xlim((xmin,xmax))
-    axes.set_ylim((ymin,ymax))
+    (xmin, ymin) = np.min(xy, axis = 1)
+    (xmax, ymax) = np.max(xy, axis = 1)
+    axes.set_xlim((xmin, xmax))
+    axes.set_ylim((ymin, ymax))
   polar_angle: |
-    ny.cortex_plot(target["flatmap"], color="polar_angle", axes=axes)
+    ny.cortex_plot(target["flatmap"], color = "polar_angle", axes = axes)
   eccentricity: |
-    ny.cortex_plot(target["flatmap"], color="eccentricity", axes=axes)
-  variance_explained: |
-    ny.cortex_plot(target["flatmap"], color="variance_explained", axes=axes,
-                   cmap="hot", vmin=0, vmax=100)
+    ny.cortex_plot(target["flatmap"], color = "eccentricity", axes = axes)
+  prf_vexpl: |
+    ny.cortex_plot(target["flatmap"], color = "prf_vexpl", cmap = "hot",
+      vmin = 0, vmax = 100,  axes = axes)
   curvature: |
-    ny.cortex_plot(target["flatmap"], axes=axes)
+    ny.cortex_plot(target["flatmap"], axes = axes)
+
 
 review: |
   #from annotate import watershed_contours
