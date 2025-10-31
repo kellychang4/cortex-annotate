@@ -27,9 +27,9 @@ init: |
   # order to draw visual area annotations on the retinotopic maps for each
   # subject.
   prf_props = {
-    "polar_angle"        : "prf_polar_angle",
-    "eccentricity"       : "prf_eccentricity",
-    "variance_explained" : "prf_variance_explained",
+    "polar_angle"  : "prf_polar_angle",
+    "eccentricity" : "prf_eccentricity",
+    "prf_vexpl"    : "prf_variance_explained",
   }
 
   # This occipital pole mask is used with neuropythy"s flatmap code; the tuple
@@ -248,20 +248,18 @@ targets:
   # parameter will contain entries for "Subject ID", "subject", and "Hemisphere"
   # from the sections above.
   cortex: |
-    # Extract the hemisphere name, and Subject object.
+    # Extract the hemisphere name and Subject object.
     hemi = target["Hemisphere"] # string
     subj = target["subject"]    # Subject object
 
     # convert hemisphere to freesurfer hemisphere convention
     fs_hemi = f"{hemi[0].lower()}h"
-    print(fs_hemi)
 
     # Grab the appropriate coretx/hemisphere object.
     cortex = subj.hemis[fs_hemi]
-    print(cortex)
 
     # Load retinotopic mapping data from the freesurfer label directory,
-    # built-in neuropythy for HCP data
+    # built-in by neuropythy for HCP data
     props = {
       k: cortex.property(propname) for (k, propname) in prf_props.items()
     }
@@ -269,7 +267,7 @@ targets:
     # Variance Explained ----
     # HCP-Retinotopy stores the variance explained as values from 0 to 1. Here, 
     # we convert the variance explained to a percentage from 0% to 100%.
-    props["variance_explained"] = props["variance_explained"] * 100
+    props["prf_vexpl"] = props["prf_vexpl"] * 100
     
     # Finally, return that hemisphere object with the properties associated with
     # it (this is Neuropythy"s typical modus operandi for adding properties to
@@ -282,7 +280,9 @@ targets:
   # pole. This uses the `occpole_mask` defined in the `init` section above.
   flatmap: |
     cortex = target["cortex"]
-    return cortex.mask_flatmap(occpole_mask, map_right="right", radius=np.pi/2)
+    return cortex.mask_flatmap(occpole_mask, map_right = "right", 
+      radius = np.pi / 2)
+
 
 annotations:
   # V1 contours:
@@ -290,17 +290,17 @@ annotations:
     type: point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V1 UVM (ventral):
     fixed_head: V1 Foveal Point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V1 LVM (dorsal):
     fixed_head: V1 Foveal Point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V1 Periphery:
     fixed_head:
       requires: V1 UVM (ventral)
@@ -312,23 +312,23 @@ annotations:
         return annotations["V1 LVM (dorsal)"][-1,:]
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   # V2 contours:
   V2 Foveal Point:
     type: point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V2 UVM (ventral):
     fixed_head: V2 Foveal Point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V2 LVM (dorsal):
     fixed_head: V2 Foveal Point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V2 Ventral Periphery:
     fixed_head:
       requires: V2 UVM (ventral)
@@ -340,7 +340,7 @@ annotations:
         return annotations["V1 UVM (ventral)"][-1,:]
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V2 Dorsal Periphery:
     fixed_head:
       requires: V2 LVM (dorsal)
@@ -352,23 +352,23 @@ annotations:
         return annotations["V1 LVM (dorsal)"][-1,:]
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   # V3 contours:
   V3 Foveal Point:
     type: point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V3 UVM (ventral):
     fixed_head: V3 Foveal Point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V3 LVM (dorsal):
     fixed_head: V3 Foveal Point
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V3 Ventral Periphery:
     fixed_head:
       requires: V3 UVM (ventral)
@@ -380,7 +380,7 @@ annotations:
         return annotations["V2 UVM (ventral)"][-1,:]
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
   V3 Dorsal Periphery:
     fixed_head:
       requires: V3 LVM (dorsal)
@@ -392,24 +392,26 @@ annotations:
         return annotations["V2 LVM (dorsal)"][-1,:]
     grid:
       - ["polar_angle", "eccentricity"]
-      - ["curvature", "variance_explained"]
+      - ["curvature", "prf_vexpl"]
+
 
 figures:
   term: |
     xy = target["flatmap"].coordinates
-    (xmin,ymin) = np.min(xy, axis=1)
-    (xmax,ymax) = np.max(xy, axis=1)
+    (xmin,ymin) = np.min(xy, axis = 1)
+    (xmax,ymax) = np.max(xy, axis = 1)
     axes.set_xlim((xmin,xmax))
     axes.set_ylim((ymin,ymax))
   polar_angle: |
-    ny.cortex_plot(target["flatmap"], color="polar_angle", axes=axes)
+    ny.cortex_plot(target["flatmap"], color = "polar_angle", axes = axes)
   eccentricity: |
-    ny.cortex_plot(target["flatmap"], color="eccentricity", axes=axes)
-  variance_explained: |
-    ny.cortex_plot(target["flatmap"], color="variance_explained", axes=axes,
-                   cmap="hot", vmin=0, vmax=100)
+    ny.cortex_plot(target["flatmap"], color = "eccentricity", axes = axes)
+  prf_vexpl: |
+    ny.cortex_plot(target["flatmap"], color = "prf_vexpl", cmap = "hot",
+      vmin = 0, vmax = 100, axes = axes)
   curvature: |
-    ny.cortex_plot(target["flatmap"], axes=axes)
+    ny.cortex_plot(target["flatmap"], axes = axes)
+
 
 review: |
   #from annotate import watershed_contours
