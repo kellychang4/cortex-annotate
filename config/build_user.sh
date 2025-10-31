@@ -11,4 +11,3 @@
 # something or configure something during the docker build process, you can put
 # the required commands in this file instead of editing the Dockerfile directly.
 
-pip install datalad==1.2.2 datalad-next==1.5.0
