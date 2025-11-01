@@ -26,22 +26,14 @@ init: |
   import neuropythy as ny
   import datalad.api as dl
 
-  # Prepare dataset location.
-  dataset_path = op.join("/cache", "studyforrest")
-  os.makedirs(dataset_path, exist_ok = True)
-
   # We also want to create an object that tracks the S3 path/data for the 
   # Study Forrest dataset. We use the cache path "/cache/<dataset>" because the 
   # /cache directory is always available for use with cache files inside of the 
   # docker container that runs the annotation tool.
-  dataset_path = ny.util.pseudo_path(source_path = dataset_path)
+  dataset_path = ny.util.pseudo_path(source_path = "/cache/studyforrest")
 
-  # We also clone the Study Forrest dataset to cache/<dataset> with Datalad.
-  dataset_dl = dl.clone(
-    source = "https://github.com/psychoinformatics-de/studyforrest-data-retinotopy",
-    path   = dataset_path.actual_source_path, 
-    result_renderer = "disabled"
-  )
+  # We also want the Study Forrest dataset as a Datalad object. 
+  dataset_dl = dl.Dataset(dataset_path.actual_source_path)
 
   # We will define the Freesurfer files required.
   fs_files = [
@@ -109,6 +101,7 @@ targets:
     # Here, we use datalad.get() to download the required Freesurfer files.
     fs_path = op.join("src", "freesurfer", sid)
     for filename in fs_files: # for each freesurfer file
+      print(filename)
       dataset_dl.get(op.join(fs_path, filename), result_renderer = "disabled")
 
     # Find a sub-path for the subject"s FreeSurfer directory; we get the
@@ -142,6 +135,7 @@ targets:
     # Here, we use datalad.get() to download the required retinotopy files.
     prop_path = op.join(sid, "surface_maps")
     for filename in prf_files.values(): # for each prf file
+      print(filename)
       dataset_dl.get(op.join(prop_path, filename.replace("<fs_hemi>", fs_hemi)), 
         result_renderer = "disabled")
 

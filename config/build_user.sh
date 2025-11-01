@@ -11,3 +11,11 @@
 # something or configure something during the docker build process, you can put
 # the required commands in this file instead of editing the Dockerfile directly.
 
+git config --global user.name "Docker" 
+git config --global user.email "docker@email.com"
+
+datalad clone \
+  https://github.com/psychoinformatics-de/studyforrest-data-retinotopy \
+  /data/studyforrest
+
+cd /data/studyforrest && datalad get -n ./src/freesurfer
