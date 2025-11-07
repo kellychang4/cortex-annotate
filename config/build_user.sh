@@ -15,7 +15,7 @@ git config --global user.name "Docker"
 git config --global user.email "docker@email.com"
 
 datalad clone \
-  https://github.com/psychoinformatics-de/studyforrest-data-retinotopy \
+  https://github.com/psychoinformatics-de/studyforrest-data-retinotopy.git \
   /data/studyforrest
 
-cd /data/studyforrest && datalad get -n ./src/freesurfer
+cd /data/studyforrest && datalad get -n src/freesurfer

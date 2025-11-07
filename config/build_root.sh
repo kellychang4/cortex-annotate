@@ -10,6 +10,8 @@
 # the required commands in this file instead of editing the Dockerfile directly.
 
 
+apt-get update && apt-get install netbase
+
 architecture=$( uname -m )
 case "${architecture}" in 
   x86_64)  architecture="amd64" ;; 
