@@ -2,7 +2,7 @@ services:
    annotate:
       build: .
       ports:
-         - "8888:${ANNOTATE_PORT}"
+         - "${ANNOTATE_PORT}:8888"
       volumes:
          - ${PWD}/src:/src
          - ${PWD}/save:/save
