@@ -18,51 +18,56 @@ display:
     markersize: 2
 
 init: |
-  # Several code-blocks in this config.yaml file use the numpy and neuropythy
-  # libraries, so we load them here.
+  # Load libraries that will be used throughout the configuration file.
+  import re
+  import glob
   import numpy as np
+  import os.path as op
   import neuropythy as ny
+  from struct import unpack
 
-  # We also want to create an object that tracks the S3 path/data for the NSD.
-  # We use the cache path "/cache/<dataset>" because the /cache directory is 
-  # always available for use with cache files inside of the docker container 
-  # that runs the annotation tool.
-  dataset_path = ny.util.pseudo_path(
-    source_path = "s3://natural-scenes-dataset/nsddata/",
-    cache_path  = "/cache/nsd"
-  )
+  # Define directories
+  data_dir = op.join("/home", "jovyan", "datasets")
+  fsa_dir  = op.join(data_dir, "fsaverage")
 
-  # We will specifically load these population receptive fields (pRF) files in
-  # order to draw visual area annotations on the retinotopic maps for each
-  # subject.
-  prf_files = {
-    "polar_angle"  : "prfangle.mgz",
-    "eccentricity" : "prfeccentricity.mgz",
-    "prf_vexpl"    : "prfR2.mgz",
+  # Prepare the fsaverage flatmap for all cortex flatmap plotting
+  fsa_properties = {
+    "coordinates" : { "reshape": (2, -1), "format": "e", "byte": 2 },
+    "faces"       : { "reshape": (3, -1), "format": "I", "byte": 4 },
+    "curvature"   : { "reshape": (-1,  ), "format": "e", "byte": 2 },
   }
 
-  # Here, we load these functional localizer (fLoc) files in order to draw 
-  # higher order visual areas annotations on for each subject.
-  floc_files = {
-    "bodies"     : "flocbodiestval.mgz",
-    "faces"      : "flocfacestval.mgz",
-    "places"     : "flocplacestval.mgz",
-  }
+  fsa_flatmaps = {} # initialize
+  for fs_hemi in ("lh", "rh"): # for each hemisphere
+    
+    mesh_kwargs = {} # initialize
+    for property, property_info in fsa_properties.items(): # for each property
+      # define and load fsaverage mesgh and properties
+      filename = f"{fs_hemi}.{property}"
+      with open(op.join(fsa_dir, filename), "rb") as f:
+        values = f.read() # load file content
+        fstr = property_info["format"] * (len(values) // property_info["byte"])
+        values = np.array(unpack(fstr, values)).reshape(property_info["reshape"])
+      if property == "curvature": 
+        mesh_kwargs["properties"] = { "curvature": values }
+      else: 
+        mesh_kwargs[property] = values
 
-  # We combine the pRF and fLoc files into a single dictionary for later use.
-  prop_files = { **prf_files, **floc_files }
-
-  # This occipital pole mask is used with neuropythy's flatmap code; the tuple
-  # indicates that the FreeSurfer parcellation property uses the value 43 to
-  # indicate the occipital pole of the brain (file: *.aparc.a2009s.annot).
-  occpole_mask = ( "parcellation", 43 )
+    fsa_flatmaps[fs_hemi] =  ny.geometry.Mesh(**mesh_kwargs)
 
 # We assume in this example that the libraries neuropythy and numpy have been
 # imported (as ny and np respectively) in the init section (see below).
 targets:
-  # The NSD contains 8 subjects, listed below. The "Subject ID" entry will be
-  # a dropdown menu in the annotation tool because it is a list of multiple
-  # choices rather than a code-block or a list with a single entry.
+  Dataset: 
+    - Natural Scenes Dataset (nsd)
+    - CHN Retinotopy Dataset (chn-retinotopy)
+    - Human Connectome Project Retinotopy Dataset (hcp-retinotopy)
+    - New York University National Eye Institute (nyu-nei)
+    - New York University Retinotopy Dataset (nyu-retinotopy)
+    - Natural Objects Dataset (nod)
+    - Study Forrest Retinotopy Dataset (studyforrest)
+
+  # Is there a way to do a dynamic (dataset dependent dropdown?)
   Subject ID:
     - subj01
     - subj02
@@ -72,21 +77,6 @@ targets:
     - subj06
     - subj07
     - subj08
-  # The "subject" entry is a multi-line string, so it is interpreted as a Python
-  # code snippet. This snippet is compiled into a function whose parameter list 
-  # contains only the variable `target`. The `target` will be a dictionary with
-  # the target data above the subject, so in this case only the "Subject ID".
-  subject: |
-    # Get the subject ID that the user chose from the above selection list.
-    sid = target["Subject ID"]
-
-    # Find a sub-path for the subject"s FreeSurfer directory; we get the
-    # dataset_path variable from the `init` section of the config.yaml file; 
-    # see above.
-    fs_path = dataset_path.subpath("freesurfer", sid)
-
-    # Load and return a FreeSurfer subject object for this path.
-    return ny.freesurfer_subject(fs_path)
 
   # The "Hemisphere" is a choice for the user; as a list of two options, it will
   # appear as a dropdown menu with these two options in the annotation tool.
@@ -94,73 +84,53 @@ targets:
     - Left Hemisphere
     - Right Hemisphere
 
-  # The "cortex" key in the target data is for the cortical surface object,
-  # which is managed and loaded by neuropythy from the subject"s FreeSurfer
-  # object. Note that the "cortex" entry is like the "subject" entry in that it
-  # is compiled into a function whose only parameter is a dict object called
-  # `target`, but because it is farther down in the target section, the `target`
-  # parameter will contain entries for "Subject ID", "subject", and "Hemisphere"
-  # from the sections above.
-  cortex: |
-    # Extract the subject ID, hemisphere name, and Subject object.
-    sid  = target["Subject ID"] # string
-    hemi = target["Hemisphere"] # string
-    subj = target["subject"]    # Subject object
+  # create subject flatmap.
+  flatmap: |
+    # get dropdown selections from above choices.
+    dataset = target["Dataset"]    # string
+    sid     = target["Subject ID"] # string
+    hemi    = target["Hemisphere"] # string
 
-    # convert hemisphere to freesurfer hemisphere convention
+    # format dropdown items
+    dataset = re.sub(".+\\((\\w+)\\)$", "\\1", dataset)
     fs_hemi = f"{hemi[0].lower()}h"
 
-    # Load retinotopic mapping and fLoc data from the Freesurfer label 
-    # directory, NSD specific location.
-    prop_path = dataset_path.subpath("freesurfer", sid, "label")
-    props = {
-      k: ny.load(prop_path.subpath(f"{fs_hemi}.{filename}"))
-         for (k, filename) in prop_files.items()
-    }
+    # define subject directory
+    subj_dir = op.join(data_dir, dataset, sid)
 
-    # Polar Angle ----
-    # NSD stores the polar angle coordinates as values between 0 and 360 degrees
-    # (Cartesian coordinate system where 0 corresponds to the right horizontal 
-    # meridian, 90 corresponds to the upper vertical meridian, etc.). Here, we 
-    # convert the polar angle into Neuropythy"s "visual" format (i.e., 0 degrees
-    # is the upper vertical meridian, 90 degrees is the right horizontal
-    # meridian, and -90 degrees is the left horizontal meridian.
-    props["polar_angle"] = np.mod(90 - props["polar_angle"] + 180, 360) - 180
-    
-    # Grab the appropriate coretx/hemisphere object.
-    cortex = subj.hemis[fs_hemi]
-    
-    # Finally, return that hemisphere object with the properties associated with
-    # it (this is Neuropythy"s typical modus operandi for adding properties to
-    # existing objects: make a copy with the properties attached).
-    return cortex.with_prop(props)
-  # Finally, we include a "flatmap" entry of the `targets` section in order to
-  # create a flattened projection of the hemisphere for annotation. We use the
-  # `mask_flatmap` method of the cortex/hemisphere object in order to create a
-  # projection of the inflated native surface that is centered on the selected 
-  # view.
-  flatmap: |
-    cortex = target["cortex"]
-    return cortex.mask_flatmap(
-      occpole_mask, map_right = "right", radius = np.pi/2)
+    # find all subject property prop_files
+    prop_files = glob.glob(op.join(subj_dir, f"{fs_hemi}.*"))
+
+    # read in all subject properties
+    props = {} # initialize
+    for fname in prop_files: # for each property file
+      prop_name = fname.split(".")[-1]
+      with open(fname, "rb") as f:
+        values = f.read() # read property file, float16
+        values = unpack("e" * (len(values) // 2), values)
+      props[prop_name] = values
+
+    # attatch and return properties to fsaverage flatmap
+    return fsa_flatmaps[fs_hemi].with_prop(props)
+
 
 annotations:
   # V1 contours:
   V1 Foveal Point:
     type: point
     grid:
-      - ["polar_angle", "eccentricity"]
-      - ["curvature", "prf_vexpl"]
+      - ["angle", "eccen"]
+      - ["curvature", "vexpl"]
   V1 UVM (ventral):
     fixed_head: V1 Foveal Point
     grid:
-      - ["polar_angle", "eccentricity"]
-      - ["curvature", "prf_vexpl"]
+      - ["angle", "eccen"]
+      - ["curvature", "vexpl"]
   V1 LVM (dorsal):
     fixed_head: V1 Foveal Point
     grid:
-      - ["polar_angle", "eccentricity"]
-      - ["curvature", "prf_vexpl"]
+      - ["angle", "eccen"]
+      - ["curvature", "vexpl"]
   V1 Periphery:
     fixed_head:
       requires: V1 UVM (ventral)
@@ -171,24 +141,24 @@ annotations:
       calculate: |
         return annotations["V1 LVM (dorsal)"][-1,:]
     grid:
-      - ["polar_angle", "eccentricity"]
-      - ["curvature", "prf_vexpl"]
+      - ["angle", "eccen"]
+      - ["curvature", "vexpl"]
   # V2 contours:
   V2 Foveal Point:
     type: point
     grid:
-      - ["polar_angle", "eccentricity"]
-      - ["curvature", "prf_vexpl"]
+      - ["angle", "eccen"]
+      - ["curvature", "vexpl"]
   V2 UVM (ventral):
     fixed_head: V2 Foveal Point
     grid:
-      - ["polar_angle", "eccentricity"]
-      - ["curvature", "prf_vexpl"]
+      - ["angle", "eccen"]
+      - ["curvature", "vexpl"]
   V2 LVM (dorsal):
     fixed_head: V2 Foveal Point
     grid:
-      - ["polar_angle", "eccentricity"]
-      - ["curvature", "prf_vexpl"]
+      - ["angle", "eccen"]
+      - ["curvature", "vexpl"]
   V2 Ventral Periphery:
     fixed_head:
       requires: V2 UVM (ventral)
@@ -199,8 +169,8 @@ annotations:
       calculate: |
         return annotations["V1 UVM (ventral)"][-1,:]
     grid:
-      - ["polar_angle", "eccentricity"]
-      - ["curvature", "prf_vexpl"]
+      - ["angle", "eccen"]
+      - ["curvature", "vexpl"]
   V2 Dorsal Periphery:
     fixed_head:
       requires: V2 LVM (dorsal)
@@ -211,24 +181,24 @@ annotations:
       calculate: |
         return annotations["V1 LVM (dorsal)"][-1,:]
     grid:
-      - ["polar_angle", "eccentricity"]
-      - ["curvature", "prf_vexpl"]
+      - ["angle", "eccen"]
+      - ["curvature", "vexpl"]
   # V3 contours:
   V3 Foveal Point:
     type: point
     grid:
-      - ["polar_angle", "eccentricity"]
-      - ["curvature", "prf_vexpl"]
+      - ["angle", "eccen"]
+      - ["curvature", "vexpl"]
   V3 UVM (ventral):
     fixed_head: V3 Foveal Point
     grid:
-      - ["polar_angle", "eccentricity"]
-      - ["curvature", "prf_vexpl"]
+      - ["angle", "eccen"]
+      - ["curvature", "vexpl"]
   V3 LVM (dorsal):
     fixed_head: V3 Foveal Point
     grid:
-      - ["polar_angle", "eccentricity"]
-      - ["curvature", "prf_vexpl"]
+      - ["angle", "eccen"]
+      - ["curvature", "vexpl"]
   V3 Ventral Periphery:
     fixed_head:
       requires: V3 UVM (ventral)
@@ -239,8 +209,8 @@ annotations:
       calculate: |
         return annotations["V2 UVM (ventral)"][-1,:]
     grid:
-      - ["polar_angle", "eccentricity"]
-      - ["curvature", "prf_vexpl"]
+      - ["angle", "eccen"]
+      - ["curvature", "vexpl"]
   V3 Dorsal Periphery:
     fixed_head:
       requires: V3 LVM (dorsal)
@@ -251,15 +221,15 @@ annotations:
       calculate: |
         return annotations["V2 LVM (dorsal)"][-1,:]
     grid:
-      - ["polar_angle", "eccentricity"]
-      - ["curvature", "prf_vexpl"]
+      - ["angle", "eccen"]
+      - ["curvature", "vexpl"]
   # hV4 contour:
   hV4 Outer:
     type: contour
     fixed_head: V3 Foveal Point
     grid:
-      - ["polar_angle", "eccentricity"]
-      - ["curvature", "prf_vexpl"]
+      - ["angle", "eccen"]
+      - ["curvature", "vexpl"]
   # VO contour:
   VO Outer:
     type: contour
@@ -268,20 +238,20 @@ annotations:
       calculate: |
         return annotations["V3 UVM (ventral)"][-1,:]
     grid:
-      - ["polar_angle", "eccentricity"]
-      - ["curvature", "prf_vexpl"]
+      - ["angle", "eccen"]
+      - ["curvature", "vexpl"]
   # hV4|VO boundary:
   hV4|VO Boundary:
     type: contour
     grid:
-      - ["polar_angle", "eccentricity"]
-      - ["curvature", "prf_vexpl"]
+      - ["angle", "eccen"]
+      - ["curvature", "vexpl"]
   # VO1|2 boundary:
   VO1|2 Boundary:
     type: contour
     grid:
-      - ["polar_angle", "eccentricity"]
-      - ["curvature", "prf_vexpl"]
+      - ["angle", "eccen"]
+      - ["curvature", "vexpl"]
   # V3a|b contours:
   V3a|b Outer:
     type: contour
@@ -290,31 +260,31 @@ annotations:
       calculate: |
         return annotations["V3 LVM (dorsal)"][-1,:]
     grid:
-      - ["polar_angle", "eccentricity"]
-      - ["curvature", "prf_vexpl"]
+      - ["angle", "eccen"]
+      - ["curvature", "vexpl"]
   V3a|b Inner Boundary:
     type: contour
     grid:
-      - ["polar_angle", "eccentricity"]
-      - ["curvature", "prf_vexpl"]
+      - ["angle", "eccen"]
+      - ["curvature", "vexpl"]
   # IPS Outer:
   IPS Outer:
     type: contour
     grid:
-      - ["polar_angle", "eccentricity"]
-      - ["curvature", "prf_vexpl"]
+      - ["angle", "eccen"]
+      - ["curvature", "vexpl"]
   VO1|2 Outer: 
     type: contour
     fixed_head: V3 Foveal Point
     grid:
-      - ["polar_angle", "eccentricity"]
-      - ["curvature", "prf_vexpl"]
+      - ["angle", "eccen"]
+      - ["curvature", "vexpl"]
   # pFus-faces boundary:
   pFus-faces (FFA1) Boundary:
     type: boundary
     grid:
-      - ["faces", "polar_angle"]
-      - ["curvature", "eccentricity"]
+      - ["faces", "angle"]
+      - ["curvature", "eccen"]
     plot_options:
       color: [0.97, 0.97, 0.97]
       markersize: 0
@@ -323,8 +293,8 @@ annotations:
   mFus-faces (FFA2) Boundary:
     type: boundary
     grid:
-      - ["faces", "polar_angle"]
-      - ["curvature", "eccentricity"]
+      - ["faces", "angle"]
+      - ["curvature", "eccen"]
     plot_options:
       color: [0.97, 0.97, 0.97]
       markersize: 0
@@ -333,8 +303,8 @@ annotations:
   IOG-faces (OFA) Boundary:
     type: boundary
     grid:
-      - ["faces", "polar_angle"]
-      - ["curvature", "eccentricity"]
+      - ["faces", "angle"]
+      - ["curvature", "eccen"]
     plot_options:
       color: [0.97, 0.97, 0.97]
       markersize: 0
@@ -343,14 +313,14 @@ annotations:
   ITG-bodies Boundary:
     type: boundary
     grid:
-      - ["bodies", "polar_angle"]
-      - ["curvature", "eccentricity"]
+      - ["bodies", "angle"]
+      - ["curvature", "eccen"]
   # LOS-bodies boundary:
   LOS-bodies Boundary:
     type: boundary
     grid:
-      - ["bodies", "polar_angle"]
-      - ["curvature", "eccentricity"]
+      - ["bodies", "angle"]
+      - ["curvature", "eccen"]
     plot_options:
       color: [0.97, 0.97, 0.97]
       markersize: 0
@@ -359,8 +329,8 @@ annotations:
   CoS-places (PPA) Boundary:
     type: boundary
     grid:
-      - ["places", "polar_angle"]
-      - ["curvature", "eccentricity"]
+      - ["places", "angle"]
+      - ["curvature", "eccen"]
     plot_options:
       color: [0.97, 0.97, 0.97]
       markersize: 0
@@ -376,12 +346,14 @@ figures:
   _: |
     ny.cortex_plot(target["flatmap"], color = key, cmap = "temperature_dark", 
       vmin = -8, vmax = 8, axes = axes)
-  polar_angle: |
-    ny.cortex_plot(target["flatmap"], color = "polar_angle", axes = axes)
-  eccentricity: |
-    ny.cortex_plot(target["flatmap"], color = "eccentricity", axes = axes)
-  prf_vexpl: |
-    ny.cortex_plot(target["flatmap"], color = "prf_vexpl", cmap = "hot", 
+  angle: |
+    ny.cortex_plot(target["flatmap"], color = "angle", cmap = "polar_angle",
+      axes = axes)
+  eccen: |
+    ny.cortex_plot(target["flatmap"], color = "eccen", cmap = "eccentricity", 
+      axes = axes)
+  vexpl: |
+    ny.cortex_plot(target["flatmap"], color = "vexpl", cmap = "hot", 
       vmin = 0, vmax = 100, axes = axes)
   curvature: |
     ny.cortex_plot(target["flatmap"], axes = axes)

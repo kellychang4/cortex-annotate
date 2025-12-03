@@ -92,7 +92,7 @@ RUN mamba install -y -cconda-forge \
         'tornado == 6.1'
 RUN pip install ipycanvas pyyaml neuropythy nibabel s3fs
 
-# Build diplib from Source
+# Build diplib from source
 USER root
 RUN rm -rf /opt/conda/lib/python3.10/site-packages/backports && \
     rm -rf /opt/conda/lib/python3.10/site-packages/setuptools* && \
@@ -136,6 +136,7 @@ COPY docker/ipython_kernel_config.py   /home/$NB_USER/.ipython/profile_default/
 COPY docker/npythy.json                /home/$NB_USER/.npythyrc
 COPY docker/ipython-startup.py         /home/$NB_USER/.ipython/profile_default/startup/
 COPY notebooks/annotate.ipynb          /home/$NB_USER/work/AnnotationTool.ipynb
+COPY datasets/                         /home/$NB_USER/datasets/
 # We want to trust the notebook (this also fixed id-less cells).
 RUN jupyter trust /home/$NB_USER/work/AnnotationTool.ipynb
 # Finaly, copy over the annotate library and any other code.
