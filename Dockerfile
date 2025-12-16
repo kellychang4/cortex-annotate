@@ -33,7 +33,6 @@ RUN mkdir /cache \
  && mkdir /config \
  && mkdir /data \
  && mkdir -p /data/freesurfer/subjects \
- && mkdir -p /data/required_subjects \
  && mkdir -p /data/hcp/subjects \
  && mkdir -p /data/hcp/lines \
  && mkdir -p /data/hcp/meta \
@@ -55,16 +54,16 @@ RUN chown -R $NB_USER /home/$NB_USER/.local
 # Download the required FreeSurfer subjects.
 RUN apt-get update \
  && apt-get install --yes --no-install-recommends build-essential cmake curl git
-RUN curl -L -o /data/required_subjects/fsaverage.tar.gz \
+RUN curl -L -o /data/freesurfer/subjects/fsaverage.tar.gz \
       https://github.com/noahbenson/neuropythy/wiki/files/fsaverage.tar.gz \
- && cd /data/required_subjects \
+ && cd /data/freesurfer/subjects \
  && tar zxf fsaverage.tar.gz \
  && chown -R root.root ./fsaverage \
  && chmod -R 775 ./fsaverage \
  && rm fsaverage.tar.gz
-RUN curl -L -o /data/required_subjects/fsaverage_sym.tar.gz \
+RUN curl -L -o /data/freesurfer/subjects/fsaverage_sym.tar.gz \
       https://github.com/noahbenson/neuropythy/wiki/files/fsaverage_sym.tar.gz \
- && cd /data/required_subjects \
+ && cd /data/freesurfer/subjects \
  && tar zxf fsaverage_sym.tar.gz \
  && chown -R root.root ./fsaverage_sym \
  && chmod -R 775 ./fsaverage_sym \
@@ -117,11 +116,6 @@ RUN mkdir -p /home/$NB_USER/.jupyter/custom
 # Copy the config directory's requirements over and install them.
 COPY config/requirements.txt /build/
 RUN pip install -r /build/requirements.txt
-# For some reason, tornado is causing major problems, so we downgrade to 6.1 here:
-#RUN pip install \
-#          'tornado == 6.1' \
-#          'jupyter-client == 7.3.2' \
-#          'jupyter-server < 2.0.0'
 
 
 # Copy User Files ##############################################################
@@ -139,7 +133,7 @@ COPY notebooks/annotate.ipynb          /home/$NB_USER/work/AnnotationTool.ipynb
 COPY datasets/                         /home/$NB_USER/datasets/
 # We want to trust the notebook (this also fixed id-less cells).
 RUN jupyter trust /home/$NB_USER/work/AnnotationTool.ipynb
-# Finaly, copy over the annotate library and any other code.
+# Finally, copy over the annotate library and any other code.
 COPY src/ /src/
 
 
