@@ -34,6 +34,7 @@ class ConfigError(Exception):
         super().__init__(f"{section}: {message}")
         self.section = section
         self.yaml = yaml
+
 class InitConfig:
     """An object that keeps track of the `init` section of `config.yaml`.
 
