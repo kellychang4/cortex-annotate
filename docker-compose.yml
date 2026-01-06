@@ -2,12 +2,10 @@ services:
    annotate:
       build: .
       ports:
-         - "${ANNOTATE_PORT}:8888"
+         - "8888:${ANNOTATE_PORT}"
       volumes:
-         - ${PWD}/src:/src
-         - ${PWD}/save:/save
-         - ${PWD}/cache:/cache
-         - ${PWD}/config:/config
-         - ${PWD}:/git
+         - ${PWD}/save:/save:rw
+         - ${PWD}/cache:/cache:rw
+         - ${PWD}:/git:r
       environment:
         - DOCKER_STACKS_JUPYTER_CMD=notebook

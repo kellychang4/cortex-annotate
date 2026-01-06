@@ -757,9 +757,6 @@ class AnnotationTool(ipw.HBox):
         self.state.reviewing_context = self.figure_panel.reviewing_context
         # Go ahead and initialize the HBox component.
         super().__init__((self.control_panel, self.figure_panel))
-        # Now, we want to display ourselves while we load, so do that.
-        from IPython.display import display
-        display(self)
         # Give the figure the initial image to plot.
         with self.state.loading_context:
             self.refresh_figure()
