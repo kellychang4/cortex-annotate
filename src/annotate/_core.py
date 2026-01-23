@@ -23,7 +23,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import ipywidgets as ipw
 import imageio.v3 as iio
-import yaml, json
+import yaml
 
 from ._util    import (ldict, delay)
 from ._config  import Config
@@ -36,6 +36,8 @@ from ._figure  import FigurePanel
 class NoOpContext:
     def __enter__(self): pass
     def __exit__(self, type, value, traceback): pass
+
+
 class AnnotationState:
     """The manager of the state of the annotation and the annotation tool.
 
@@ -185,7 +187,8 @@ class AnnotationState:
         with open(mdpath, "wt") as f:
             f.write(jscode)
     def grid(self, target_id, annotation):
-        """Returns the grid of figures for the given target and annotation.
+        """
+        Returns the grid of figures for the given target and annotation.
 
         The return value is `(image_data, grid_shape, meta_data)` where the
         `image_data` is the raw bytes of the file, `grid_shape` is a tuple of
@@ -247,12 +250,15 @@ class AnnotationState:
         path = os.path.join(self.save_path, ".annot-prefs.yaml")
         with open(path, "wt") as f:
             yaml.dump(self.preferences, f)
+    
+    
     default_style = {"linewidth": 1,
                      "linestyle": "solid",
                      "markersize": 1,
                      "color": "black",
                      "visible": True}
     style_keys = tuple(default_style.keys())
+    
     @classmethod
     def fix_style(cls, styledict):
         """Ensures that the given dictionary is valid as a style dictionary."""
@@ -409,6 +415,8 @@ class AnnotationState:
             # Save them using pandas.
             df = pd.DataFrame(coords)
             df.to_csv(path, index=False, header=None, sep="\t")
+    
+    
     def save_annotations(self):
         "Saves the annotations for a given target."
         annots = self.annotations
@@ -416,6 +424,8 @@ class AnnotationState:
             # Skip lazy keys; these targets have not even been loaded yet.
             if not annots.is_lazy(tid):
                 self.save_target_annotations(tid)
+
+
     def run_save_hooks(self):
         "Runs any save hooks that were registered by the review."
         hooks = self.save_hooks
@@ -424,22 +434,30 @@ class AnnotationState:
             for (filename, (tid, fn)) in hooks.items():
                 filename = os.path.join(self.target_save_path(tid), filename)
                 fn(filename)
+    
+    
     def save(self):
         """Saves both the user preferences and the user annotations."""
         self.save_preferences()
         self.save_annotations()
         self.run_save_hooks()
+    
+
     __slots__ = ("config", "cache_path", "save_path", "git_path", "username",
                  "annotations", "builtin_annotations", "preferences",
                  "loading_context", "reviewing_context", "save_hooks")
-    def __init__(self,
-                 config_path='/config/config.yaml',
-                 cache_path='/cache',
-                 save_path='/save',
-                 git_path='/git',
-                 username=None,
-                 loading_context=None,
-                 reviewing_context=None):
+    
+    def __init__(
+            self,
+            config_path       = '/config/config.yaml',
+            cache_path        = '/cache',
+            save_path         = '/save',
+            git_path          = '/git',
+            username          = None,
+            loading_context   = None,
+            reviewing_context = None
+        ):
+
         self.config = Config(config_path)
         self.cache_path = cache_path
         self.git_path = git_path
@@ -468,6 +486,8 @@ class AnnotationState:
         self.builtin_annotations = self.load_builtin_annotations()
         # And (lazily) load the preferences.
         self.preferences = self.load_preferences()
+        
+
     def apply_style(self, ann_name, canvas, style=None):
         """Applies the style associated with an annotation name to a canvas.
 
@@ -506,6 +526,8 @@ class AnnotationState:
         canvas.stroke_style = c
         canvas.fill_style = c
         return v
+    
+
     def draw_path(self, ann_name, points, canvas, 
                   path=True, closed=False,
                   style=None, cursor=None,
@@ -584,16 +606,85 @@ class AnnotationTool(ipw.HBox):
     The `AnnotationTool` type handles the annotation of the cortical surface
     images for the `cortex-annotate` project.
     """
+
+    def __init__(
+            self,
+            config_path = "/config/config.yaml",
+            cache_path  = "/cache",
+            save_path   = "/save",
+            git_path    = "/git",
+            username    = None,
+            control_panel_background_color = "#f0f0f0",
+            save_button_color = "#e0e0e0"
+        ):        
+        """Initializes the annotation tool."""
+        
+        # Store the state.
+        self.state = AnnotationState(
+            config_path = config_path,
+            cache_path  = cache_path,
+            save_path   = save_path,
+            git_path    = git_path,
+            username    = username
+        )
+
+        # Store the cache path.
+        self.cache_path = cache_path
+
+        # Make the control panel.
+        imagesize = self.state.imagesize()
+        self.control_panel = ControlPanel(
+            self.state,
+            background_color  = control_panel_background_color,
+            save_button_color = save_button_color,
+            imagesize         = imagesize
+        )
+        
+        # Make the figure panel.
+        self.figure_panel = FigurePanel(self.state, imagesize = imagesize)
+        
+        # Pass the loading context over to the state.
+        self.state.loading_context   = self.figure_panel.loading_context
+        self.state.reviewing_context = self.figure_panel.reviewing_context
+
+        # Go ahead and initialize the HBox component.
+        super().__init__((self.control_panel, self.figure_panel))
+
+        # Give the figure the initial image to plot.
+        with self.state.loading_context:
+            self.refresh_figure()
+
+        # Add a listener for the image size change.
+        self.control_panel.observe_imagesize(self.on_imagesize_change)
+
+        # And a listener for the selection change.
+        self.control_panel.observe_selection(self.on_selection_change)
+
+        # And a listener for the style change.
+        self.control_panel.observe_style(self.on_style_change)
+
+        # And a listener for the review, save, and edit buttons.
+        self.control_panel.observe_save(self.on_save)
+        if self.state.config.review.function is not None:
+            self.control_panel.observe_review(self.on_review)
+            self.control_panel.observe_edit(self.on_edit)
+
+        # Finally initialize the outer HBox component.
+
+
     def on_imagesize_change(self, change):
         "This method runs when the control panel's image size slider changes."
         if change.name != 'value': return
         self.state.imagesize(change.new)
         # Resize the figure panel.
         self.figure_panel.resize_canvas(change.new)
+
+
     def refresh_figure(self):
-        targ = self.control_panel.target
+        targ  = self.control_panel.target
         annot = self.control_panel.annotation
         targ_annots = self.state.annotations[targ]
+
         # First of all, if there is any nonempty annotation that requires the
         # current annotation, we need to print an error about it.
         deps = []
@@ -645,20 +736,26 @@ class AnnotationTool(ipw.HBox):
                 annlist = ", ".join(missing)
                 error = f"The following annotations are required:\n  {annlist}"
             (fh,ft) = (None,None) if fs is None else fs
+
         self.figure_panel.change_annotations(
             targ_annots,
             self.state.builtin_annotations[targ],
-            redraw=False,
-            annotation_types=self.state.config.annotation_types,
-            allow=(fs is not None),
-            fixed_heads={annot: fh},
-            fixed_tails={annot: ft})
-        self.figure_panel.change_foreground(annot, redraw=False)
+            redraw = False,
+            annotation_types = self.state.config.annotation_types,
+            allow = (fs is not None),
+            fixed_heads = {annot: fh},
+            fixed_tails = {annot: ft}
+        )
+
+        self.figure_panel.change_foreground(annot, redraw = False)
+
         # Draw the grid image.
         (imdata, grid_shape, meta) = self.state.grid(targ, annot)
-        im = ipw.Image(value=imdata, format='png')
+        im = ipw.Image(value = imdata, format = 'png')
         meta = {k:meta[k] for k in ('xlim','ylim') if k in meta}
-        self.figure_panel.redraw_canvas(image=im, grid_shape=grid_shape, **meta)
+        self.figure_panel.redraw_canvas(
+            image = im, grid_shape = grid_shape, **meta)
+        
         # If the annotation requires something that is missing, or if a fixed
         # head or tail can't yet be calculated, we need to put an appropriate
         # message up.
@@ -666,6 +763,8 @@ class AnnotationTool(ipw.HBox):
             self.figure_panel.write_message(error)
         else:
             self.figure_panel.clear_message()
+    
+    
     def on_selection_change(self, key, change):
         "This method runs when the control panel's selection changes."
         if change.name != 'value': return
@@ -676,6 +775,8 @@ class AnnotationTool(ipw.HBox):
         # The selection has changed; we need to redraw the image and update the
         # annotations.
         self.refresh_figure()
+    
+    
     def on_style_change(self, annotation, key, change):
         "This method runs when the control panel's style elements change."
         # Update the state.
@@ -683,6 +784,8 @@ class AnnotationTool(ipw.HBox):
         self.state.style(annotation, key, change.new)
         # Then redraw the annotation.
         self.figure_panel.redraw_canvas(redraw_image=False)
+    
+    
     def on_review(self, button):
         "This method runs when the control panel's review button is clicked."
         self.figure_panel.clear_message()
@@ -706,6 +809,8 @@ class AnnotationTool(ipw.HBox):
                     msg = str(e)
                     self.control_panel.save_button.disabled = True
             self.figure_panel.review_start(msg)
+    
+    
     def on_save(self, button):
         "This method runs when the control panel's save button is clicked."
         if self.figure_panel.review_msg is not None:
@@ -717,6 +822,8 @@ class AnnotationTool(ipw.HBox):
         self.state.save_annotations()
         self.state.save_preferences()
         self.state.run_save_hooks()
+    
+    
     def on_edit(self, button):
         "This method runs when the control panel's edit button is clicked."
         if self.figure_panel.review_msg is not None:
@@ -726,50 +833,5 @@ class AnnotationTool(ipw.HBox):
             self.figure_panel.review_end()
             self.refresh_figure()
         self.state.save_hooks = None
-    def __init__(self,
-                 config_path='/config/config.yaml',
-                 cache_path='/cache',
-                 save_path='/save',
-                 git_path='/git',
-                 username=None,
-                 control_panel_background_color="#f0f0f0",
-                 save_button_color="#e0e0e0"):
-        self.cache_path = cache_path
-        self.state = AnnotationState(
-            config_path=config_path,
-            cache_path=cache_path,
-            save_path=save_path,
-            git_path=git_path,
-            username=username)
-        # Make the control panel.
-        imagesize = self.state.imagesize()
-        self.control_panel = ControlPanel(
-            self.state,
-            background_color=control_panel_background_color,
-            save_button_color=save_button_color,
-            imagesize=imagesize)
-        # Make the figure panel.
-        self.figure_panel = FigurePanel(
-            self.state,
-            imagesize=imagesize)
-        # Pass the loading context over to the state.
-        self.state.loading_context = self.figure_panel.loading_context
-        self.state.reviewing_context = self.figure_panel.reviewing_context
-        # Go ahead and initialize the HBox component.
-        super().__init__((self.control_panel, self.figure_panel))
-        # Give the figure the initial image to plot.
-        with self.state.loading_context:
-            self.refresh_figure()
-        # Add a listener for the image size change.
-        self.control_panel.observe_imagesize(self.on_imagesize_change)
-        # And a listener for the selection change.
-        self.control_panel.observe_selection(self.on_selection_change)
-        # And a listener for the style change.
-        self.control_panel.observe_style(self.on_style_change)
-        # And a listener for the review, save, and edit buttons.
-        self.control_panel.observe_save(self.on_save)
-        if self.state.config.review.function is not None:
-            self.control_panel.observe_review(self.on_review)
-            self.control_panel.observe_edit(self.on_edit)
-        # Finally initialize the outer HBox component.
-
+    
+    

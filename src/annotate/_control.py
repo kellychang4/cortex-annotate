@@ -25,24 +25,30 @@ import ipywidgets as ipw
 # panels.
 class SelectionPanel(ipw.VBox):
     """The subpanel of the control panel for target selection."""
+    
     __slots__ = ('state', 'dropdowns', 'annotations_dropdown', 
                  'target_observers', 'annotation_observers')
+    
     def __init__(self, state):
         self.state = state
         self.dropdowns = {}
+        
         ch = []
-        dd_layout = dict(width="94%", margin="1% 3% 1% 3%")
+        dd_layout = { "width": "94%", "margin": "1% 3% 1% 3%" }
         for k in state.config.targets.concrete_keys:
             els = state.config.targets.items[k]
             dd = ipw.Dropdown(options=els, value=els[0], layout=dd_layout,
                               description=(k + ":"))
             ch.append(dd)
             self.dropdowns[k] = dd
+            
         # We need the annotation bit also.
-        self.annotations_dropdown = ipw.Dropdown(options=[], layout=dd_layout,
-                                                 description="Annotation:")
+        self.annotations_dropdown = ipw.Dropdown(
+            options=[], layout=dd_layout, description="Annotation:")
         ch.append(self.annotations_dropdown)
+
         super().__init__(ch)
+        
         # Because we want to control the order of a few things, we actually
         # listen to our selection items ourselves, then update them and pass
         # them along to our listeners. This is important so that, for example,
@@ -60,18 +66,26 @@ class SelectionPanel(ipw.VBox):
         self.annotation_observers = []
         # Initialize the annotations menu.
         self.refresh_annotations()
+
+
     @property
     def target(self):
         """Compute the current target selection."""
         return tuple(dd.value for dd in self.dropdowns.values())
+    
+
     @property
     def annotation(self):
         """Compute the current annotation selection."""
         return self.annotations_dropdown.value
+    
+
     @property
     def selection(self):
         """Compute the current selection."""
         return self.target + (self.selection,)
+    
+
     def refresh_annotations(self):
         # Get the new target selection entire.
         sel = self.target
@@ -82,16 +96,22 @@ class SelectionPanel(ipw.VBox):
                 if ann.filter is None or ann.filter(target)]
         self.annotations_dropdown.options = anns
         self.annotations_dropdown.value = anns[0]
+
+
     def on_target_change(self, key, change):
         # Refresh the annotations menu.
         self.refresh_annotations()
         # Alert our other observers, now that our updates are finished.
         for fn in self.target_observers:
             fn(key, change)
+
+
     def on_annotation_change(self, change):
         # Alert our observers.
         for fn in self.annotation_observers:
             fn(change)
+
+
     def observe_target(self, fn):
         """Registers the given function to be called when the taget changes.
 
@@ -106,8 +126,11 @@ class SelectionPanel(ipw.VBox):
         object typically used in the `ipywidget` `observe` pattern.
         """
         self.target_observers.append(fn)
+
+
     def observe_annotation(self, fn):
-        """Registers the argument to be called when the annotation changes.
+        """
+        Registers the argument to be called when the annotation changes.
 
         The annotation selection is the currently selected annotation in the
         annotations dropdown menu of the `SelectionPanel` component of the
@@ -118,8 +141,11 @@ class SelectionPanel(ipw.VBox):
         used in the `ipywidget` `observe` pattern.
         """
         self.annotation_observers.append(fn)
+
+
     def observe_selection(self, fn):
-        """Registers the given function to be called when the selection changes.
+        """
+        Registers the given function to be called when the selection changes.
 
         The selection refers to the combination of target and annotation
         selection; see the `observe_target` and `observe_annotation` methods for
@@ -133,8 +159,11 @@ class SelectionPanel(ipw.VBox):
         """
         self.observe_target(fn)
         self.observe_annotation(partial(fn, None))
+
+
 class StylePanel(ipw.VBox):
     """The subpanel of the control panel containing the style controls."""
+    
     @classmethod
     def _make_hline(cls, width=85):
         return ipw.HTML(f"""
@@ -148,6 +177,8 @@ class StylePanel(ipw.VBox):
             }} </style>
             <div class="cortex-annotate-StylePanel-hline"></div>
         """)
+    
+
     def __init__(self, state):
         self.state = state
         # We use the config to populate the collection of style preferences, but
@@ -193,45 +224,61 @@ class StylePanel(ipw.VBox):
             self.color_picker,
             self.pointsize_slider,
             self.linewidth_slider,
-            self.linestyle_dropdown]
-        super().__init__(ch, layout=dict(margin="0% 0% 3% 0%"))
+            self.linestyle_dropdown
+        ]
+        super().__init__(ch, layout= { "margin":"0% 0% 3% 0%" })
+        
         # Set up our observer pattern. We track these manually so that we can
         # call the functions using a parameter order that makes sense.
         self.style_observers = []
-        self.style_names = {"visible": self.visible_checkbox,
-                            "color": self.color_picker,
-                            "markersize": self.pointsize_slider,
-                            "linewidth": self.linewidth_slider,
-                            "linestyle": self.linestyle_dropdown}
+        self.style_names = {
+            "visible"   : self.visible_checkbox,
+            "color"     : self.color_picker,
+            "markersize": self.pointsize_slider,
+            "linewidth" : self.linewidth_slider,
+            "linestyle" : self.linestyle_dropdown
+        }
         for (k,v) in self.style_names.items():
             v.observe(partial(self.on_style_change, k), names="value")
         # We need to make sure that we update things when the style dropdown
         # changes also.
         self.style_dropdown.observe(self.refresh_style, names="index")
         self.refresh_style()
+    
+    
     @property
     def annotation(self):
         dd = self.style_dropdown
         return dd.value if dd.index > 0 else None
+    
+    
     @property
     def preferences(self):
         return {k:v.value for (k,v) in self.style_names.items()}
+    
+    
     @property
     def style(self):
         prefs = self.user_preferences
         prefs['annotation'] = self.annotation
         return prefs
+    
+
     def refresh_style(self, change=None):
         ann = self.style_dropdown.index if change is None else change.new
         ann = self.style_dropdown.options[ann] if ann > 0 else None
         prefs = self.state.style(ann)
         for (k,v) in self.style_names.items():
             v.value = prefs[k]
+
+
     def on_style_change(self, key, change):
         ann = self.annotation
         # Alert our observers.
         for fn in self.style_observers:
             fn(ann, key, change)
+
+
     def observe_style(self, fn):
         """Registers the given function to be called when the a style changes.
 
@@ -257,8 +304,11 @@ class StylePanel(ipw.VBox):
          * `"markersize"`: the marker size has changed.
         """
         self.style_observers.append(fn)
+
+
 class ControlPanel(ipw.VBox):
-    """The panel that contains the controls for the Annotation Tool.
+    """
+    The panel that contains the controls for the Annotation Tool.
     """
     @classmethod
     def _make_imagesize_slider(cls, initial_value=256):
@@ -267,6 +317,8 @@ class ControlPanel(ipw.VBox):
                              readout=False,
                              continuous_update=False,
                              layout=dict(width='90%', padding="0px"))
+    
+
     @classmethod
     def _make_html_header(cls,
                           background_color="#f0f0f0",
@@ -293,6 +345,8 @@ class ControlPanel(ipw.VBox):
             }}
             </style>
         """)
+    
+    
     @classmethod
     def _make_hline(cls):
         return ipw.HTML("""
@@ -307,6 +361,8 @@ class ControlPanel(ipw.VBox):
             <div class="cortex-annotate-ControlPanel-hline">
             </div>
         """)
+    
+    
     @classmethod
     def _make_infomsg(cls):
         return ipw.VBox(
@@ -325,26 +381,35 @@ class ControlPanel(ipw.VBox):
                 <center><b>TAB</b> to toggle the circled end.</center></div>
                 """)],
             layout={'margin': '3%', 'width': '88%'})
-    def __init__(self, state,
-                 background_color="#f0f0f0", imagesize=256,
-                 save_button_color="#e0e0e0"):
-        self.html_header = self._make_html_header(background_color,
-                                                  save_button_color)
+    
+    
+    def __init__(
+            self, state,
+            imagesize = 256,
+            background_color  = "#f0f0f0", 
+            save_button_color = "#e0e0e0"
+        ):
+        self.html_header = self._make_html_header(
+            background_color, save_button_color)
         self.imagesize_slider = self._make_imagesize_slider(imagesize)
         self.selection_panel = SelectionPanel(state)
-        self.style_panel = StylePanel(state)
+        self.style_panel     = StylePanel(state)
+
         self.review_button = ipw.Button(
             description='Review',
             button_style='',
             tooltip='Review the annotations.')
+        
         self.save_button = ipw.Button(
             description='Save',
             button_style='',
             tooltip='Save all annotations and preferences.')
+        
         self.edit_button = ipw.Button(
             description='Edit',
             button_style='',
             tooltip='Continue editing annotation.')
+        
         if state.config.review.function is not None:
             buttons = [self.review_button, self.save_button, self.edit_button]
             self.review_button.disabled = False
@@ -360,6 +425,7 @@ class ControlPanel(ipw.VBox):
         self.button_box = ipw.HBox(buttons, layout=layout)
         self.info_message = self._make_infomsg()
         hline = self._make_hline()
+        
         self.vbox_children = [
             ipw.HTML("<b style=\"margin: 0% 3% 0% 3%;\">Selection:</b>"),
             self.selection_panel,
@@ -371,15 +437,20 @@ class ControlPanel(ipw.VBox):
             self.button_box,
             hline,
             self.info_message]
-        vbox_layout = {'width': '250px'}
-        vbox = ipw.VBox(self.vbox_children, layout=vbox_layout)
-        children = [self.html_header,
-                    ipw.Accordion((vbox,), selected_index=0),
-                    self.html_header]
-        layout = {'border-width':'0px', 'height':'100%'}
-        super().__init__(children, layout=layout)
+        vbox = ipw.VBox(self.vbox_children, layout = {'width': '250px'})
+        
+        children = [
+            self.html_header,
+            ipw.Accordion((vbox,), selected_index=0),
+            self.html_header
+        ]
+
+        super().__init__(children, layout = {'border':'0px', 'height':'100%'})
+
+
     def observe_target(self, fn):
-        """Registers the given function to be called when the taget changes.
+        """
+        Registers the given function to be called when the taget changes.
 
         The selection target refers to the selection of all the concrete keys in
         the `config.yaml` file's `targets` section. In other words, the
@@ -392,8 +463,11 @@ class ControlPanel(ipw.VBox):
         object typically used in the `ipywidget` `observe` pattern.
         """
         self.selection_panel.observe_target(fn)
+
+
     def observe_annotation(self, fn):
-        """Registers the argument to be called when the annotation changes.
+        """
+        Registers the argument to be called when the annotation changes.
 
         The annotation selection is the currently selected annotation in the
         annotations dropdown menu of the `SelectionPanel` component of the
@@ -404,6 +478,8 @@ class ControlPanel(ipw.VBox):
         used in the `ipywidget` `observe` pattern.
         """
         self.selection_panel.observe_annotation(fn)
+
+
     def observe_selection(self, fn):
         """Registers the given function to be called when the selection changes.
 
@@ -418,8 +494,11 @@ class ControlPanel(ipw.VBox):
         has changed, then the `key` will be `None`.
         """
         self.selection_panel.observe_selection(fn)
+
+
     def observe_style(self, fn):
-        """Registers the given function to be called when the a style changes.
+        """
+        Registers the given function to be called when the a style changes.
 
         Style elements refer to the settings managed by the `StylePanel` of the
         `ControlPanel` object. A style element is considered to have changed
@@ -443,20 +522,28 @@ class ControlPanel(ipw.VBox):
          * `"markersize"`: the marker size has changed.
         """
         self.style_panel.observe_style(fn)
+
+
     def observe_imagesize(self, fn):
-        """Registers the argument to be called when the image size changes.
+        """
+        Registers the argument to be called when the image size changes.
 
         `control_panel.observe_imagesize(fn)` is equivalent to
         `control_panel.imagesize_slider.observe(fn, names="value")`.
         """
         self.imagesize_slider.observe(fn, names="value")
+
+
     def observe_save(self, fn):
-        """Registers the argument to be called when the save button is clicked.
+        """
+        Registers the argument to be called when the save button is clicked.
         
         The function is called with a single argument, which is the save button
         instance.
         """
         self.save_button.on_click(fn)
+
+
     def observe_review(self, fn):
         """Registers the argument to be called when the save button is clicked.
         
@@ -464,6 +551,8 @@ class ControlPanel(ipw.VBox):
         button instance.
         """
         self.review_button.on_click(fn)
+
+
     def observe_edit(self, fn):
         """Registers the argument to be called when the edit button is clicked.
         
@@ -471,14 +560,20 @@ class ControlPanel(ipw.VBox):
         instance.
         """
         self.edit_button.on_click(fn)
+
+
     @property
     def target(self):
         """Compute the current target selection."""
         return self.selection_panel.target
+    
+
     @property
     def annotation(self):
         """Compute the current annotation selection."""
         return self.selection_panel.annotation
+    
+
     @property
     def selection(self):
         """Compute the current selection."""

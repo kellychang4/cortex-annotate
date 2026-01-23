@@ -117,6 +117,7 @@ RUN mkdir -p /home/$NB_USER/.jupyter/custom
 COPY config/requirements.txt /build/
 RUN pip install -r /build/requirements.txt
 
+RUN pip install ipyvolume
 
 # Copy User Files ##############################################################
 
