@@ -26,7 +26,7 @@ init: |
   from struct import unpack
   
   # Define directories
-  dataset  = "studyforrest"
+  dataset  = "nyu-retinotopy"
   data_dir = op.join("/home", "jovyan", "datasets", dataset)
 
   # define flatmap kwargs
@@ -48,21 +48,49 @@ targets:
   # The "Participant" is a choice for the user. It will appear as a dropdown 
   # menu with these two options in the annotation tool.
   Participant:
-    - sub-01
-    - sub-02
-    - sub-03
-    - sub-04
-    - sub-05
-    - sub-06
-    - sub-09
-    - sub-10
-    - sub-14
-    - sub-15
-    - sub-16
-    - sub-17
-    - sub-18
-    - sub-19
-    - sub-20
+    - sub-wlsubj001
+    - sub-wlsubj004
+    - sub-wlsubj006
+    - sub-wlsubj007
+    - sub-wlsubj014
+    - sub-wlsubj019
+    - sub-wlsubj023
+    - sub-wlsubj042
+    - sub-wlsubj043
+    - sub-wlsubj045
+    - sub-wlsubj046
+    - sub-wlsubj055
+    - sub-wlsubj056
+    - sub-wlsubj057
+    - sub-wlsubj062
+    - sub-wlsubj064
+    - sub-wlsubj067
+    - sub-wlsubj071
+    - sub-wlsubj076
+    - sub-wlsubj079
+    - sub-wlsubj081
+    - sub-wlsubj083
+    - sub-wlsubj084
+    - sub-wlsubj085
+    - sub-wlsubj086
+    - sub-wlsubj087
+    - sub-wlsubj088
+    - sub-wlsubj090
+    - sub-wlsubj091
+    - sub-wlsubj092
+    - sub-wlsubj094
+    - sub-wlsubj095
+    - sub-wlsubj104
+    - sub-wlsubj105
+    - sub-wlsubj109
+    - sub-wlsubj114
+    - sub-wlsubj115
+    - sub-wlsubj116
+    - sub-wlsubj117
+    - sub-wlsubj118
+    - sub-wlsubj120
+    - sub-wlsubj122
+    - sub-wlsubj126
 
   # The "Hemisphere" is a choice for the user; as a list of two options, it will
   # appear as a dropdown menu with these two options in the annotation tool.
@@ -279,11 +307,13 @@ figures:
     # prepare hemisphere information
     hemi    = target["Hemisphere"]  # string
     fs_hemi = f"{hemi[0].lower()}h"
-
-    ny.cortex_plot(target["flatmap"], color = "angle", 
-      cmap = f"polar_angle_{fs_hemi}", axes = axes)
+    
+    ny.cortex_plot(target["flatmap"], 
+      color = { f"polar_angle_{fs_hemi}": target["flatmap"].properties["angle"] }, 
+      axes = axes)
   eccen: |
-    ny.cortex_plot(target["flatmap"], color = "eccen", cmap = "eccentricity", 
+    ny.cortex_plot(target["flatmap"], 
+      color = { "eccentricity": target["flatmap"].properties["eccen"] }, 
       axes = axes)
   vexpl: |
     ny.cortex_plot(target["flatmap"], color = "vexpl", cmap = "hot", 

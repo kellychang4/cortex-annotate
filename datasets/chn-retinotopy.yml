@@ -26,7 +26,7 @@ init: |
   from struct import unpack
   
   # Define directories
-  dataset  = "nod"
+  dataset  = "chn-retinotopy"
   data_dir = op.join("/home", "jovyan", "datasets", dataset)
 
   # define flatmap kwargs
@@ -57,6 +57,9 @@ targets:
     - sub-07
     - sub-08
     - sub-09
+    - sub-10
+    - sub-11
+    - sub-12
 
   # The "Hemisphere" is a choice for the user; as a list of two options, it will
   # appear as a dropdown menu with these two options in the annotation tool.
@@ -274,10 +277,12 @@ figures:
     hemi    = target["Hemisphere"]  # string
     fs_hemi = f"{hemi[0].lower()}h"
 
-    ny.cortex_plot(target["flatmap"], color = "angle", 
-      cmap = f"polar_angle_{fs_hemi}", axes = axes)
+    ny.cortex_plot(target["flatmap"], 
+      color = { f"polar_angle_{fs_hemi}": target["flatmap"].properties["angle"] }, 
+      axes = axes)
   eccen: |
-    ny.cortex_plot(target["flatmap"], color = "eccen", cmap = "eccentricity", 
+    ny.cortex_plot(target["flatmap"], 
+      color = { "eccentricity": target["flatmap"].properties["eccen"] }, 
       axes = axes)
   vexpl: |
     ny.cortex_plot(target["flatmap"], color = "vexpl", cmap = "hot", 

@@ -26,7 +26,7 @@ init: |
   from struct import unpack
   
   # Define directories
-  dataset  = "nsd"
+  dataset  = "studyforrest"
   data_dir = op.join("/home", "jovyan", "datasets", dataset)
 
   # define flatmap kwargs
@@ -48,14 +48,21 @@ targets:
   # The "Participant" is a choice for the user. It will appear as a dropdown 
   # menu with these two options in the annotation tool.
   Participant:
-    - subj01
-    - subj02
-    - subj03
-    - subj04
-    - subj05
-    - subj06
-    - subj07
-    - subj08
+    - sub-01
+    - sub-02
+    - sub-03
+    - sub-04
+    - sub-05
+    - sub-06
+    - sub-09
+    - sub-10
+    - sub-14
+    - sub-15
+    - sub-16
+    - sub-17
+    - sub-18
+    - sub-19
+    - sub-20
 
   # The "Hemisphere" is a choice for the user; as a list of two options, it will
   # appear as a dropdown menu with these two options in the annotation tool.
@@ -273,10 +280,12 @@ figures:
     hemi    = target["Hemisphere"]  # string
     fs_hemi = f"{hemi[0].lower()}h"
 
-    ny.cortex_plot(target["flatmap"], color = "angle", 
-      cmap = f"polar_angle_{fs_hemi}", axes = axes)
+    ny.cortex_plot(target["flatmap"], 
+      color = { f"polar_angle_{fs_hemi}": target["flatmap"].properties["angle"] }, 
+      axes = axes)
   eccen: |
-    ny.cortex_plot(target["flatmap"], color = "eccen", cmap = "eccentricity", 
+    ny.cortex_plot(target["flatmap"], 
+      color = { "eccentricity": target["flatmap"].properties["eccen"] }, 
       axes = axes)
   vexpl: |
     ny.cortex_plot(target["flatmap"], color = "vexpl", cmap = "hot", 
