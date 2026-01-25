@@ -8,7 +8,7 @@ Implementation code for the Cortex Viewer.
 
 # Imports ----------------------------------------------------------------------
 
-
+import glob
 import numpy as np
 import os.path as op
 import neuropythy as ny
@@ -25,6 +25,16 @@ class CortexViewerState:
     The state object for the Cortex Viewer tool.
     """
 
+    __PROPERTY_KWARGS = {
+        "angle" : { "func": lambda prop, h: { f"polar_angle_{h}": prop }, 
+                     "kwargs": { } },
+        "eccen" : { "func": lambda prop, _: { "eccentricity": prop }, 
+                     "kwargs": { } },
+        "vexpl" : { "func": lambda prop, _: prop, 
+                     "kwargs": { "cmap": "hot", "vmin": 0, "vmax": 100 } },
+    }
+
+
     def __init__(
             self, 
             annotation_widgets, 
@@ -36,22 +46,29 @@ class CortexViewerState:
         self.annotation_widgets = annotation_widgets 
         self.dataset_directory  = dataset_directory
 
-        # Prepare initial control panel
+        # Prepare initial values from annotation widget
         self.dataset_index    = self.get_dataset_index()
         self.dataset          = self.get_dataset_value()
         self.participant      = self.get_participant_value()
         self.hemisphere       = self.get_hemisphere_value() 
-        self.inflation_value  = inflation_value 
 
         # Prepare fsaverage data 
         self.fsaverage = ny.freesurfer_subject("fsaverage")
         self.tesselation, self.inflated = self._get_fsaverage()
 
-        # Prepare participant data 
-        self.midgray, self.curvature = self.load_participant()
+        # Set cortex viewer control panel values
+        self.inflation_value  = inflation_value 
+        self.overlay          = "curvature" # None = curvature by default
+
+        # Prepare participant 3d coordinate and mesh data
+        self.midgray, self.properties = self.load_participant()
         self.coordinates = self.update_coordinates()
         self.mesh        = self.update_mesh()
         self.color       = self.update_color()
+
+        # Store multicanvas and annotations
+        # self.multicanvas = self.get_multicanvas() # get current dataset multicanvas
+        # self.annotations = self.get_annotations() # get current dataset annotations
 
 
     def get_dataset_index(self):
@@ -64,9 +81,14 @@ class CortexViewerState:
         return self.annotation_widgets.titles[self.get_dataset_index()]
     
     
+    def _get_active_annotation_tool(self):
+        """Get the active multicanvas widget."""
+        return self.annotation_widgets.children[self.dataset_index]
+  
+
     def _get_active_selection(self):
         """Get the active selection panel widget."""
-        active_widget = self.annotation_widgets.children[self.dataset_index]
+        active_widget = self._get_active_annotation_tool()
         return active_widget.control_panel.selection_panel
     
   
@@ -102,6 +124,7 @@ class CortexViewerState:
         }
         return tesselation, inflated
 
+
     @classmethod
     def _read_coordinates(cls, filename):
         """Read cortical mesh coordinates from a <hemisphere>.3d.coordinates file."""
@@ -113,25 +136,33 @@ class CortexViewerState:
     
 
     @classmethod
-    def _read_curvature(cls, filename):
-        """Read cortical curvature data from a <hemisphere>.3d.curvature file."""
+    def _read_property(cls, filename):
+        """Read cortical property data from a <hemisphere>.3d.<property> file."""
         with open(filename, "rb") as f:
             values = f.read() # load file content
             fstr = "e" * (len(values) // 2)
-            curvature = np.array(unpack(fstr, values)).reshape((-1, ))
-        return curvature
+            prop = np.array(unpack(fstr, values)).reshape((-1, ))
+        return prop
 
 
     def load_participant(self): 
         """Load participant dataset based on current state."""
         # Locate participant directory and files
-        data_dir = op.join(self.dataset_directory, self.dataset.lower(), self.participant)
-        coordinates_file = op.join(data_dir, f"{self.hemisphere}.3d.coordinates")
-        curvature_file   = op.join(data_dir, f"{self.hemisphere}.3d.curvature")
+        participant_dir = op.join(
+            self.dataset_directory, self.dataset.lower(), self.participant)
+        filenames = glob.glob(op.join(participant_dir, f"{self.hemisphere}.3d.*"))
 
-        # Read participant cortical midgray coordinates and curvature data
-        return ( self._read_coordinates(coordinates_file),
-                 self._read_curvature(curvature_file) )
+        # Load participant midgray coordinates
+        coordinates_file = [x for x in filenames if x.endswith("coordinates")][0]
+        midgray = self._read_coordinates(coordinates_file)
+
+        # Load remaining property files
+        property_files = [x for x in filenames if x != coordinates_file]
+        properties = {} # initialize 
+        for fname in property_files: # for each property file
+            property_name = fname.split(".")[-1] # get property name
+            properties[property_name] = self._read_property(fname)
+        return ( midgray, properties )
     
 
     def update_coordinates(self):
@@ -145,13 +176,20 @@ class CortexViewerState:
         return ny.geometry.Mesh(
             faces       = self.tesselation[self.hemisphere],
             coordinates = self.coordinates,
-            properties  = { "curvature" : self.curvature }
+            properties  = self.properties
         )
     
 
     def update_color(self):
         """Update the cortical mesh color based on curvature."""
-        return ny.graphics.cortex_plot_colors(self.mesh)[:, :3]
+        if self.overlay == "curvature":
+            return ny.graphics.cortex_plot_colors(self.mesh)[:, :3]
+        else: # Get property kwargs and values 
+            prop_kwargs = CortexViewerState.__PROPERTY_KWARGS[self.overlay]
+            prop_value  = self.mesh.properties[self.overlay]
+            prop_color  = prop_kwargs["func"](prop_value, self.hemisphere)
+            return ny.graphics.cortex_plot_colors(
+                self.mesh, color = prop_color, **prop_kwargs["kwargs"])[:, :3]
 
 
     def update_figure(self):
@@ -190,6 +228,23 @@ class CortexViewerState:
         }   
 
 
+    # def get_multicanvas(self):
+    #     """Get the canvas widget for the current dataset."""
+    #     active_widget = self._get_active_annotation_tool()
+    #     return active_widget.figure_panel.multicanvas
+
+
+    # def get_annotations(self):
+    #     """Get the annotation widgets for the current dataset."""
+    #     active_widget = self._get_active_annotation_tool()
+    #     return active_widget.figure_panel.annotations
+
+
+    # def observe_multicanvas_mouse(self, callback):
+    #     """Assign a callback function to multicanvas mouse events."""
+    #     self.multicanvas.on_mouse_down(callback)
+
+
 # The Cortex Viewer Widget -----------------------------------------------------
 
 class CortexViewer(ipw.HBox):
@@ -224,6 +279,12 @@ class CortexViewer(ipw.HBox):
         # Assign inflation slider observer
         self.control_panel.observe_inflation_slider(self.on_inflation_slider)
 
+        # Assign overlay dropdown observer
+        self.control_panel.observe_overlay_dropdown(self.on_overlay_change)
+
+        # # Assign multicanvas mouse observer
+        # self.state.observe_multicanvas_mouse(self.on_multicanvas_event)
+
 
     def on_selection_change(self, key, change):
         """Handle changes to the dataset selection."""
@@ -243,9 +304,9 @@ class CortexViewer(ipw.HBox):
             self.control_panel.refresh_infobox(self.state, k)
 
         # Load the new participant data
-        self.state.midgray, self.state.curvature = self.state.load_participant()
+        self.state.midgray, self.state.properties = self.state.load_participant()
 
-        # Update the figure panel's mesh coordinates
+        # Update the figure panel's mesh values
         self.state.update_figure()
 
         # Update the figure
@@ -257,8 +318,27 @@ class CortexViewer(ipw.HBox):
         # Update the inflation value (internal state)
         self.state.inflation_value = change.new # percent, 0-100%
 
-        # Update the figure panel's mesh coordinates
+        # Update the figure panel's mesh values
         self.state.update_figure()
 
         # Update the figure with new coordinates
         self.figure_panel.refresh_figure(self.state)
+
+
+    def on_overlay_change(self, change):
+        """Handle changes to the overlay dropdown value."""
+        # Change dropdown value 
+        self.state.overlay = change.new  
+
+        # Update the mesh color based on the new overlay
+        self.state.color = self.state.update_color()
+ 
+        # Update the figure with new mesh properties
+        self.figure_panel.refresh_figure(self.state)
+
+
+    # def on_multicanvas_event(self, change):
+    #     """Handle multicanvas mouse events."""
+    #     annt = self.state.annotations
+
+    #     self.figure_panel.handle_multicanvas_event(self.state, change)

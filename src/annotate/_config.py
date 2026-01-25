@@ -22,6 +22,7 @@ def _compile_fn(argstr, codestr, init):
     loc = init.exec(f"def {name}({argstr}):\n{code}")
     return loc[name]
 
+
 class ConfigError(Exception):
     """An exception raised due to errors in the config.yaml file.
     
@@ -34,6 +35,7 @@ class ConfigError(Exception):
         super().__init__(f"{section}: {message}")
         self.section = section
         self.yaml = yaml
+
 
 class InitConfig:
     """An object that keeps track of the `init` section of `config.yaml`.
@@ -79,6 +81,8 @@ class InitConfig:
             glo = self.globals
         exec(code, glo, loc)
         return eval(code, glo, loc)
+    
+
 class DisplayConfig:
     """An object that tracks the configuration of the tool's image display.
 
@@ -144,6 +148,8 @@ class DisplayConfig:
         self.imsize = imsize
         self.plot_options = plot_opts
         self.fg_options = fg_opts
+
+
 class TargetsConfig(ldict):
     """A dict-like configuration item for the annotation tool's targets.
 
@@ -211,6 +217,8 @@ Annotation = namedtuple(
     'Annotation',
     ('grid', 'filter', 'type', 'plot_options', 'fixed_head', 'fixed_tail'),
     defaults=(None,None))
+
+
 class AnnotationsConfig(dict):
     """An object that stores the configuration of the annotations to be drawn.
 
@@ -317,6 +325,8 @@ class AnnotationsConfig(dict):
         self.all_figures = figs
         # Last thing to do is to make the annotation types dictionary.
         self.types = {k:v.type for (k,v) in self.items()}
+
+
 _BuiltinAnnotationBase = namedtuple(
     '_BuiltinAnnotationBase',
     ('type', 'filter', 'data', 'plot_options', 'target', 'cache'),
@@ -379,8 +389,11 @@ class BuiltinAnnotation(_BuiltinAnnotationBase):
         cache = self.cache if self.cache is None else []
         return BuiltinAnnotation(self.type, self.filter, self.data,
                                  self.plot_options, targ, cache)
+    
+
 class BuiltinAnnotationsConfig(dict):
-    """An object that stores the configuration of the builtin annotations.
+    """
+    An object that stores the configuration of the builtin annotations.
 
     The `BuiltinAnnotationsConfig` type tracks the contours and boundaries that
     are optionally drawn on the annotation targets for the `cortex-annotate`
@@ -451,7 +464,8 @@ class BuiltinAnnotationsConfig(dict):
         # Finally make the types dictionary.
         self.types = {k: v.type for (k,v) in self.items()}
 class FiguresConfig(dict):
-    """An object that stores configuration information for making figures.
+    """
+    An object that stores configuration information for making figures.
 
     The `FiguresConfig` type stores information from the `figures` section of
     the `config.yaml` file for the `cortex-annotate` project. It resembles a
@@ -513,7 +527,8 @@ class FiguresConfig(dict):
         # Same these into the dictionary.
         self.update(res)
 class ReviewConfig:
-    """An object that stores the configuration of the review panel.
+    """
+    An object that stores the configuration of the review panel.
 
     The `ReviewConfig` type stores information from the `review` section of the
     `config.yaml` file for the `cortex-annotate` project. This section stores
@@ -557,7 +572,8 @@ class ReviewConfig:
         self.dpi = yaml.get('dpi', 256)
         self.function = ReviewConfig._compile(self.code, init)
 class Config:
-    """The configuration object for the `cortex-annotate` project.
+    """
+    The configuration object for the `cortex-annotate` project.
 
     The `Config` class stores information about the configuration of the
     `cortex-annotate` project. The configuration is specified in the

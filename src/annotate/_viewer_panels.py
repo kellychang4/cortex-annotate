@@ -50,7 +50,20 @@ class CortexControlPanel(ipw.VBox):
             orientation       = "horizontal",
             readout           = True,
             readout_format    = "d", 
-            layout            = { "width" : "94%", "margin" : "0% 3% 3% 3%" } 
+            layout            = { "border": "1px solid purple", "width" : "94%", "margin" : "0% 3% 3% 3%" } 
+        )
+
+        # Create the overlay dropdown widget
+        self.overlay_dropdown = ipw.Dropdown(
+            options     = [
+                ( "None", "curvature" ), 
+                ( "Polar Angle", "angle" ), 
+                ( "Eccentricity", "eccen" ), 
+                ( "Variance Explained", "vexpl" )
+            ],
+            value       = "curvature",    
+            description = "Overlay:",
+            layout      = { "border": "1px solid green", "width" : "94%", "margin" : "0% 3% 3% 3%" }
         )
 
         # Assemble the control panel with children widgets
@@ -69,7 +82,11 @@ class CortexControlPanel(ipw.VBox):
             self._make_hline(), 
             # Inflation slider
             self.inflation_slider,
-        ]
+            # Horizontal line
+            self._make_hline(), 
+            # Overlay dropdown
+            self.overlay_dropdown,
+    ]
 
         # Set the overall layout into the VBox
         super().__init__(ch, layout = { "border": "1px solid blue", "width": "250px", "height": "100%" })
@@ -147,6 +164,13 @@ class CortexControlPanel(ipw.VBox):
         A method to register a callback for changes in the inflation slider.
         """
         self.inflation_slider.observe(callback, names = "value")
+
+
+    def observe_overlay_dropdown(self, callback):
+        """
+        A method to register a callback for changes in the overlay dropdown.
+        """
+        self.overlay_dropdown.observe(callback, names = "value")
 
 
 # The Cortex Figure Panel -----------------------------------------------

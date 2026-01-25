@@ -311,7 +311,7 @@ class ControlPanel(ipw.VBox):
     The panel that contains the controls for the Annotation Tool.
     """
     @classmethod
-    def _make_imagesize_slider(cls, initial_value=256):
+    def _make_image_size_slider(cls, initial_value=256):
         return ipw.IntSlider(value=initial_value, min=250, max=1280, step=1,
                              description="Image Size: ",
                              readout=False,
@@ -385,13 +385,13 @@ class ControlPanel(ipw.VBox):
     
     def __init__(
             self, state,
-            imagesize = 256,
+            image_size = 256,
             background_color  = "#f0f0f0", 
             save_button_color = "#e0e0e0"
         ):
         self.html_header = self._make_html_header(
             background_color, save_button_color)
-        self.imagesize_slider = self._make_imagesize_slider(imagesize)
+        self.image_size_slider = self._make_image_size_slider(image_size)
         self.selection_panel = SelectionPanel(state)
         self.style_panel     = StylePanel(state)
 
@@ -430,7 +430,7 @@ class ControlPanel(ipw.VBox):
             ipw.HTML("<b style=\"margin: 0% 3% 0% 3%;\">Selection:</b>"),
             self.selection_panel,
             hline,
-            self.imagesize_slider,
+            self.image_size_slider,
             hline,
             self.style_panel,
             hline,
@@ -524,14 +524,14 @@ class ControlPanel(ipw.VBox):
         self.style_panel.observe_style(fn)
 
 
-    def observe_imagesize(self, fn):
+    def observe_image_size(self, fn):
         """
         Registers the argument to be called when the image size changes.
 
-        `control_panel.observe_imagesize(fn)` is equivalent to
-        `control_panel.imagesize_slider.observe(fn, names="value")`.
+        `control_panel.observe_image_size(fn)` is equivalent to
+        `control_panel.image_size_slider.observe(fn, names="value")`.
         """
-        self.imagesize_slider.observe(fn, names="value")
+        self.image_size_slider.observe(fn, names="value")
 
 
     def observe_save(self, fn):
