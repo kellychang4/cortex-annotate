@@ -15,6 +15,7 @@ import neuropythy as ny
 import ipywidgets as ipw
 from struct import unpack
 from functools import partial
+from neuropythy.geometry.util import barycentric_to_cartesian
 
 from ._viewer_panels import CortexControlPanel, CortexFigurePanel
 
@@ -24,6 +25,12 @@ class CortexViewerState:
     """
     The state object for the Cortex Viewer tool.
     """
+    
+    __FLATMAP_KWARGS = {
+        "mask"      : ( "parcellation", 43 ), 
+        "map_right" : "right", 
+        "radius"    : np.pi / 2
+    }
 
     __PROPERTY_KWARGS = {
         "angle" : { "func": lambda prop, h: { f"polar_angle_{h}": prop }, 
@@ -51,24 +58,26 @@ class CortexViewerState:
         self.dataset          = self.get_dataset_value()
         self.participant      = self.get_participant_value()
         self.hemisphere       = self.get_hemisphere_value() 
+        self.annotation       = self.get_annotation_value()
 
         # Prepare fsaverage data 
-        self.fsaverage = ny.freesurfer_subject("fsaverage")
-        self.tesselation, self.inflated = self._get_fsaverage()
+        self.fsaverage = self._get_fsaverage()
 
         # Set cortex viewer control panel values
         self.inflation_value  = inflation_value 
         self.overlay          = "curvature" # None = curvature by default
-
+        
+        #TODO: optimize everything below this!!!
         # Prepare participant 3d coordinate and mesh data
         self.midgray, self.properties = self.load_participant()
         self.coordinates = self.update_coordinates()
         self.mesh        = self.update_mesh()
         self.color       = self.update_color()
 
-        # Store multicanvas and annotations
-        # self.multicanvas = self.get_multicanvas() # get current dataset multicanvas
-        # self.annotations = self.get_annotations() # get current dataset annotations
+        # Prepare the annotations data
+        self.flatmap_annotations = self.get_flatmap_annotations()
+        self.surface_annotations = self.update_surface_annotations()
+        self.surface_paths       = self.update_surface_paths()
 
 
     def get_dataset_index(self):
@@ -78,7 +87,7 @@ class CortexViewerState:
 
     def get_dataset_value(self):
         """Get the current dataset selection widget."""
-        return self.annotation_widgets.titles[self.get_dataset_index()]
+        return self.annotation_widgets.titles[self.dataset_index]
     
     
     def _get_active_annotation_tool(self):
@@ -102,7 +111,7 @@ class CortexViewerState:
         """Format hemisphere value for internal usage."""
         if hemisphere.lower().startswith("l"): return "lh" 
         return "rh" # else return "rh"
-
+    
 
     def get_hemisphere_value(self):
         """Get the current hemisphere selection widget."""
@@ -111,18 +120,32 @@ class CortexViewerState:
         return self.format_hemisphere(hemisphere)
     
 
+    def get_annotation_value(self):
+        """Get the current annotation selection widget."""
+        active_selection = self._get_active_selection()
+        return active_selection.children[2].value
+    
+    
+    def get_flatmap_annotations(self):
+        """Get the annotation tool's annotation dictionary"""
+        active_widget = self._get_active_annotation_tool()
+        return active_widget.figure_panel.annotations
+    
+
     def _get_fsaverage(self):
         """load fsaverage tesselations and inflated surface coordinates."""
-        tesselation = { 
-            h: self.fsaverage.hemis[h].tess.faces 
-            for h in ( "lh", "rh" )
+        # Load the fsaverage object
+        fsa = ny.freesurfer_subject("fsaverage")
+        
+        # Return fsaverage dictionary values
+        return {
+            h: {
+                "tesselation": fsa.hemis[h].tess.faces, 
+                "inflated"   : fsa.hemis[h].surface("inflated").coordinates, 
+                "flatmap"    : fsa.hemis[h].mask_flatmap(
+                    **CortexViewerState.__FLATMAP_KWARGS)
+            } for h in ( "lh", "rh" )
         }
-
-        inflated = {
-            h: self.fsaverage.hemis[h].surface("inflated").coordinates 
-            for h in ( "lh", "rh" )
-        }
-        return tesselation, inflated
 
 
     @classmethod
@@ -167,14 +190,14 @@ class CortexViewerState:
 
     def update_coordinates(self):
         """Update the cortical mesh coordinates based on the inflation value."""
-        return ((self.inflated[self.hemisphere] - self.midgray) * \
+        return ((self.fsaverage[self.hemisphere]["inflated"] - self.midgray) * \
                 (self.inflation_value / 100.0)) + self.midgray
 
 
     def update_mesh(self):
         """Update the cortical mesh object based on the current state."""
         return ny.geometry.Mesh(
-            faces       = self.tesselation[self.hemisphere],
+            faces       = self.fsaverage[self.hemisphere]["tesselation"],
             coordinates = self.coordinates,
             properties  = self.properties
         )
@@ -192,11 +215,68 @@ class CortexViewerState:
                 self.mesh, color = prop_color, **prop_kwargs["kwargs"])[:, :3]
 
 
+    #TODO: personally dislike the lack of a return...
     def update_figure(self):
         """Update the cortical mesh rendering based on the current state."""
         self.coordinates = self.update_coordinates()
         self.mesh        = self.update_mesh()
         self.color       = self.update_color()
+        
+
+    def update_surface_annotations(self):
+        """Update the cortical surface annotation coordinates."""
+        # Get flatmap annotation coordinates
+        flatmap_coordinates = self.flatmap_annotations[self.annotation]
+
+        # Get flatmap addresses 
+        flatmap_addresses = self.fsaverage[self.hemisphere]["flatmap"].address(
+            flatmap_coordinates)
+        
+        # Extract faces and barycentric coordinates
+        bary_faces  = flatmap_addresses["faces"] # (3, n_points)
+        bary_coords = flatmap_addresses["coordinates"]  # (n_points, 2)
+
+        # Extract bary-relevant vertices from the current mesh
+        tx = self.mesh.coordinates[:, bary_faces].T # (n_points, 3, 3)
+ 
+        # Return surface annotation coordinates
+        return barycentric_to_cartesian(tx, bary_coords) # (3, n_points)
+        
+    
+    def update_surface_paths(self, n = 10):
+        # Initalize surface path matrix
+        surface_paths = np.array([[], [], []])
+
+        # Get flatmap annotation coordinates
+        flatmap_coords = self.flatmap_annotations[self.annotation]
+
+        if flatmap_coords.shape[0] < 2: # one point = no path
+            return surface_paths
+
+        for i in np.arange(flatmap_coords.shape[0] - 1): 
+            # Interpolate between the current flatmap coodinates
+            curr_coords = flatmap_coords[i:(i+2), :] 
+            xs = np.linspace(curr_coords[0, 0], curr_coords[1, 0], n + 2)
+            ys = np.linspace(curr_coords[0, 1], curr_coords[1, 1], n + 2)
+
+            # Get flatmap addresses 
+            flatmap_addresses = self.fsaverage[self.hemisphere]["flatmap"].address([xs, ys])
+
+            # Extract faces and barycentric coordinates
+            bary_faces  = flatmap_addresses["faces"] # (3, n_points)
+            bary_coords = flatmap_addresses["coordinates"]  # (n_points, 2)
+
+            # Extract bary-relevant vertices from the current mesh
+            tx = self.mesh.coordinates[:, bary_faces].T # (n_points, 3, 3)
+    
+            # Calculate Barycentric to Cartesian coordinates
+            surface_coordinates = barycentric_to_cartesian(tx, bary_coords)
+
+            # Append to coordinates to surface paths matrix
+            surface_paths = np.concatenate((surface_paths, surface_coordinates), axis = 1)
+
+        # Return surface paths without duplicated points
+        return np.unique(surface_paths, axis = 1)
 
 
     def _observe_dataset(self, callback):
@@ -217,32 +297,23 @@ class CortexViewerState:
             hemisphere_dropdown = annotation_widget.control_panel.selection_panel.children[1]
             hemisphere_dropdown.observe(callback, names = "value")
 
+    
+    def _observe_annotation(self, callback):
+        """Assign a callback function to annotation value changes."""
+        for annotation_widget in self.annotation_widgets.children:
+            annotation_dropdown = annotation_widget.control_panel.selection_panel.children[2]
+            annotation_dropdown.observe(callback, names = "value")
+
 
     @property
-    def observer_functions(self):
+    def _observer_functions(self):
         """Return a list of observer functions for the Cortex Viewer state."""
         return {
             "dataset"     : self._observe_dataset,
             "participant" : self._observe_participant,
             "hemisphere"  : self._observe_hemisphere,
+            "annotation"  : self._observe_annotation,
         }   
-
-
-    # def get_multicanvas(self):
-    #     """Get the canvas widget for the current dataset."""
-    #     active_widget = self._get_active_annotation_tool()
-    #     return active_widget.figure_panel.multicanvas
-
-
-    # def get_annotations(self):
-    #     """Get the annotation widgets for the current dataset."""
-    #     active_widget = self._get_active_annotation_tool()
-    #     return active_widget.figure_panel.annotations
-
-
-    # def observe_multicanvas_mouse(self, callback):
-    #     """Assign a callback function to multicanvas mouse events."""
-    #     self.multicanvas.on_mouse_down(callback)
 
 
 # The Cortex Viewer Widget -----------------------------------------------------
@@ -274,7 +345,7 @@ class CortexViewer(ipw.HBox):
 
         # Assign dataset, participant, and hemisphere observers
         for k in self.control_panel.infobox.keys():
-            self.state.observer_functions[k](partial(self.on_selection_change, k))
+            self.state._observer_functions[k](partial(self.on_selection_change, k))
 
         # Assign inflation slider observer
         self.control_panel.observe_inflation_slider(self.on_inflation_slider)
@@ -282,32 +353,44 @@ class CortexViewer(ipw.HBox):
         # Assign overlay dropdown observer
         self.control_panel.observe_overlay_dropdown(self.on_overlay_change)
 
-        # # Assign multicanvas mouse observer
-        # self.state.observe_multicanvas_mouse(self.on_multicanvas_event)
-
 
     def on_selection_change(self, key, change):
         """Handle changes to the dataset selection."""
         # Update the control panel information
+        #TODO: this is a mess, please keep up the logic
         if key == "dataset":
             self.state.dataset_index = change.new
             self.state.dataset       = self.state.get_dataset_value()
             self.state.participant   = self.state.get_participant_value()
             self.state.hemisphere    = self.state.get_hemisphere_value() 
+            self.state.annotation    = self.state.get_annotation_value()
+            self.state.flatmap_annotations = self.state.get_flatmap_annotations()
+            self.state.midgray, self.state.properties = self.state.load_participant()
         elif key == "participant":
             self.state.participant   = change.new
+            self.state.annotation    = self.state.get_annotation_value()
+            self.state.flatmap_annotations = self.state.get_flatmap_annotations()
+            self.state.midgray, self.state.properties = self.state.load_participant()
         elif key == "hemisphere":
             self.state.hemisphere    = self.state.format_hemisphere(change.new)
-
+            self.state.annotation    = self.state.get_annotation_value()
+            self.state.flatmap_annotations = self.state.get_flatmap_annotations()
+            self.state.midgray, self.state.properties = self.state.load_participant()
+        elif key == "annotation": 
+            self.state.annotation          = change.new
+            self.state.flatmap_annotations = self.state.get_flatmap_annotations()
+            
         # Update the infobox displays
         for k in self.control_panel.infobox.keys():
             self.control_panel.refresh_infobox(self.state, k)
 
-        # Load the new participant data
-        self.state.midgray, self.state.properties = self.state.load_participant()
-
         # Update the figure panel's mesh values
-        self.state.update_figure()
+        # self.state.update_figure()
+        self.state.coordinates = self.state.update_coordinates()
+        self.state.mesh        = self.state.update_mesh()
+        self.state.color       = self.state.update_color()
+        self.state.surface_annotations = self.state.update_surface_annotations()
+        self.state.surface_paths       = self.state.update_surface_paths()
 
         # Update the figure
         self.figure_panel.refresh_figure(self.state)
@@ -319,7 +402,14 @@ class CortexViewer(ipw.HBox):
         self.state.inflation_value = change.new # percent, 0-100%
 
         # Update the figure panel's mesh values
-        self.state.update_figure()
+        # self.state.update_figure()
+        self.state.coordinates = self.state.update_coordinates()
+        self.state.mesh        = self.state.update_mesh()
+        self.state.color       = self.state.update_color()
+        
+        # Update the annotation coordinates
+        self.state.surface_annotations = self.state.update_surface_annotations()
+        self.state.surface_paths       = self.state.update_surface_paths()
 
         # Update the figure with new coordinates
         self.figure_panel.refresh_figure(self.state)
@@ -336,9 +426,3 @@ class CortexViewer(ipw.HBox):
         # Update the figure with new mesh properties
         self.figure_panel.refresh_figure(self.state)
 
-
-    # def on_multicanvas_event(self, change):
-    #     """Handle multicanvas mouse events."""
-    #     annt = self.state.annotations
-
-    #     self.figure_panel.handle_multicanvas_event(self.state, change)

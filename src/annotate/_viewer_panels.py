@@ -36,8 +36,8 @@ class CortexControlPanel(ipw.VBox):
 
         # Create information boxes
         self.infobox = {} # initialize infobox dictionary
-        for key in ( "dataset", "participant", "hemisphere" ):
-            self.infobox[key] = self.make_infobox(state, key)
+        for key in ( "dataset", "participant", "hemisphere", "annotation" ):
+            self.infobox[key] = self._make_infobox(state, key)
         
         # Create the inflation slider widget
         self.inflation_slider = ipw.IntSlider(
@@ -78,6 +78,8 @@ class CortexControlPanel(ipw.VBox):
             self.infobox["participant"],
             # Hemisphere label
             self.infobox["hemisphere"],
+            # Annotation label
+            self.infobox["annotation"],
             # Horizontal line
             self._make_hline(), 
             # Inflation slider
@@ -86,7 +88,8 @@ class CortexControlPanel(ipw.VBox):
             self._make_hline(), 
             # Overlay dropdown
             self.overlay_dropdown,
-    ]
+            # 
+        ]
 
         # Set the overall layout into the VBox
         super().__init__(ch, layout = { "border": "1px solid blue", "width": "250px", "height": "100%" })
@@ -130,20 +133,22 @@ class CortexControlPanel(ipw.VBox):
         elif key == "hemisphere":
             hemisphere = state.hemisphere.lower()
             return "Left Hemisphere" if hemisphere.startswith("l") else "Right Hemisphere"
+        else: # key == "annotation"
+            return state.annotation
 
 
-    def make_infobox_value(self, value):
+    def _make_infobox_value(self, value):
         """Create a value display for the given infobox content."""
         return f"""<div class="info-value">{value}</div>"""
     
 
-    def make_infobox(self, state, key):
+    def _make_infobox(self, state, key):
         """Update an information box for the given key and state."""
         content = self._format_infobox_value(state, key)
         return ipw.Box([
             ipw.HTML(f"""<div class="info-label"><b>{key.capitalize()}</b>:</div>""",
                      layout = { "width": "40%", "margin": "0px" }),
-            ipw.HTML(self.make_infobox_value(content), 
+            ipw.HTML(self._make_infobox_value(content), 
                      layout = { "width": "60%", "margin": "0px" }),
         ], layout = ipw.Layout(
             display = "flex",
@@ -156,7 +161,7 @@ class CortexControlPanel(ipw.VBox):
     def refresh_infobox(self, state, key):
         """Refresh the control panel display to reflect updated infobox values."""
         content = self._format_infobox_value(state, key)
-        self.infobox[key].children[1].value = self.make_infobox_value(content)
+        self.infobox[key].children[1].value = self._make_infobox_value(content)
 
 
     def observe_inflation_slider(self, callback): 
@@ -189,20 +194,77 @@ class CortexFigurePanel(ipw.HBox):
             animation_exponent = 1
         )
                     
-        # Draw the cortex plot
+        # Draw the cortex plot (meshes) onto the figure
         self.figure = ny.cortex_plot(
             mesh   = state.mesh, 
             view   = "left" if state.hemisphere == "lh" else "right",
             figure = self.figure, 
         )
+        
+        # Add scatter plots for annotations ( points and lines )
+        self.figure.scatters = [
+            # Annotations surface points (user selected)
+            self._create_surface_annotations(state),
+            # Annotation surface paths (interpolated)
+            self._create_surface_paths(state)
+        ]
 
         super().__init__([self.figure])
 
 
+    def _empty_scatter(self):
+        """Create an empty scatter plot."""
+        return ipv.scatter(0, 0, 0, size = 0, marker = "sphere")
+    
+
+    def _create_surface_annotations(self, state):
+        """Initialize the scatter plot for the surface annotations."""
+        if state.surface_annotations.shape[1] == 0:
+            return self._empty_scatter()
+        return ipv.scatter(
+            state.surface_annotations[0, :], 
+            state.surface_annotations[1, :], 
+            state.surface_annotations[2, :], 
+            size   = 1.5, 
+            color  = "magenta", 
+            marker = "sphere"
+        )
+
+
+    def _create_surface_paths(self, state):
+        """Initialize the scatter plot for the surface paths."""
+        if state.surface_paths.shape[1] == 0:
+            return self._empty_scatter()
+        return ipv.scatter(
+            state.surface_paths[0, :], 
+            state.surface_paths[1, :], 
+            state.surface_paths[2, :], 
+            size   = 0.5, 
+            color  = "blue", 
+            marker = "sphere"
+        )
+
+
     def refresh_figure(self, state):
         """Update the existing figure with the new mesh coordinates."""
+        # Update the figure panel's mesh values
         cortex_mesh       = self.figure.meshes[0] 
         cortex_mesh.x     = state.coordinates[0, :]
         cortex_mesh.y     = state.coordinates[1, :]
         cortex_mesh.z     = state.coordinates[2, :]
         cortex_mesh.color = state.color
+        
+        # Update the annotation points (user selected)
+        scatter_points       = self.figure.scatters[0]
+        scatter_points.x     = state.surface_annotations[0, :]
+        scatter_points.y     = state.surface_annotations[1, :]
+        scatter_points.z     = state.surface_annotations[2, :]
+        scatter_points.color = "magenta"
+        scatter_points.size  = 1.5
+        
+        scatter_lines       = self.figure.scatters[1]
+        scatter_lines.x     = state.surface_paths[0, :]
+        scatter_lines.y     = state.surface_paths[1, :]
+        scatter_lines.z     = state.surface_paths[2, :]
+        scatter_lines.color = "blue"
+        scatter_lines.size  = 0.5

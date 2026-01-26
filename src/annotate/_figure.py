@@ -2,8 +2,8 @@
 ################################################################################
 # annotate/_figure.py
 
-"""Core implementation code for the cortex-annotate tool's figure panel.
-
+"""
+Core implementation code for the cortex-annotate tool's figure panel.
 """
 
 
@@ -101,15 +101,15 @@ class FigurePanel(ipw.HBox):
         """)
         # We always seem to need to explicitly set the layout size in pixels.
         imsz = f"{imsz}px"
-        self.multicanvas.layout.width = imsz
+        self.multicanvas.layout.width  = imsz
         self.multicanvas.layout.height = imsz
         # Separate out the two canvases.
-        self.image_canvas = self.multicanvas[0]
-        self.draw_canvas = self.multicanvas[1]
-        self.fg_canvas = self.multicanvas[2]
-        self.loading_canvas = self.multicanvas[3]
+        self.image_canvas     = self.multicanvas[0]
+        self.draw_canvas      = self.multicanvas[1]
+        self.fg_canvas        = self.multicanvas[2]
+        self.loading_canvas   = self.multicanvas[3]
         self.reviewing_canvas = self.multicanvas[4]
-        self.message_canvas = self.multicanvas[5]
+        self.message_canvas   = self.multicanvas[5]
         # Draw the loading screen on the loading canvas and save it.
         self.draw_loading(self.loading_canvas)
         self.loading_canvas.save()
@@ -119,8 +119,7 @@ class FigurePanel(ipw.HBox):
         self.draw_loading(self.reviewing_canvas, review_msg)
         self.reviewing_canvas.save()
         self.reviewing_context = FigurePanel.LoadingContext(
-            self.reviewing_canvas,
-            review_msg)
+            self.reviewing_canvas, review_msg)
         # Set up our event observers for clicks/tabs/backspaces.
         self.multicanvas.on_key_down(self.on_key_press)
         self.multicanvas.on_mouse_down(self.on_mouse_click)
@@ -193,8 +192,8 @@ class FigurePanel(ipw.HBox):
     def cellshape(self):
         "Returns the `(width, height)` in pixels of one cell of the image grid."
         imwidth = self.image_size
-        (figw, figh) = self.state.config.display.figsize
-        imheight = imwidth * figh / figw
+        (figure_width, figure_height) = self.state.config.display.figure_size
+        imheight = imwidth * figure_height / figure_width
         return (imwidth, imheight)
     
     
@@ -207,7 +206,7 @@ class FigurePanel(ipw.HBox):
         xlim = (0, imwidth) if self.xlim is None else self.xlim
         ylim = (0, imheight) if self.ylim is None else self.ylim
         # First, make the basic conversion.
-        points = points - [xlim[0], ylim[0]]
+        points  = points - [xlim[0], ylim[0]]
         points *= [imwidth / (xlim[1] - xlim[0]),
                    imheight / (ylim[1] - ylim[0])]
         # Then invert the y-axis
