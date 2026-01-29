@@ -6,6 +6,7 @@ services:
       volumes:
          - ${PWD}/save:/save:rw
          - ${PWD}/cache:/cache:rw
+         - ${PWD}/config:/config:r
          - ${PWD}:/git:r
       environment:
         - DOCKER_STACKS_JUPYTER_CMD=notebook

@@ -8,12 +8,12 @@ display:
   figsize: [4, 4]
   dpi: 128
   plot_options:
-    color: [0.97, 0.97, 0.97]
+    color: [0.55, 0.55, 0.9]
     markersize: 0
     linewidth: 2
     linestyle: "solid"
   fg_options:
-    color: [0.55, 0.55, 0.9]
+    color: [0.97, 0.97, 0.97]
     markersize: 2
 
 init: |
@@ -26,7 +26,7 @@ init: |
   from struct import unpack
   
   # Define directories
-  dataset  = "nod"
+  dataset  = "chn-retinotopy"
   data_dir = op.join("/home", "jovyan", "datasets", dataset)
 
   # define flatmap kwargs
@@ -57,6 +57,9 @@ targets:
     - sub-07
     - sub-08
     - sub-09
+    - sub-10
+    - sub-11
+    - sub-12
 
   # The "Hemisphere" is a choice for the user; as a list of two options, it will
   # appear as a dropdown menu with these two options in the annotation tool.
@@ -68,10 +71,10 @@ targets:
   flatmap: |
     # get dropdown selections from above choices.
     participant = target["Participant"] # string
-    hemi        = target["Hemisphere"]  # string
+    hemisphere  = target["Hemisphere"]  # string
 
     # format dropdown items
-    fs_hemi = f"{hemi[0].lower()}h"
+    fs_hemi = f"{hemisphere[0].lower()}h"
 
     # define participant directory
     participant_dir = op.join(data_dir, participant)
@@ -93,6 +96,7 @@ targets:
 
     # attatch and return properties to fsaverage flatmap
     return participant_flatmap.with_prop(props)
+
 
 annotations:
   # V1 contours:
@@ -271,8 +275,8 @@ figures:
     axes.set_ylim((ymin, ymax))
   angle: |
     # prepare hemisphere information
-    hemi    = target["Hemisphere"]  # string
-    fs_hemi = f"{hemi[0].lower()}h"
+    hemisphere = target["Hemisphere"]  # string
+    fs_hemi    = f"{hemisphere[0].lower()}h"
 
     ny.cortex_plot(target["flatmap"], 
       color = { f"polar_angle_{fs_hemi}": target["flatmap"].properties["angle"] }, 

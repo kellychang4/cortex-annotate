@@ -7,10 +7,11 @@
 
 # Dependencies #################################################################
 
+
+import os
+import yaml
 import numpy as np
-import yaml, os
 from collections import namedtuple
-from itertools import product
 
 from ._util import (delay, ldict)
 
@@ -30,11 +31,13 @@ class ConfigError(Exception):
     encountered while parsing the `config.yaml` file used to configure the
     `cortex-annotate` project.
     """
-    __slots__ = ('section', 'yaml')
-    def __init__(self, section, message, yaml=None):
+    
+    __slots__ = ( "section", "yaml" )
+   
+    def __init__(self, section, message, yaml = None):
         super().__init__(f"{section}: {message}")
         self.section = section
-        self.yaml = yaml
+        self.yaml    = yaml
 
 
 class InitConfig:
@@ -47,8 +50,10 @@ class InitConfig:
     one to, for example, import a library in the init block that is then
     available throughout the config file.
     """
-    __slots__ = ('code', 'locals', 'globals')
-    def __init__(self, code, globals=None, locals=None):
+    
+    __slots__ = ( "code", "locals", "globals" )
+    
+    def __init__(self, code, globals = None, locals = None):
         if code is None:
             code = 'None'
         if not isinstance(code, str):
@@ -56,7 +61,7 @@ class InitConfig:
         self.code = code
         # Hack to get the globals function back:
         globs = globals
-        globals = eval('globals', {}, None)
+        globals = eval("globals", {}, None)
         # Save the passed values.
         self.locals = {} if locals is None else locals
         self.globals = globals().copy() if globs is None else globs
@@ -89,26 +94,28 @@ class DisplayConfig:
     The `DisplayConfig` type keeps track of the `display` section of the
     `config.yaml` file for the `cortex-annotate` project.
     """
-    __slots__ = ('figsize', 'dpi', 'imsize', 'plot_options', 'fg_options')
+    
+    __slots__ = ( "figure_size", "dpi", "imsize", "plot_options", "fg_options" )
+    
     def __init__(self, disp):
         from numbers import (Real, Integral)
         from ._core import AnnotationState
         if disp is None: disp = {}
-        figsize0 = figsize = disp.get('figsize', [4,4])
-        if not isinstance(figsize, (list,tuple)):
-            figsize = [figsize, figsize]
-        if not all(isinstance(u, Real) and u > 0 for u in figsize):
+        figure_size0 = figure_size = disp.get('figure_size', [4,4])
+        if not isinstance(figure_size, (list,tuple)):
+            figure_size = [figure_size, figure_size]
+        if not all(isinstance(u, Real) and u > 0 for u in figure_size):
             raise ConfigError("display",
-                              "invalid figsize in config.display: {figsize0}",
+                              "invalid figure_size in config.display: {figure_size0}",
                               disp)
-        figsize = tuple(figsize)
+        figure_size = tuple(figure_size)
         dpi = disp.get('dpi', 128)
         if not isinstance(dpi, Integral) or dpi < 1:
             raise ConfigError("display",
                               "invalid dpi in config.display: {dpi}",
                               disp)
         # Compute the image size.
-        imsize = (round(dpi*figsize[0]), round(dpi*figsize[0]))
+        imsize = (round(dpi*figure_size[0]), round(dpi*figure_size[0]))
         # Extract the plot options and foreground options.
         plot_opts = disp.get('plot_options', {})
         if not isinstance(plot_opts, dict):
@@ -143,7 +150,7 @@ class DisplayConfig:
         # plot options are the defaults for the fg options.
         fg_opts = dict(plot_opts, **fg_opts)
         # That's the whole section; we can set values and return now.
-        self.figsize = figsize
+        self.figure_size = figure_size
         self.dpi = dpi
         self.imsize = imsize
         self.plot_options = plot_opts
@@ -161,7 +168,9 @@ class TargetsConfig(ldict):
     to the `target` dictionary for the target that is identified by the values
     for the ordered concrete key `id1, id2...`.
     """
+    
     __slots__ = ('items', 'concrete_keys')
+    
     @staticmethod
     def _reify_target(items, concrete_keys, targ):
         """Builds up and returns an `ldict` of the all target data.
@@ -182,6 +191,8 @@ class TargetsConfig(ldict):
             else:
                 d[k] = delay(v, ldict(d))
         return d
+    
+
     def __init__(self, yaml, init):
         from itertools import product
         if yaml is None:
@@ -213,19 +224,24 @@ class TargetsConfig(ldict):
         self.concrete_keys = concrete_keys
         self.items = items
         self.update(d)
+
+
 Annotation = namedtuple(
-    'Annotation',
-    ('grid', 'filter', 'type', 'plot_options', 'fixed_head', 'fixed_tail'),
-    defaults=(None,None))
+    "Annotation",
+    ( "grid", "filter", "type", "plot_options", "fixed_head", "fixed_tail" ),
+    defaults = ( None, None )
+)
 
-
+  
 class AnnotationsConfig(dict):
     """An object that stores the configuration of the annotations to be drawn.
 
     The `AnnotationsConfig` type tracks the contours and boundaries that are to
     be drawn on the annotation targets for the `cortex-annotate` project.
     """
-    __slots__ = ('all_figures', 'types')
+    
+    __slots__ = ( "all_figures", "types" )
+    
     def __init__(self, yaml, init):
         from ._core import AnnotationState
         # The yaml should just contain entries for the annotations.
@@ -239,13 +255,13 @@ class AnnotationsConfig(dict):
         for (k,v) in yaml.items():
             if isinstance(v, list):
                 # It is legal to just provide the grid.
-                v = {'grid': v}
+                v = { "grid": v }
             if not isinstance(v, dict):
                 raise ConfigError(f"annotations.{k}",
                                   f"annotation {k} must be a list or mapping",
                                   yaml)
             # Now just go through and parse the options.
-            plot_opts = v.get('plot_options', {})
+            plot_opts = v.get("plot_options", {})
             if not isinstance(plot_opts, dict):
                 raise ConfigError(f"annotations.{k}", 
                                   "annotation plot_options must be mappings",
@@ -331,10 +347,16 @@ _BuiltinAnnotationBase = namedtuple(
     '_BuiltinAnnotationBase',
     ('type', 'filter', 'data', 'plot_options', 'target', 'cache'),
     defaults=(None, []))
+
+
 class BuiltinAnnotation(_BuiltinAnnotationBase):
+
     __slots__ = ()
+    
     def __new__(cls, *args, **kw):
         return _BuiltinAnnotationBase.__new__(cls, *args, **kw)
+    
+    
     def __init__(self, *args, **kw):
         if self.cache is None:
             pass
@@ -342,6 +364,8 @@ class BuiltinAnnotation(_BuiltinAnnotationBase):
             raise ValueError("cache must be a list")
         elif len(self.cache) > 1:
             raise ValueError("cache must be an empty or 1-element list")
+    
+    
     def get_data(self, target=None):
         if target is None:
             target = self.target
@@ -392,14 +416,15 @@ class BuiltinAnnotation(_BuiltinAnnotationBase):
     
 
 class BuiltinAnnotationsConfig(dict):
-    """
-    An object that stores the configuration of the builtin annotations.
+    """An object that stores the configuration of the builtin annotations.
 
     The `BuiltinAnnotationsConfig` type tracks the contours and boundaries that
     are optionally drawn on the annotation targets for the `cortex-annotate`
     project.
     """
-    __slots__ = ('types')
+    
+    __slots__ = ( "types" )
+    
     def __init__(self, yaml, init):
         from ._core import AnnotationState
         # The yaml should just contain entries for the annotations.
@@ -463,9 +488,10 @@ class BuiltinAnnotationsConfig(dict):
         self.update(annots)
         # Finally make the types dictionary.
         self.types = {k: v.type for (k,v) in self.items()}
+
+
 class FiguresConfig(dict):
-    """
-    An object that stores configuration information for making figures.
+    """An object that stores configuration information for making figures.
 
     The `FiguresConfig` type stores information from the `figures` section of
     the `config.yaml` file for the `cortex-annotate` project. It resembles a
@@ -473,13 +499,17 @@ class FiguresConfig(dict):
     Python functions (which require the arguments `target`, `key`, `figure`, and
     `axes`) that generate the appropriate figure.
     """
-    __slots__ = ('yaml')
+    
+    __slots__ = ( "yaml" )
+    
     @staticmethod
     def _compile_figfn(code, initcode, termcode, initcfg):
         return _compile_fn(
-            "target, key, figure, axes, figsize, dpi, meta_data",
+            "target, key, figure, axes, figure_size, dpi, meta_data",
             f"{initcode}\n{code}\n{termcode}",
             initcfg)
+    
+    
     def __init__(self, yaml, init, all_figures):
         if not isinstance(yaml, dict):
             raise ConfigError("figures",
@@ -526,9 +556,10 @@ class FiguresConfig(dict):
                                                       init)
         # Same these into the dictionary.
         self.update(res)
+
+
 class ReviewConfig:
-    """
-    An object that stores the configuration of the review panel.
+    """An object that stores the configuration of the review panel.
 
     The `ReviewConfig` type stores information from the `review` section of the
     `config.yaml` file for the `cortex-annotate` project. This section stores
@@ -541,18 +572,22 @@ class ReviewConfig:
     before completing the annotations. If an error is raised from this function,
     then the error message is printed to the display.
     """
-    __slots__ = ('code', 'function', 'figsize', 'dpi')
+
+    __slots__ = ( "code", "function", "figure_size", "dpi" )
+    
     @staticmethod
     def _compile(code, initcfg):
         return _compile_fn(
             "target, annotations, figure, axes, save_hooks",
             f"{code}\n",
             initcfg)
+    
+
     def __init__(self, yaml, init):
         if yaml is None:
             self.code = None
             self.function = None
-            self.figsize = None
+            self.figure_size = None
             self.dpi = None
             return
         elif isinstance(yaml, str):
@@ -568,12 +603,13 @@ class ReviewConfig:
                 "review",
                 "review section must contain the key function",
                 yaml)
-        self.figsize = yaml.get('figsize', (3,3))
+        self.figure_size = yaml.get('figure_size', (3,3))
         self.dpi = yaml.get('dpi', 256)
         self.function = ReviewConfig._compile(self.code, init)
+
+
 class Config:
-    """
-    The configuration object for the `cortex-annotate` project.
+    """The configuration object for the `cortex-annotate` project.
 
     The `Config` class stores information about the configuration of the
     `cortex-annotate` project. The configuration is specified in the
@@ -582,35 +618,39 @@ class Config:
     not recognized by `Config` are not parsed, but they are available in the
     `Config.yaml` member variable.
     """
+    
     __slots__ = (
-        'config_path', 'yaml', 'display', 'init', 'targets', 'figures',
-        'annotations', 'builtin_annotations', 'review', 'annotation_types')
-    def __init__(self, config_path='/config/config.yaml'):
+        "config_path", "yaml", "display", "init", "targets", "figures",
+        "annotations", "builtin_annotations", "review", "annotation_types"
+    )
+    
+    def __init__(self, config_path = "/config/config.yaml"):
         self.config_path = config_path
-        with open(config_path, 'rt') as f:
+        with open(config_path, "rt") as f:
             self.yaml = yaml.safe_load(f)
         # Parse the display section.
-        self.display = DisplayConfig(self.yaml.get('display', None))
+        self.display = DisplayConfig(self.yaml.get("display", None))
         # Parse the init section.
-        self.init = InitConfig(self.yaml.get('init', None))
+        self.init = InitConfig(self.yaml.get("init", None))
         # Parse the targets section.
-        self.targets = TargetsConfig(self.yaml.get('targets', None), self.init)
+        self.targets = TargetsConfig(self.yaml.get("targets", None), self.init)
         # Parse the annotations section.
         self.annotations = AnnotationsConfig(
-            self.yaml.get('annotations', None),
+            self.yaml.get("annotations", None),
             self.init)
         # Parse the builtin_annotations section.
         self.builtin_annotations = BuiltinAnnotationsConfig(
-            self.yaml.get('builtin_annotations', None),
+            self.yaml.get("builtin_annotations", None),
             self.init)
         # Parse the figures section.
         self.figures = FiguresConfig(
-            self.yaml.get('figures', None),
+            self.yaml.get("figures", None),
             self.init,
             self.annotations.all_figures)
         # Parse the review section.
-        self.review = ReviewConfig(self.yaml.get('review', None), self.init)
+        self.review = ReviewConfig(self.yaml.get("review", None), self.init)
         # Make the annotation types dictionary.
         d = self.annotations.types.copy()
         d.update(self.builtin_annotations.types)
         self.annotation_types = d
+

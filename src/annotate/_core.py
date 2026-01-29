@@ -2,7 +2,7 @@
 ################################################################################
 # annotate/_core.py
 
-"""Core implementation code for the annotation tool"s interface.
+"""Core implementation code for the annotation tool's interface.
 
 This file primarily contains code for managing the widget and window state of
 the control panel; the canvas and figure code is largely handled by the
@@ -14,7 +14,7 @@ FigurePanel widget in the _figure.py file.
 
 import os
 import json
-from functools import partial
+import yaml
 from io import BytesIO
 
 import numpy as np
@@ -23,7 +23,6 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import ipywidgets as ipw
 import imageio.v3 as iio
-import yaml
 
 from ._util    import (ldict, delay)
 from ._config  import Config
@@ -45,6 +44,17 @@ class AnnotationState:
     state includes the cache, the user preferences (style settings), and the
     saved annotations.
     """
+    
+    default_style = {
+        "linewidth"  : 1,
+        "linestyle"  : "solid",
+        "markersize" : 1,
+        "color"      : "black",
+        "visible"    : True
+    }
+
+    style_keys = tuple(default_style.keys())
+    
     @property
     def gitdata(self):
         """Reads and returns the repo username and the repo name."""
@@ -97,7 +107,7 @@ class AnnotationState:
         return path
     
     
-    def target_grid_path(self, target, annotation=None, ensure=True):
+    def target_grid_path(self, target, annotation = None, ensure = True):
         """Returns the cache path for a target"s grids."""
         path = os.path.join(self.cache_path, "grids", self.target_path(target))
         if ensure and not os.path.isdir(path):
@@ -107,7 +117,7 @@ class AnnotationState:
         return path
     
     
-    def target_save_path(self, target, annotation=None, ensure=True):
+    def target_save_path(self, target, annotation = None, ensure = True):
         """Returns the save path for a target"s annotation data."""
         path = os.path.join(self.save_path, self.target_path(target))
         if ensure and not os.path.isdir(path):
@@ -121,13 +131,13 @@ class AnnotationState:
         """Generates a single figure for the given target and figure name."""
         target = self.config.targets[target_id]
         # Make a figure and axes for the plots.
-        figsize = self.config.display.figsize
+        figure_size = self.config.display.figure_size
         dpi = self.config.display.dpi
-        (fig,ax) = plt.subplots(1,1, figsize=figsize, dpi=dpi)
+        (fig,ax) = plt.subplots(1,1, figsize=figure_size, dpi=dpi)
         # Run the function from the config that draws the figure.
         fn = self.config.figures[figure_name]
         meta_data = {}
-        fn(target, figure_name, fig, ax, figsize, dpi, meta_data)
+        fn(target, figure_name, fig, ax, figure_size, dpi, meta_data)
         # Tidy things up for image plotting.
         ax.axis("off")
         fig.subplots_adjust(0,0,1,1,0,0)
@@ -203,8 +213,7 @@ class AnnotationState:
     
     
     def grid(self, target_id, annotation):
-        """
-        Returns the grid of figures for the given target and annotation.
+        """Returns the grid of figures for the given target and annotation.
 
         The return value is `(image_data, grid_shape, meta_data)` where the
         `image_data` is the raw bytes of the file, `grid_shape` is a tuple of
@@ -216,7 +225,7 @@ class AnnotationState:
                               f"{annotation}.json")
         anndata = self.config.annotations[annotation]
         grid_shape = np.shape(anndata.grid)
-        # If the files aren"t here already, we generate them first.
+        # If the files aren't here already, we generate them first.
         if not os.path.isfile(impath) or not os.path.isfile(mdpath):
             with self.loading_context:
                 self.generate_grid(target_id, annotation)
@@ -237,9 +246,9 @@ class AnnotationState:
         if fn is None:
             raise RuntimeError("no review function found")
         # Make a figure and axes for the plots.
-        figsize = self.config.review.figsize
+        figure_size = self.config.review.figure_size
         dpi = self.config.review.dpi
-        (fig,ax) = plt.subplots(1,1, figsize=figsize, dpi=dpi)
+        (fig,ax) = plt.subplots(1, 1, figsize = figure_size, dpi = dpi)
         # Run the function from the config that draws the figure.
         fn(target, annots, fig, ax, save_hooks)
         # We can go ahead and fix the save hooks now:
@@ -249,10 +258,10 @@ class AnnotationState:
         ax.axis("off")
         fig.subplots_adjust(0,0,1,1,0,0)
         b = BytesIO()
-        plt.savefig(b, format="png")
+        plt.savefig(b, format = "png")
         # We can close the figure now as well.
         plt.close(fig)
-        return ipw.Image(value=b.getvalue(), format="png")
+        return ipw.Image(value = b.getvalue(), format = "png")
     
     
     def load_preferences(self):
@@ -262,7 +271,7 @@ class AnnotationState:
         """
         path = os.path.join(self.save_path, ".annot-prefs.yaml")
         if not os.path.isfile(path):
-            return {"style": {}, "image_size": 256}
+            return { "style": {}, "image_size": 256 }
         with open(path, "rt") as f:
             return yaml.safe_load(f)
     
@@ -274,19 +283,12 @@ class AnnotationState:
             yaml.dump(self.preferences, f)
     
     
-    default_style = {"linewidth": 1,
-                     "linestyle": "solid",
-                     "markersize": 1,
-                     "color": "black",
-                     "visible": True}
-    style_keys = tuple(default_style.keys())
-    
     @classmethod
     def fix_style(cls, styledict):
         """Ensures that the given dictionary is valid as a style dictionary."""
         for (k,v) in styledict.items():
             if k not in AnnotationState.style_keys:
-                raise RuntimeError("fix_style given invalid key {k}")
+                raise RuntimeError(f"fix_style given invalid key {k}")
         # Make sure the values are also valid.
         if "linewidth" in styledict:
             lw = styledict["linewidth"]
@@ -295,7 +297,7 @@ class AnnotationState:
         if "linestyle" in styledict:
             ls = styledict["linestyle"]
             if ls not in ("solid", "dashed", "dot-dashed", "dotted"):
-                raise RuntimeError(f"fix_style given bad linewidth: {lw}")
+                raise RuntimeError(f"fix_style given bad linestyle: {ls}")
         if "color" in styledict:
             clr = styledict["color"]
             try: c = mpl.colors.to_hex(clr)
@@ -337,7 +339,7 @@ class AnnotationState:
         # See if there is a dict in the preferences already.
         styles = self.preferences["style"]
         if nargs == 0:
-            # We"re just returning the current reified dict.
+            # We're just returning the current reified dict.
             prefs = styles.get(annotation, {})
         elif nargs == 1:
             # We"re updating the dict to have exactly these values.
@@ -361,7 +363,7 @@ class AnnotationState:
         else:
             d = self.config.builtin_annotations[annotation].plot_options
             rval.update(d)
-        # Finally, merge in the user"s preferences.
+        # Finally, merge in the user's preferences.
         rval.update(prefs)
         # And return.
         return rval
@@ -456,7 +458,7 @@ class AnnotationState:
     
     
     def save_annotations(self):
-        "Saves the annotations for a given target."
+        """Saves the annotations for a given target."""
         annots = self.annotations
         for tid in annots.keys():
             # Skip lazy keys; these targets have not even been loaded yet.
@@ -465,7 +467,7 @@ class AnnotationState:
 
 
     def run_save_hooks(self):
-        "Runs any save hooks that were registered by the review."
+        """Runs any save hooks that were registered by the review."""
         hooks = self.save_hooks
         self.save_hooks = None
         if hooks is not None:
@@ -481,11 +483,12 @@ class AnnotationState:
         self.run_save_hooks()
     
 
-    __slots__ = ("config", "cache_path", "save_path", "git_path", "username",
-                 "annotations", "builtin_annotations", "preferences",
-                 "loading_context", "reviewing_context", "save_hooks")
+    __slots__ = (
+        "config", "cache_path", "save_path", "git_path", "username",
+        "annotations", "builtin_annotations", "preferences",
+        "loading_context", "reviewing_context", "save_hooks"
+    )
     
-
     def __init__(
             self,
             config_path       = "/config/config.yaml",
@@ -497,10 +500,13 @@ class AnnotationState:
             reviewing_context = None
         ):
 
-        self.config = Config(config_path)
+        # Store the configuration and paths.
+        self.config     = Config(config_path)
         self.cache_path = cache_path
-        self.git_path = git_path
+        self.git_path   = git_path
+        self.save_path  = save_path
         self.save_hooks = None
+
         # We add the git username to the save path if needed here.
         if username is None:
             (git_account, git_reponame) = self.gitdata
@@ -527,7 +533,7 @@ class AnnotationState:
         self.preferences = self.load_preferences()
         
 
-    def apply_style(self, ann_name, canvas, style=None):
+    def apply_style(self, ann_name, canvas, style = None):
         """Applies the style associated with an annotation name to a canvas.
 
         `state.apply_style(name, canvas)` applies the annotation preferences
@@ -567,10 +573,10 @@ class AnnotationState:
         return v
     
 
-    def draw_path(self, ann_name, points, canvas, 
-                  path=True, closed=False,
-                  style=None, cursor=None,
-                  fixed_head=False, fixed_tail=False):
+    def draw_path(
+            self, ann_name, points, canvas, path = True, closed = False,
+            style = None, cursor = None, fixed_head = False, fixed_tail = False
+        ):
         """Draws the given path on the given canvas using the named style.
 
         `state.draw_path(name, path, canvas)` applies the style for the named
@@ -584,7 +590,7 @@ class AnnotationState:
         If the optional argument `style` is given, then the given style dict
         is used instead of the stling for the `ann_name` annotation.
         """
-        self.apply_style(ann_name, canvas, style=None)
+        self.apply_style(ann_name, canvas, style = None)
         # First, draw stroke the path.
         if path and len(points) > 1:
             canvas.begin_path()
@@ -640,8 +646,7 @@ class AnnotationState:
 # The Annotation Tool ##########################################################
 
 class AnnotationTool(ipw.HBox):
-    """
-    The core annotation tool for the `cortex-annotate` project.
+    """The core annotation tool for the `cortex-annotate` project.
 
     The `AnnotationTool` type handles the annotation of the cortical surface
     images for the `cortex-annotate` project.
@@ -712,7 +717,7 @@ class AnnotationTool(ipw.HBox):
 
 
     def on_image_size_change(self, change):
-        "This method runs when the control panel's image size slider changes."
+        """This method runs when the control panel's image size slider changes."""
         if change.name != "value": return
         self.state.image_size(change.new)
         # Resize the figure panel.
@@ -728,7 +733,7 @@ class AnnotationTool(ipw.HBox):
         # current annotation, we need to print an error about it.
         deps = []
         for (annot_name, annot_data) in self.state.config.annotations.items():
-            # If the annotation is empty, it doesn"t matter if it a dependant.
+            # If the annotation is empty, it doesn't matter if it a dependant.
             xy = targ_annots.get(annot_name)
             if xy is None or len(xy) == 0:
                 continue
@@ -805,7 +810,7 @@ class AnnotationTool(ipw.HBox):
     
     
     def on_selection_change(self, key, change):
-        "This method runs when the control panel's selection changes."
+        """This method runs when the control panel's selection changes."""
         if change.name != "value": return
         # First, things first: save the annotations.
         self.state.save_annotations()
@@ -817,7 +822,7 @@ class AnnotationTool(ipw.HBox):
     
     
     def on_style_change(self, annotation, key, change):
-        "This method runs when the control panel's style elements change."
+        """This method runs when the control panel's style elements change."""
         # Update the state.
         if change.name != "value": return
         self.state.style(annotation, key, change.new)
@@ -826,7 +831,7 @@ class AnnotationTool(ipw.HBox):
     
     
     def on_review(self, button):
-        "This method runs when the control panel's review button is clicked."
+        """This method runs when the control panel's review button is clicked."""
         self.figure_panel.clear_message()
         self.state.save_preferences()
         # This will happen no matter what:
@@ -851,11 +856,11 @@ class AnnotationTool(ipw.HBox):
     
     
     def on_save(self, button):
-        "This method runs when the control panel's save button is clicked."
+        """This method runs when the control panel's save button is clicked."""
         if self.figure_panel.review_msg is not None:
             self.control_panel.review_button.disabled = False
-            self.control_panel.save_button.disabled = True
-            self.control_panel.edit_button.disabled = True
+            self.control_panel.save_button.disabled   = True
+            self.control_panel.edit_button.disabled   = True
             self.figure_panel.review_end()
             self.refresh_figure()
         self.state.save_annotations()
@@ -864,11 +869,11 @@ class AnnotationTool(ipw.HBox):
     
     
     def on_edit(self, button):
-        "This method runs when the control panel's edit button is clicked."
+        """This method runs when the control panel's edit button is clicked."""
         if self.figure_panel.review_msg is not None:
             self.control_panel.review_button.disabled = False
-            self.control_panel.save_button.disabled = True
-            self.control_panel.edit_button.disabled = True
+            self.control_panel.save_button.disabled   = True
+            self.control_panel.edit_button.disabled   = True
             self.figure_panel.review_end()
             self.refresh_figure()
         self.state.save_hooks = None

@@ -8,10 +8,9 @@
 # Dependencies #################################################################
 
 import os
-from functools import partial
-
 import numpy as np
 import scipy as sp
+from functools import partial
 import matplotlib.pyplot as plt
 
 
@@ -50,6 +49,8 @@ class delay:
     def is_cached(self):
         "Returns `True` if the delay object has been cached, otherwise `False`."
         return (self._partial is None)
+
+
 def undelay(obj):
     """Returns the argument except for delays whose result values are returned.
     
@@ -58,6 +59,8 @@ def undelay(obj):
     `undelay(x)` for any object `x` that is not a `delay` object returns `x`.
     """
     return obj() if type(obj) is delay else obj
+
+
 class ldict_setlike:
     __slots__ = ('_setlike',)
     @classmethod
@@ -84,6 +87,8 @@ class ldict_setlike:
         if type(self) is not type(other): return False
         if len(self) != len(other): return False
         return all(x in other for x in iter(self))
+
+
 class ldict_items(ldict_setlike):
     @classmethod
     def _undelay(cls, el):
@@ -92,6 +97,8 @@ class ldict_items(ldict_setlike):
     def _to_setlike(cls, ld):
         return dict.items(ld)
     __slots__ = ()
+
+
 class ldict_values(ldict_setlike):
     @classmethod
     def _undelay(cls, el):
@@ -100,6 +107,8 @@ class ldict_values(ldict_setlike):
     def _to_setlike(cls, ld):
         return dict.values(ld)
     __slots__ = ()
+
+
 class ldict(dict):
     """A lazy dictionary type.
     
@@ -145,7 +154,7 @@ def contours_image(contours, mesh=None, dpi=512, lw=0.1):
     to the original mesh but that contains the traces drawn in white on a black
     background for use with the watershed algorithm.
     """
-    (fig,ax) = plt.subplots(1,1, figsize=(1,1), dpi=dpi)
+    (fig, ax) = plt.subplots(1,1, figsize = (1,1), dpi=dpi)
     fig.subplots_adjust(0,0,1,1,0,0)
     canvas = fig.canvas
     for xy in contours:
@@ -162,6 +171,8 @@ def contours_image(contours, mesh=None, dpi=512, lw=0.1):
     image = 255 - np.mean(image, -1)
     plt.close(fig)
     return image
+
+
 def watershed_image(im, fill_contours=True, max_depth=2):
     """Applies the watershed algorithm to an image of contours.
     
@@ -214,6 +225,8 @@ def watershed_image(im, fill_contours=True, max_depth=2):
             lbls[lbls > bg] -= 1
             lbls[ii] = 0
     return lbls
+
+
 def watershed_contours(contours, mesh=None,
                        dpi=512, lw=0.1,
                        fill_contours=True, max_depth=2):
@@ -240,6 +253,8 @@ def watershed_contours(contours, mesh=None,
 
 
 # Word Wrapping ################################################################
+
+
 def wrap(message, wrap=60):
     """Word-wraps a string and returns the wrapped string.
 

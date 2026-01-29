@@ -8,14 +8,14 @@ display:
   figsize: [4, 4]
   dpi: 128
   plot_options:
-    color: [0.97, 0.97, 0.97]
+    color: [0.55, 0.55, 0.9]
     markersize: 0
     linewidth: 2
     linestyle: "solid"
   fg_options:
-    color: [0.55, 0.55, 0.9]
+    color: [0.97, 0.97, 0.97]
     markersize: 2
-
+    
 init: |
   # Load libraries that will be used throughout the configuration file.
   import re

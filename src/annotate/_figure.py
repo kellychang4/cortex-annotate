@@ -9,17 +9,12 @@ Core implementation code for the cortex-annotate tool's figure panel.
 
 # Imports ######################################################################
 
-from functools import partial
-from collections import defaultdict
 
 import numpy as np
-import matplotlib as mpl
-import matplotlib.pyplot as plt
 import ipycanvas as ipc
 import ipywidgets as ipw
-
-from ._util import (delay, ldict)
-from ._config import Config
+from traitlets import Int
+from collections import defaultdict
 
 
 # The Figure Panel #############################################################
@@ -31,6 +26,9 @@ class FigurePanel(ipw.HBox):
     to manage the display of images and annotations for the `AnnotationTool` in
     `_core.py`.
     """
+    # A traitlet that increments whenever the annotations change.
+    _annotation_change = Int(default_value = 0)
+
     class LoadingContext:
         __slots__ = ('canvas', 'message')
         _count = defaultdict(lambda:0)
@@ -139,8 +137,12 @@ class FigurePanel(ipw.HBox):
         self.reviewing = False
         # Initialize our parent class.
         super().__init__([html, self.multicanvas])
-    
-    
+
+
+    def _increment_annotation_change(self):
+        self._annotation_change += 1
+
+
     @classmethod
     def draw_loading(cls, dc, message='Loading...', wrap=True, fontsize=32):
         """Clears the draw canvas and draws the loading screen."""
@@ -190,7 +192,7 @@ class FigurePanel(ipw.HBox):
     
     
     def cellshape(self):
-        "Returns the `(width, height)` in pixels of one cell of the image grid."
+        """Returns the `(width, height)` in pixels of one cell of the image grid."""
         imwidth = self.image_size
         (figure_width, figure_height) = self.state.config.display.figure_size
         imheight = imwidth * figure_height / figure_width
@@ -198,7 +200,7 @@ class FigurePanel(ipw.HBox):
     
     
     def figure_to_image(self, points):
-        "Converts the `N x 2` matrix of figure points into image coordinates."
+        """Converts the `N x 2` matrix of figure points into image coordinates."""
         points = np.asarray(points)
         if len(points.shape) == 1:
             return self.figure_to_image([points])[0]
@@ -219,7 +221,7 @@ class FigurePanel(ipw.HBox):
     
     
     def image_to_figure(self, points):
-        "Converts the `N x 2` matrix of image points into figure coordinates."
+        """Converts the `N x 2` matrix of image points into figure coordinates."""
         points = np.asarray(points)
         if len(points.shape) == 1:
             return self.figure_to_image([points])[0]
@@ -299,7 +301,7 @@ class FigurePanel(ipw.HBox):
     
     
     def redraw_image(self):
-        "Clears the image canvas and redraws the image."
+        """Clears the image canvas and redraws the image."""
         self.image_canvas.clear()
         if self.image is not None:
             w = self.image_canvas.width
@@ -308,7 +310,7 @@ class FigurePanel(ipw.HBox):
     
     
     def redraw_review(self, wrap=True, fontsize=32):
-        "Clears the draw and image canvases and draws the review canvas."
+        """Clears the draw and image canvases and draws the review canvas."""
         if self.review_msg is None:
             # If there's nothing to review, we do nothing.
             return
@@ -330,7 +332,7 @@ class FigurePanel(ipw.HBox):
     
     
     def redraw_annotations(self, foreground=True, background=True):
-        "Clears the draw canvas and redraws all annotations."
+        """Clears the draw canvas and redraws all annotations."""
         if background: self.draw_canvas.clear()
         if foreground: self.fg_canvas.clear()
         # We step through all (visible) annotations and draw them.
@@ -384,8 +386,8 @@ class FigurePanel(ipw.HBox):
                 for points in points_list:
                     grid_points = self.figure_to_image(points)
                     for pts in grid_points:
-                        self.state.draw_path(ann_name, pts, self.draw_canvas,
-                                             path=False)
+                        self.state.draw_path(
+                            ann_name, pts, self.draw_canvas, path = False)
         # That's it.
     
     
@@ -436,7 +438,7 @@ class FigurePanel(ipw.HBox):
     
     
     def fixed_head(self, annot=None):
-        "Returns the 2D fixed-head point for the given annotation or `None`."
+        """Returns the 2D fixed-head point for the given annotation or `None`."""
         if self.fixed_heads is None: return None
         if annot is None: annot = self.foreground
         pt = self.fixed_heads.get(annot)
@@ -448,7 +450,7 @@ class FigurePanel(ipw.HBox):
     
     
     def fixed_tail(self, annot=None):
-        "Returns the 2D fixed-tail point for the given annotation or `None`."
+        """Returns the 2D fixed-tail point for the given annotation or `None`."""
         if self.fixed_tails is None: return None
         if annot is None: annot = self.foreground
         pt = self.fixed_tails.get(annot)
@@ -460,7 +462,7 @@ class FigurePanel(ipw.HBox):
     
     
     def annotation_type(self, annot=None):
-        "Returns the annotation type of the given annotation."
+        """Returns the annotation type of the given annotation."""
         if self.annotation_types is None: return 'points'
         if annot is None: annot = self.foreground
         at = self.annotation_types.get(annot)
@@ -469,7 +471,7 @@ class FigurePanel(ipw.HBox):
     
     @staticmethod
     def _to_point_matrix(x, y=None):
-        x = np.asarray(x) if y is None else np.array([[x,y]])
+        x = np.asarray(x) if y is None else np.array([[x, y]])
         if x.shape == (2,):
             x = x[None,:]
         elif x.shape != (1,2):
@@ -524,6 +526,7 @@ class FigurePanel(ipw.HBox):
         # Redraw the annotations.
         if redraw:
             self.redraw_annotations(background=False)
+            self._increment_annotation_change()
     
     
     def push_impoint(self, x, y=None, redraw=True):
@@ -583,7 +586,8 @@ class FigurePanel(ipw.HBox):
         # Redraw the annotations.
         if redraw:
             self.redraw_annotations(background=False)
-    
+            self._increment_annotation_change()
+
     
     def on_mouse_click(self, x, y):
         """This method is called when the mouse is clicked on the canvas."""

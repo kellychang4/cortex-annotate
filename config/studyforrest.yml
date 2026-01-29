@@ -8,12 +8,12 @@ display:
   figsize: [4, 4]
   dpi: 128
   plot_options:
-    color: [0.97, 0.97, 0.97]
+    color: [0.55, 0.55, 0.9]
     markersize: 0
     linewidth: 2
     linestyle: "solid"
   fg_options:
-    color: [0.55, 0.55, 0.9]
+    color: [0.97, 0.97, 0.97]
     markersize: 2
 
 init: |
@@ -26,7 +26,7 @@ init: |
   from struct import unpack
   
   # Define directories
-  dataset  = "chn-retinotopy"
+  dataset  = "studyforrest"
   data_dir = op.join("/home", "jovyan", "datasets", dataset)
 
   # define flatmap kwargs
@@ -54,12 +54,15 @@ targets:
     - sub-04
     - sub-05
     - sub-06
-    - sub-07
-    - sub-08
     - sub-09
     - sub-10
-    - sub-11
-    - sub-12
+    - sub-14
+    - sub-15
+    - sub-16
+    - sub-17
+    - sub-18
+    - sub-19
+    - sub-20
 
   # The "Hemisphere" is a choice for the user; as a list of two options, it will
   # appear as a dropdown menu with these two options in the annotation tool.

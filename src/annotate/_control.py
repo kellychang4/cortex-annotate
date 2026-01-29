@@ -14,10 +14,8 @@ in `_figure.py` as appropriate.
 
 # Imports ######################################################################
 
-from functools import partial
-
 import ipywidgets as ipw
-
+from functools import partial
 
 # The Control Panel Widgets ####################################################
 
@@ -129,8 +127,7 @@ class SelectionPanel(ipw.VBox):
 
 
     def observe_annotation(self, fn):
-        """
-        Registers the argument to be called when the annotation changes.
+        """Registers the argument to be called when the annotation changes.
 
         The annotation selection is the currently selected annotation in the
         annotations dropdown menu of the `SelectionPanel` component of the
@@ -144,8 +141,7 @@ class SelectionPanel(ipw.VBox):
 
 
     def observe_selection(self, fn):
-        """
-        Registers the given function to be called when the selection changes.
+        """Registers the given function to be called when the selection changes.
 
         The selection refers to the combination of target and annotation
         selection; see the `observe_target` and `observe_annotation` methods for
@@ -238,7 +234,7 @@ class StylePanel(ipw.VBox):
             "linewidth" : self.linewidth_slider,
             "linestyle" : self.linestyle_dropdown
         }
-        for (k,v) in self.style_names.items():
+        for (k, v) in self.style_names.items():
             v.observe(partial(self.on_style_change, k), names="value")
         # We need to make sure that we update things when the style dropdown
         # changes also.
@@ -254,7 +250,7 @@ class StylePanel(ipw.VBox):
     
     @property
     def preferences(self):
-        return {k:v.value for (k,v) in self.style_names.items()}
+        return { k: v.value for (k, v) in self.style_names.items() }
     
     
     @property
@@ -307,9 +303,8 @@ class StylePanel(ipw.VBox):
 
 
 class ControlPanel(ipw.VBox):
-    """
-    The panel that contains the controls for the Annotation Tool.
-    """
+    """The panel that contains the controls for the Annotation Tool."""
+
     @classmethod
     def _make_image_size_slider(cls, initial_value=256):
         return ipw.IntSlider(value=initial_value, min=250, max=1280, step=1,
@@ -396,32 +391,35 @@ class ControlPanel(ipw.VBox):
         self.style_panel     = StylePanel(state)
 
         self.review_button = ipw.Button(
-            description='Review',
-            button_style='',
-            tooltip='Review the annotations.')
+            description  = "Review",
+            button_style = "",
+            tooltip      = "Review the annotations."
+        )
         
         self.save_button = ipw.Button(
-            description='Save',
-            button_style='',
-            tooltip='Save all annotations and preferences.')
+            description  = "Save",
+            button_style = "",
+            tooltip      = "Save all annotations and preferences."
+        )
         
         self.edit_button = ipw.Button(
-            description='Edit',
-            button_style='',
-            tooltip='Continue editing annotation.')
+            description  = "Edit",
+            button_style = "",
+            tooltip      = "Continue editing annotation."
+        )
         
         if state.config.review.function is not None:
             buttons = [self.review_button, self.save_button, self.edit_button]
             self.review_button.disabled = False
             self.save_button.disabled = True
             self.edit_button.disabled = True
-            layout = {'margin':"3% 3% 3% 3%", "width": "94%"}
+            layout = { "margin" : "3% 3% 3% 3%", "width" : "94%" }
         else:
             buttons = [self.save_button]
             self.review_button.disabled = True
             self.save_button.disabled = False
             self.edit_button.disabled = True
-            layout = {'margin':"3% 33% 3% 33%", "width": "34%"}
+            layout = { "margin" : "3% 33% 3% 33%", "width" : "34%" }
         self.button_box = ipw.HBox(buttons, layout=layout)
         self.info_message = self._make_infomsg()
         hline = self._make_hline()
@@ -437,7 +435,7 @@ class ControlPanel(ipw.VBox):
             self.button_box,
             hline,
             self.info_message]
-        vbox = ipw.VBox(self.vbox_children, layout = {'width': '250px'})
+        vbox = ipw.VBox(self.vbox_children, layout = { "width": "250px" })
         
         children = [
             self.html_header,
@@ -445,12 +443,11 @@ class ControlPanel(ipw.VBox):
             self.html_header
         ]
 
-        super().__init__(children, layout = {'border':'0px', 'height':'100%'})
+        super().__init__(children, layout = { "border": "0px", "height": "100%" })
 
 
     def observe_target(self, fn):
-        """
-        Registers the given function to be called when the taget changes.
+        """Registers the given function to be called when the taget changes.
 
         The selection target refers to the selection of all the concrete keys in
         the `config.yaml` file's `targets` section. In other words, the
@@ -466,8 +463,7 @@ class ControlPanel(ipw.VBox):
 
 
     def observe_annotation(self, fn):
-        """
-        Registers the argument to be called when the annotation changes.
+        """Registers the argument to be called when the annotation changes.
 
         The annotation selection is the currently selected annotation in the
         annotations dropdown menu of the `SelectionPanel` component of the
@@ -497,8 +493,7 @@ class ControlPanel(ipw.VBox):
 
 
     def observe_style(self, fn):
-        """
-        Registers the given function to be called when the a style changes.
+        """Registers the given function to be called when the a style changes.
 
         Style elements refer to the settings managed by the `StylePanel` of the
         `ControlPanel` object. A style element is considered to have changed
@@ -525,8 +520,7 @@ class ControlPanel(ipw.VBox):
 
 
     def observe_image_size(self, fn):
-        """
-        Registers the argument to be called when the image size changes.
+        """Registers the argument to be called when the image size changes.
 
         `control_panel.observe_image_size(fn)` is equivalent to
         `control_panel.image_size_slider.observe(fn, names="value")`.
@@ -535,8 +529,7 @@ class ControlPanel(ipw.VBox):
 
 
     def observe_save(self, fn):
-        """
-        Registers the argument to be called when the save button is clicked.
+        """Registers the argument to be called when the save button is clicked.
         
         The function is called with a single argument, which is the save button
         instance.
