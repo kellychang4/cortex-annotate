@@ -713,7 +713,6 @@ class AnnotationTool(ipw.HBox):
         if self.state.config.review.function is not None:
             self.control_panel.observe_review(self.on_review)
             self.control_panel.observe_edit(self.on_edit)
-        # Finally initialize the outer HBox component.
 
 
     def on_image_size_change(self, change):
@@ -827,7 +826,7 @@ class AnnotationTool(ipw.HBox):
         if change.name != "value": return
         self.state.style(annotation, key, change.new)
         # Then redraw the annotation.
-        self.figure_panel.redraw_canvas(redraw_image=False)
+        self.figure_panel.redraw_canvas(redraw_image = False)
     
     
     def on_review(self, button):

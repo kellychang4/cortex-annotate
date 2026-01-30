@@ -40,98 +40,32 @@ class CortexControlPanel(ipw.VBox):
         # Create information boxes
         self.infobox = {} # initialize infobox dictionary
         for key in ( "dataset", "participant", "hemisphere", "annotation" ):
-            self.infobox[key] = self._make_infobox(state, key)
+            self.infobox[key] = self._init_infobox(state, key)
         
         # Create the inflation slider widget
-        self.inflation_slider = ipw.IntSlider(
-            value             = state.style["inflation_percent"],
-            min               = 0,
-            max               = 100,
-            step              = 1,
-            description       = "Inflation %:",
-            continuous_update = False,
-            orientation       = "horizontal",
-            readout           = True,
-            readout_format    = "d", 
-            layout            = { "border": "1px solid purple", "width" : "94%", "margin" : "0% 3% 3% 3%" } 
-        )
+        self.inflation_slider = self._init_inflation_slider(state)
 
         # Create the overlay dropdown widget
-        self.overlay_dropdown = ipw.Dropdown(
-            options     = [
-                ( "None", "curvature" ), 
-                ( "Polar Angle", "angle" ), 
-                ( "Eccentricity", "eccen" ), 
-                ( "Variance Explained", "vexpl" )
-            ],
-            value       = state.style["overlay"],    
-            description = "Overlay:",
-            layout      = { "border": "1px solid green", "width" : "94%", "margin" : "0% 3% 3% 3%" }
-        )
+        self.overlay_dropdown = self._init_overlay_dropdown(state)
 
         # Create the overlay alpha slider widget
-        self.overlay_slider = ipw.FloatSlider(
-            value             = state.style["overlay_alpha"],
-            min               = 0.0,
-            max               = 1.0,
-            step              = 0.01,
-            description       = "Transparency:",
-            continuous_update = False,
-            orientation       = "horizontal",
-            readout           = True,
-            readout_format    = ".1f", 
-            layout            = { "border": "1px solid purple", "width" : "94%", "margin" : "0% 3% 3% 3%" } 
-        )
+        self.overlay_slider = self._init_overlay_slider(state)
 
-        # Create scatter size slider (user-defined)
-        self.point_size_slider = ipw.FloatSlider(
-            value             = state.style["point_size"],
-            min               = 0.5,
-            max               = 5,
-            step              = 0.1,
-            description       = "Point Size:",
-            continuous_update = False,
-            orientation       = "horizontal",
-            readout           = True,
-            readout_format    = ".1f", 
-            layout            = { "border": "1px solid orange", "width" : "94%", "margin" : "0% 3% 3% 3%" } 
-        )
+        # Create point size slider (user-defined points)
+        self.point_size_slider = self._init_point_size_slider(state)
 
         # Create line size slider (interpolated)
-        self.line_size_slider = ipw.FloatSlider(
-            value             = state.style["line_size"],
-            min               = 0.5,
-            max               = 5,
-            step              = 0.1,
-            description       = "Line Point Size:",
-            continuous_update = False,
-            orientation       = "horizontal",
-            readout           = True,
-            readout_format    = ".1f", 
-            layout            = { "border": "1px solid cyan", "width" : "94%", "margin" : "0% 3% 3% 3%" } 
-        )
+        self.line_size_slider = self._init_line_size_slider(state)
 
         # Create the number of line points slider widget
-        self.line_points_slider = ipw.IntSlider(
-            value             = state.style["line_points"],
-            min               = 2,
-            max               = 20,
-            step              = 1,
-            description       = "Line Points:",
-            continuous_update = False,
-            orientation       = "horizontal",
-            readout           = True,
-            readout_format    = "d", 
-            layout            = { "border": "1px solid purple", "width" : "94%", "margin" : "0% 3% 3% 3%" } 
-        )
-
+        self.line_points_slider = self._init_line_points_slider(state)
 
         # Assemble the control panel with children widgets
-        ch = [
+        children = [
             # HTML header
             self._make_html_header(),
             # Cortex Viewer title
-            ipw.HTML("<b style=\"margin: 0% 3% 0% 3%;\">Selection:</b>"),
+            self._make_section_title("Selection:"),
             # Dataset label
             self.infobox["dataset"],
             # Participant label
@@ -143,7 +77,7 @@ class CortexControlPanel(ipw.VBox):
             # Horizontal line
             self._make_hline(), 
             # Style Options title
-            ipw.HTML("<b style=\"margin: 0% 3% 0% 3%;\">Style:</b>"),
+            self._make_section_title("Style:"),
             # Inflation slider
             self.inflation_slider,
             # Overlay dropdown
@@ -159,40 +93,61 @@ class CortexControlPanel(ipw.VBox):
         ]
 
         # Set the overall layout into the VBox
-        super().__init__(ch, layout = { "border": "1px solid blue", "width": "250px", "height": "100%" })
+        super().__init__(children = children)
+
+        # Add CSS class for styling
+        self.add_class("cortex-control-panel")
 
 
     @classmethod
     def _make_html_header(cls):
         return ipw.HTML(f"""
             <style>
+                .cortex-control-panel {{
+                    background-color: #f0f0f0;
+                    border: 1px solid lightgray;
+                    padding: 2px;
+                    height: 100%;
+                    width: 260px; 
+                }}
                 .info-label {{
+                    margin-right: 8px;
                     text-align: right;
                 }}
                 .info-value {{
+                    background-color: white;
+                    border: 1px solid rgb(158, 158, 158);
+                    padding: 0px 8px 0px 8px;
                     text-align: left;
-                    padding-left: 5%;
+                }}
+                .cortex-control-widgets {{
+                    margin: 1% 3% 1% 3%;
+                    width: 94%;
+                }} 
+                .cortex-control-widgets .widget-readout {{
+                    min-width: 50px;
+                }}
+                .cortex-hline {{
+                    border: 1px solid lightgray;
+                    margin: 3%;
+                    height: 0px;
+                    width: 94%;
                 }}
             </style>
         """)
+    
 
+    @classmethod
+    def _make_section_title(cls, title):
+        return ipw.HTML(f"<b style=\"margin: 0% 3% 0% 3%;\">{title}</b>")
+    
 
     @classmethod
     def _make_hline(cls):
-        return ipw.HTML("""
-            <style> 
-                .cortex-viewer-hline {
-                    border: 1px solid lightgray;
-                    height: 0px;
-                    width: 94%;
-                    margin: 3%;
-                } 
-            </style>
-            <div class="cortex-viewer-hline"></div>
-        """)
+        return ipw.HTML("""<div class="cortex-hline"></div>""")
 
 
-    def _format_infobox_value(self, state, key):
+    def _prep_infobox_value(self, state, key):
         if key == "dataset":
             return state.dataset
         elif key == "participant":
@@ -204,30 +159,123 @@ class CortexControlPanel(ipw.VBox):
 
 
     def _make_infobox_value(self, value):
-        """Create a value display for the given infobox content."""
+        """Make the infobox value for display."""
         return f"""<div class="info-value">{value}</div>"""
     
 
-    def _make_infobox(self, state, key):
+    def _init_infobox(self, state, key):
         """Update an information box for the given key and state."""
-        content = self._format_infobox_value(state, key)
+        value = self._prep_infobox_value(state, key)
         return ipw.Box([
-            ipw.HTML(f"""<div class="info-label"><b>{key.capitalize()}</b>:</div>""",
+            ipw.HTML(f"""<div class="info-label">{key.capitalize()}:</div>""",
                      layout = { "width": "40%", "margin": "0px" }),
-            ipw.HTML(self._make_infobox_value(content), 
+            ipw.HTML(self._make_infobox_value(value), 
                      layout = { "width": "60%", "margin": "0px" }),
         ], layout = ipw.Layout(
             display = "flex",
-            width   = "91%",
-            border  = "1px solid lightgray",
-            margin  = "0% 3% 0% 6%"
+            margin  = "1% 3% 1% 3%",
         ))
 
 
+    def _init_inflation_slider(self, state):
+        inflation_slider = ipw.IntSlider(
+            value             = state.style["inflation_percent"],
+            min               = 0,
+            max               = 100,
+            step              = 1,
+            description       = "Inflation %:",
+            continuous_update = False,
+            orientation       = "horizontal",
+            readout           = True,
+            readout_format    = "d", 
+        )
+        inflation_slider.add_class("cortex-control-widgets")
+        return inflation_slider
+
+
+    def _init_overlay_dropdown(self, state):
+        overlay_dropdown = ipw.Dropdown(
+            options     = [
+                ( "None", "curvature" ), 
+                ( "Polar Angle", "angle" ), 
+                ( "Eccentricity", "eccen" ), 
+                ( "Variance Explained", "vexpl" )
+            ],
+            value       = state.style["overlay"],    
+            description = "Overlay:",
+        )
+        overlay_dropdown.add_class("cortex-control-widgets")
+        return overlay_dropdown
+
+
+    def _init_overlay_slider(self, state):
+        overlay_slider = ipw.FloatSlider(
+            value             = state.style["overlay_alpha"],
+            min               = 0.0,
+            max               = 1.0,
+            step              = 0.1,
+            description       = "Alpha:",
+            continuous_update = False,
+            orientation       = "horizontal",
+            readout           = True,
+            readout_format    = ".1f", 
+        )
+        overlay_slider.add_class("cortex-control-widgets")
+        return overlay_slider
+    
+
+    def _init_point_size_slider(self, state):
+        point_size_slider = ipw.FloatSlider(
+            value             = state.style["point_size"],
+            min               = 0.5,
+            max               = 5,
+            step              = 0.1,
+            description       = "Point Size:",
+            continuous_update = False,
+            orientation       = "horizontal",
+            readout           = True,
+            readout_format    = ".1f", 
+        )
+        point_size_slider.add_class("cortex-control-widgets")
+        return point_size_slider
+    
+
+    def _init_line_size_slider(self, state):
+        line_size_slider = ipw.FloatSlider(
+            value             = state.style["line_size"],
+            min               = 0.5,
+            max               = 5,
+            step              = 0.1,
+            description       = "Line Size:",
+            continuous_update = False,
+            orientation       = "horizontal",
+            readout           = True,
+            readout_format    = ".1f", 
+        )
+        line_size_slider.add_class("cortex-control-widgets")
+        return line_size_slider
+
+
+    def _init_line_points_slider(self, state):
+        line_points_slider = ipw.IntSlider(
+            value             = state.style["line_points"],
+            min               = 2,
+            max               = 20,
+            step              = 1,
+            description       = "Line Points:",
+            continuous_update = False,
+            orientation       = "horizontal",
+            readout           = True,
+            readout_format    = "d", 
+        )
+        line_points_slider.add_class("cortex-control-widgets")
+        return line_points_slider
+    
+
     def refresh_infobox(self, state, key):
         """Refresh the control panel display to reflect updated infobox values."""
-        content = self._format_infobox_value(state, key)
-        self.infobox[key].children[1].value = self._make_infobox_value(content)
+        value = self._prep_infobox_value(state, key)
+        self.infobox[key].children[1].value = self._make_infobox_value(value)
 
 
     def observe_inflation_slider(self, callback): 
@@ -258,7 +306,6 @@ class CortexControlPanel(ipw.VBox):
     def observe_line_points_slider(self, callback):
         """A method to register a callback for changes in the line points slider."""
         self.line_points_slider.observe(callback, names = "value")
-
 
 # The Cortex Figure Panel ------------------------------------------------------
 

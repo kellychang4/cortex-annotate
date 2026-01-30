@@ -412,7 +412,13 @@ class CortexViewer(ipw.HBox):
         self.figure_panel = CortexFigurePanel(self.state)
 
         # Initialize the HBox with the control panel and figure panel
-        super().__init__([self.control_panel, self.figure_panel])
+        super().__init__(
+            children = [self.control_panel, self.figure_panel], 
+            layout   = { 
+                "border"  : "1px solid rgb(158, 158, 158)", 
+                "padding" : "15px"
+            }
+        )
 
         # Assign information box observers
         for k in self.control_panel.infobox.keys():

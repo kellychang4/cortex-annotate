@@ -57,11 +57,9 @@ class SelectionPanel(ipw.VBox):
         #  selection.
         for k in state.config.targets.concrete_keys:
             self.dropdowns[k].observe(
-                partial(self.on_target_change, k), 
-                names='value')
+                partial(self.on_target_change, k), names = "value")
         self.annotations_dropdown.observe(
-            self.on_annotation_change,
-            names='value')
+            self.on_annotation_change, names = "value")
         self.target_observers = []
         self.annotation_observers = []
         
@@ -164,16 +162,18 @@ class StylePanel(ipw.VBox):
     """The subpanel of the control panel containing the style controls."""
     
     @classmethod
-    def _make_hline(cls, width=85):
+    def _make_hline(cls, width = 85):
         return ipw.HTML(f"""
-            <style> .cortex-annotate-StylePanel-hline {{
-                border-color: lightgray;
-                border-style: dotted;
-                border-width: 1px;
-                height: 0px;
-                width: {width}%;
-                margin: 0% {(100-width)//2}% 0% {100 - width - (100-width)//2}%;
-            }} </style>
+            <style> 
+                .cortex-annotate-StylePanel-hline {{
+                    border-color: lightgray;
+                    border-style: dotted;
+                    border-width: 1px;
+                    height: 0px;
+                    width: {width}%;
+                    margin: 0% {(100-width)//2}% 0% {100 - width - (100-width)//2}%;
+                }} 
+            </style>
             <div class="cortex-annotate-StylePanel-hline"></div>
         """)
     
@@ -183,7 +183,7 @@ class StylePanel(ipw.VBox):
         # We use the config to populate the collection of style preferences, but
         # we keep track of these separately so that we can remember them.
         self.user_preferences = {}
-        entries = ["Selected Annotation"]
+        entries  = ["Selected Annotation"]
         entries += list(state.config.annotations.keys())
         entries += list(state.config.builtin_annotations.keys())
         layout = dict(width="94%", margin="0% 3% 0% 3%")
@@ -263,7 +263,7 @@ class StylePanel(ipw.VBox):
         return prefs
     
 
-    def refresh_style(self, change=None):
+    def refresh_style(self, change = None):
         ann = self.style_dropdown.index if change is None else change.new
         ann = self.style_dropdown.options[ann] if ann > 0 else None
         prefs = self.state.style(ann)
@@ -310,12 +310,14 @@ class ControlPanel(ipw.VBox):
 
     @classmethod
     def _make_image_size_slider(cls, initial_value = 256):
-        return ipw.IntSlider(value = initial_value, 
-                             min = 250, max = 1280, step = 1,
-                             description = "Image Size: ",
-                             readout = False,
-                             continuous_update = False,
-                             layout = { "width": "90%", "padding": "0px" })
+        return ipw.IntSlider(
+            value = initial_value, 
+            min = 250, max = 1280, step = 1,
+            description = "Image Size: ",
+            readout = False,
+            continuous_update = False,
+            layout = { "width": "90%", "padding": "0px" }
+        )
     
 
     @classmethod
@@ -443,7 +445,7 @@ class ControlPanel(ipw.VBox):
         
         children = [
             self.html_header,
-            ipw.Accordion((vbox,), selected_index=0),
+            ipw.Accordion((vbox,), selected_index = 0),
             self.html_header
         ]
 
