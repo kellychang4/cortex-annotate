@@ -5,8 +5,7 @@
 # Utility types and functions used in the annotation toolkit.
 
 
-# Dependencies #################################################################
-
+# Imports ######################################################################
 
 import os
 import yaml
@@ -15,6 +14,7 @@ from collections import namedtuple
 
 from ._util import (delay, ldict)
 
+# Helper Functions #############################################################
 
 def _compile_fn(argstr, codestr, init):
     name = f"__fn_{os.urandom(8).hex()}"
@@ -23,6 +23,7 @@ def _compile_fn(argstr, codestr, init):
     loc = init.exec(f"def {name}({argstr}):\n{code}")
     return loc[name]
 
+# Configuration Panels #########################################################
 
 class ConfigError(Exception):
     """An exception raised due to errors in the config.yaml file.
@@ -55,7 +56,7 @@ class InitConfig:
     
     def __init__(self, code, globals = None, locals = None):
         if code is None:
-            code = 'None'
+            code = "None"
         if not isinstance(code, str):
             raise ConfigError("init", "init section must be a string", code)
         self.code = code
@@ -68,6 +69,8 @@ class InitConfig:
         exec(code, self.globals, self.locals)
         self.globals = dict(self.globals, **self.locals)
         self.locals = {}
+
+
     def exec(self, code, copy=True):
         if copy:
             loc = self.locals.copy()
@@ -77,6 +80,8 @@ class InitConfig:
             glo = self.globals
         exec(code, glo, loc)
         return loc
+    
+
     def eval(self, code, copy=True):
         if copy:
             loc = self.locals.copy()
@@ -101,7 +106,7 @@ class DisplayConfig:
         from numbers import (Real, Integral)
         from ._core import AnnotationState
         if disp is None: disp = {}
-        figure_size0 = figure_size = disp.get('figure_size', [4,4])
+        figure_size0 = figure_size = disp.get("figure_size", [4,4])
         if not isinstance(figure_size, (list,tuple)):
             figure_size = [figure_size, figure_size]
         if not all(isinstance(u, Real) and u > 0 for u in figure_size):
@@ -109,7 +114,7 @@ class DisplayConfig:
                               "invalid figure_size in config.display: {figure_size0}",
                               disp)
         figure_size = tuple(figure_size)
-        dpi = disp.get('dpi', 128)
+        dpi = disp.get("dpi", 128)
         if not isinstance(dpi, Integral) or dpi < 1:
             raise ConfigError("display",
                               "invalid dpi in config.display: {dpi}",
@@ -117,7 +122,7 @@ class DisplayConfig:
         # Compute the image size.
         imsize = (round(dpi*figure_size[0]), round(dpi*figure_size[0]))
         # Extract the plot options and foreground options.
-        plot_opts = disp.get('plot_options', {})
+        plot_opts = disp.get("plot_options", {})
         if not isinstance(plot_opts, dict):
             raise ConfigError("display", 
                               "plot_options in display must be a mapping",
@@ -127,7 +132,7 @@ class DisplayConfig:
         if plot_opts is None:
             raise ConfigError("display.plot_options", "invalid plot_options",
                               disp)
-        fg_opts = disp.get('fg_options', {})
+        fg_opts = disp.get("fg_options", {})
         if not isinstance(fg_opts, dict):
             raise ConfigError("display", 
                               "fg_options in display must be a mapping",
@@ -169,7 +174,7 @@ class TargetsConfig(ldict):
     for the ordered concrete key `id1, id2...`.
     """
     
-    __slots__ = ('items', 'concrete_keys')
+    __slots__ = ( "items", "concrete_keys" )
     
     @staticmethod
     def _reify_target(items, concrete_keys, targ):
@@ -209,7 +214,7 @@ class TargetsConfig(ldict):
                 concrete_keys.append(k)
                 items[k] = v
             elif isinstance(v, str):
-                items[k] = _compile_fn('target', v, init)
+                items[k] = _compile_fn("target", v, init)
             else:
                 raise ConfigError(f"targets.{k}",
                                   "target elements must be strings or lists",
@@ -271,18 +276,18 @@ class AnnotationsConfig(dict):
             if plot_opts is None:
                 raise ConfigError(f"annotations.{k}", "invalid plot_options",
                                   yaml)
-            ctype = v.get('type', 'contour')
-            if ctype not in ('contour', 'boundary', 'point'):
+            ctype = v.get("type", "contour")
+            if ctype not in ("contour", "boundary", "point"):
                 raise ConfigError(
                     f"annotations.{k}", 
                     "type must be one of 'contour', 'boundary', or 'point'",
                     yaml)
-            filter = v.get('filter', None)
+            filter = v.get("filter", None)
             if filter is not None and not isinstance(filter, str):
                 raise ConfigError(f"annotations.{k}",
                                   "filter must be null or a Python code string",
                                   yaml)
-            grid = v.get('grid', None)
+            grid = v.get("grid", None)
             if not isinstance(grid, list):
                 raise ConfigError(f"annotations.{k}",
                                   "grid is required and must be a list/matrix",
@@ -307,7 +312,7 @@ class AnnotationsConfig(dict):
                                           "grid items must be null or strings",
                                           yaml)
                     figs.add(el)
-            fixed = [v.get('fixed_head'), v.get('fixed_tail')]
+            fixed = [v.get("fixed_head"), v.get("fixed_tail")]
             for (ii,f) in enumerate(fixed):
                 if f is None: continue
                 if isinstance(f, str):
@@ -318,15 +323,15 @@ class AnnotationsConfig(dict):
                         f"annotations.{k}",
                         f"fixed_{['head','tail'][ii]} must be a str or mapping",
                         yaml)
-                reqs = f.get('requires', [])
+                reqs = f.get("requires", [])
                 reqs = reqs if isinstance(reqs, list) else [reqs]
-                calc = f.get('calculate')
+                calc = f.get("calculate")
                 if calc is None:
                     raise ConfigError(
                         f"annotations.{k}",
                         f"fixed_{['head','tail'][ii]} must contain 'calculate'",
                         yaml)
-                calc = _compile_fn('target, annotations', calc, init)
+                calc = _compile_fn("target, annotations", calc, init)
                 f = dict(calculate=calc, requires=reqs)
                 fixed[ii] = f
             (fh,ft) = fixed
@@ -344,9 +349,10 @@ class AnnotationsConfig(dict):
 
 
 _BuiltinAnnotationBase = namedtuple(
-    '_BuiltinAnnotationBase',
-    ('type', 'filter', 'data', 'plot_options', 'target', 'cache'),
-    defaults=(None, []))
+    "_BuiltinAnnotationBase",
+    ("type", "filter", "data", "plot_options", "target", "cache"),
+    defaults = (None, [])
+)
 
 
 class BuiltinAnnotation(_BuiltinAnnotationBase):
@@ -442,7 +448,7 @@ class BuiltinAnnotationsConfig(dict):
                                   f"builtin annotation {k} must be a mapping",
                                   yaml)
             # Now just go through and parse the options.
-            plot_opts = v.get('plot_options', {})
+            plot_opts = v.get("plot_options", {})
             if not isinstance(plot_opts, dict):
                 raise ConfigError(
                     f"builtin_annotations.{k}", 
@@ -454,13 +460,13 @@ class BuiltinAnnotationsConfig(dict):
                 raise ConfigError(f"builtin_annotations.{k}",
                                   "invalid plot_options",
                                   yaml)
-            ctype = v.get('type', 'points')
-            if ctype not in ('lines', 'points'):
+            ctype = v.get("type", "points")
+            if ctype not in ("lines", "points"):
                 raise ConfigError(
                     f"builtin_annotations.{k}", 
                     "type must be one of 'lines' or 'points'",
                     yaml)
-            filter = v.get('filter', None)
+            filter = v.get("filter", None)
             if filter is not None:
                 if not isinstance(filter, str):
                     raise ConfigError(
@@ -472,7 +478,7 @@ class BuiltinAnnotationsConfig(dict):
                 fnname = f"__fn_{os.urandom(8).hex()}"
                 loc = init.exec(f"def {fnname}(target):\n{code}")
                 filter = loc[fnname]
-            data = v.get('data', None)
+            data = v.get("data", None)
             if isinstance(data, str):
                 # A code-block.
                 data = _compile_fn("target", data, init)
@@ -500,7 +506,7 @@ class FiguresConfig(dict):
     `axes`) that generate the appropriate figure.
     """
     
-    __slots__ = ( "yaml" )
+    __slots__ = ("yaml",)
     
     @staticmethod
     def _compile_figfn(code, initcode, termcode, initcfg):
@@ -517,9 +523,9 @@ class FiguresConfig(dict):
         self.yaml = yaml
         yaml = yaml.copy() # Don't modify the original yaml dict.
         # Pull out the relevant special entries.
-        initcode = yaml.pop('init', None)
-        termcode = yaml.pop('term', None)
-        wildcode = yaml.pop('_', None)
+        initcode = yaml.pop("init", None)
+        termcode = yaml.pop("term", None)
+        wildcode = yaml.pop("_", None)
         if initcode is not None and not isinstance(initcode, str):
             raise ConfigError("figures.init",
                               "figure entries must contain (code) strings",
@@ -542,8 +548,8 @@ class FiguresConfig(dict):
         for k in all_figures:
             if k not in yaml:
                 if wildfn is None:
-                    raise ConfigError("figures", f"no figure entry for {k}",
-                                      yaml)
+                    raise ConfigError(
+                        "figures", f"no figure entry for {k}", yaml)
                 res[k] = wildfn
             else:
                 code = yaml[k]
@@ -579,8 +585,8 @@ class ReviewConfig:
     def _compile(code, initcfg):
         return _compile_fn(
             "target, annotations, figure, axes, save_hooks",
-            f"{code}\n",
-            initcfg)
+            f"{code}\n", initcfg
+        )
     
 
     def __init__(self, yaml, init):
@@ -597,14 +603,14 @@ class ReviewConfig:
                 "review",
                 "review section must contain a Python code string or a dict",
                 yaml)
-        self.code = yaml.get('function')
+        self.code = yaml.get("function")
         if self.code is None:
             raise ConfigError(
                 "review",
                 "review section must contain the key function",
                 yaml)
-        self.figure_size = yaml.get('figure_size', (3,3))
-        self.dpi = yaml.get('dpi', 256)
+        self.figure_size = yaml.get("figure_size", (3,3))
+        self.dpi = yaml.get("dpi", 256)
         self.function = ReviewConfig._compile(self.code, init)
 
 

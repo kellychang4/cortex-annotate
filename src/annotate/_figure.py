@@ -9,7 +9,6 @@ Core implementation code for the cortex-annotate tool's figure panel.
 
 # Imports ######################################################################
 
-
 import numpy as np
 import ipycanvas as ipc
 import ipywidgets as ipw
@@ -30,11 +29,15 @@ class FigurePanel(ipw.HBox):
     _annotation_change = Int(default_value = 0)
 
     class LoadingContext:
-        __slots__ = ('canvas', 'message')
-        _count = defaultdict(lambda:0)
-        def __init__(self, canvas, msg="Loading..."):
+        __slots__ = ( "canvas", "message" )
+
+        _count = defaultdict(lambda: 0)
+
+        def __init__(self, canvas, msg = "Loading..."):
             self.canvas = canvas
             self.message = msg
+
+
         def __enter__(self):
             c = FigurePanel.LoadingContext._count
             idc = id(self.canvas)
@@ -42,6 +45,8 @@ class FigurePanel(ipw.HBox):
             if count == 0:
                 FigurePanel.draw_loading(self.canvas, self.message)
             c[idc] = count + 1 
+
+
         def __exit__(self, type, value, traceback):
             c = FigurePanel.LoadingContext._count
             idc = id(self.canvas)
@@ -53,7 +58,7 @@ class FigurePanel(ipw.HBox):
                 del c[idc]
 
 
-    def write_message(self, message, wrap=True, fontsize=32, canvas=None):
+    def write_message(self, message, wrap = True, fontsize = 32, canvas = None):
         """Sets a message in the message canvas."""
         from ._util import wrap as wordwrap
         if canvas is None:
@@ -67,13 +72,13 @@ class FigurePanel(ipw.HBox):
             dc.fill_rect(0, 0, dc.width, dc.height)
             dc.global_alpha = 1
             dc.font = f"{fontsize}px HelveticaNeue"
-            dc.fill_style = 'black'
-            dc.text_align = 'left'
-            dc.text_baseline = 'top'
+            dc.fill_style = "black"
+            dc.text_align = "left"
+            dc.text_baseline = "top"
             # Word wrap the message before printing.
             if wrap is True or wrap is Ellipsis:
                 wrap = int(dc.width*13/15 / fontsize*2)
-            message = wordwrap(message, wrap=wrap)
+            message = wordwrap(message, wrap = wrap)
             for (ii,ln) in enumerate(message.split("\n")):
                 dc.fill_text(ln, dc.width//15, dc.height//15 + fontsize*ii,
                              max_width=(dc.width - dc.width//15*2))
@@ -129,7 +134,7 @@ class FigurePanel(ipw.HBox):
         self.ylim = None
         self.annotations = {}
         self.builtin_annotations = {}
-        self.cursor_position = 'tail'
+        self.cursor_position = "tail"
         self.fixed_heads = None
         self.fixed_tails = None
         self.annotation_types = {}
@@ -144,22 +149,22 @@ class FigurePanel(ipw.HBox):
 
 
     @classmethod
-    def draw_loading(cls, dc, message='Loading...', wrap=True, fontsize=32):
+    def draw_loading(cls, dc, message = "Loading...", wrap = True, fontsize = 32):
         """Clears the draw canvas and draws the loading screen."""
         from ._util import wrap as wordwrap
         with ipc.hold_canvas():
             dc.clear()
-            dc.fill_style = 'white'
+            dc.fill_style = "white"
             dc.global_alpha = 0.85
             dc.fill_rect(0, 0, dc.width, dc.height)
             dc.global_alpha = 1
             dc.font = f"{fontsize}px HelveticaNeue"
-            dc.fill_style = 'black'
-            dc.text_align = 'left'
+            dc.fill_style = "black"
+            dc.text_align = "left"
             # Word wrap the message before printing.
             if wrap is True or wrap is Ellipsis:
                 wrap = int(dc.width*13/15 / fontsize*2)
-            message = wordwrap(message, wrap=wrap)
+            message = wordwrap(message, wrap = wrap)
             for (ii,ln) in enumerate(message.split("\n")):
                 dc.fill_text(ln, dc.width//15, dc.height//15 + fontsize*ii,
                              max_width=(dc.width - dc.width//15*2))
@@ -177,26 +182,30 @@ class FigurePanel(ipw.HBox):
         canvas clears it.
         """
         # The canvas size is a product of the image size and the grid shape.
-        canvas_width = new_size * self.grid_shape[1]
+        canvas_width  = new_size * self.grid_shape[1]
         canvas_height = new_size * self.grid_shape[0]
+
         # First resize the canvas (this clears it).
-        self.multicanvas.width = canvas_width
+        self.multicanvas.width  = canvas_width
         self.multicanvas.height = canvas_height
+
         # Then we also resize the layout component.
-        self.multicanvas.layout.width = f"{canvas_width}px"
+        self.multicanvas.layout.width  = f"{canvas_width}px"
         self.multicanvas.layout.height = f"{canvas_height}px"
+
         # Note the new image size.
         self.image_size = new_size
+
         # Finally, because the canvas was cleared upon resize, we redraw it.
         self.redraw_canvas()
     
     
     def cellshape(self):
         """Returns the `(width, height)` in pixels of one cell of the image grid."""
-        imwidth = self.image_size
+        image_width = self.image_size
         (figure_width, figure_height) = self.state.config.display.figure_size
-        imheight = imwidth * figure_height / figure_width
-        return (imwidth, imheight)
+        image_height = image_width * figure_height / figure_width
+        return (image_width, image_height)
     
     
     def figure_to_image(self, points):
@@ -204,18 +213,18 @@ class FigurePanel(ipw.HBox):
         points = np.asarray(points)
         if len(points.shape) == 1:
             return self.figure_to_image([points])[0]
-        (imwidth, imheight) = self.cellshape()
-        xlim = (0, imwidth) if self.xlim is None else self.xlim
-        ylim = (0, imheight) if self.ylim is None else self.ylim
+        (image_width, image_height) = self.cellshape()
+        xlim = (0, image_width) if self.xlim is None else self.xlim
+        ylim = (0, image_height) if self.ylim is None else self.ylim
         # First, make the basic conversion.
         points  = points - [xlim[0], ylim[0]]
-        points *= [imwidth / (xlim[1] - xlim[0]),
-                   imheight / (ylim[1] - ylim[0])]
+        points *= [image_width / (xlim[1] - xlim[0]),
+                   image_height / (ylim[1] - ylim[0])]
         # Then invert the y-axis
-        points[:,1] = imheight - points[:,1]
+        points[:,1] = image_height - points[:,1]
         # And build up the point matrices for each grid element.
         (rows,cols) = self.grid_shape
-        return [points + [ii*imwidth, jj*imheight]
+        return [points + [ii*image_width, jj*image_height]
                 for ii in range(cols)
                 for jj in range(rows)]
     
@@ -226,24 +235,24 @@ class FigurePanel(ipw.HBox):
         if len(points.shape) == 1:
             return self.figure_to_image([points])[0]
         # First off, we want to apply the grid mod to make sure that any
-        (imwidth, imheight) = self.cellshape()
-        points = points % [imwidth, imheight]
+        (image_width, image_height) = self.cellshape()
+        points = points % [image_width, image_height]
         # Get the figure limits.
-        xlim = (0, imwidth) if self.xlim is None else self.xlim
-        ylim = (0, imheight) if self.ylim is None else self.ylim
+        xlim = (0, image_width) if self.xlim is None else self.xlim
+        ylim = (0, image_height) if self.ylim is None else self.ylim
         # We need to invert the y axis.
-        points[:,1] = imheight - points[:,1]
+        points[:,1] = image_height - points[:,1]
         # Now, make the conversion.
-        points *= [(xlim[1] - xlim[0]) / imwidth,
-                   (ylim[1] - ylim[0]) / imheight]
+        points *= [(xlim[1] - xlim[0]) / image_width,
+                   (ylim[1] - ylim[0]) / image_height]
         points += [xlim[0], ylim[0]]
         return points
     
     
-    def review_start(self, msg, wrap=True):
+    def review_start(self, msg, wrap = True):
         from ._util import wrap as wordwrap
         self.review_msg = msg
-        self.redraw_canvas(redraw_review=True)
+        self.redraw_canvas(redraw_review = True)
     
     
     def review_end(self):
@@ -251,10 +260,10 @@ class FigurePanel(ipw.HBox):
         self.redraw_canvas()
     
     
-    def redraw_canvas(self,
-                      image=Ellipsis, grid_shape=None, xlim=None, ylim=None,
-                      redraw_image=True, redraw_annotations=True,
-                      redraw_review=False):
+    def redraw_canvas(
+            self, image = Ellipsis, grid_shape = None, xlim = None, ylim = None,
+            redraw_image = True, redraw_annotations = True, redraw_review = False
+        ):
         """Redraws the entire canvas.
 
         `figure_panel.redraw_canvas()` redraws the canvas as-is.
@@ -309,7 +318,7 @@ class FigurePanel(ipw.HBox):
             self.image_canvas.draw_image(self.image, 0, 0, w, h)
     
     
-    def redraw_review(self, wrap=True, fontsize=32):
+    def redraw_review(self, wrap = True, fontsize = 32):
         """Clears the draw and image canvases and draws the review canvas."""
         if self.review_msg is None:
             # If there's nothing to review, we do nothing.
@@ -320,18 +329,18 @@ class FigurePanel(ipw.HBox):
         dc = self.image_canvas
         if isinstance(self.review_msg, str):
             with ipc.hold_canvas():
-                dc.fill_style = 'white'
+                dc.fill_style = "white"
                 dc.fill_rect(0, 0, dc.width, dc.height)
                 self.write_message(
                     self.review_msg,
-                    wrap=wrap,
-                    fontsize=fontsize,
-                    canvas=dc)
+                    wrap = wrap,
+                    fontsize = fontsize,
+                    canvas = dc)
         else:
             dc.draw_image(self.review_msg, 0, 0, dc.width, dc.height)
     
     
-    def redraw_annotations(self, foreground=True, background=True):
+    def redraw_annotations(self, foreground = True, background = True):
         """Clears the draw canvas and redraws all annotations."""
         if background: self.draw_canvas.clear()
         if foreground: self.fg_canvas.clear()
@@ -353,17 +362,17 @@ class FigurePanel(ipw.HBox):
             if points is None or len(points) == 0: continue
             # If this annotation isn't visible, we can skip it also.
             style = self.state.style(styletag)
-            if not style['visible']: continue
+            if not style["visible"]: continue
             # Grab the fixed head and tail statuses.
             fh = self.fixed_head(ann_name) is not None
             ft = self.fixed_tail(ann_name) is not None
             # See if the boundary is closed and connected.
             atype = self.annotation_type(ann_name)
-            if atype in ('point', 'points'):
+            if atype in ("point", "points"):
                 (closed, joined) = (False, False)
-            elif atype in ('path', 'contour', 'paths', 'contours'):
+            elif atype in ("path", "contour", "paths", "contours"):
                 (closed, joined) = (False, True)
-            elif atype in ('boundary', 'boundaries', 'loop', 'loops'):
+            elif atype in ("boundary", "boundaries", "loop", "loops"):
                 (closed, joined) = (True, True)
             else:
                 raise ValueError(f"invalid annotation type: {atype}")
@@ -374,14 +383,14 @@ class FigurePanel(ipw.HBox):
             for pts in grid_points:
                 self.state.draw_path(
                     styletag, pts, canvas,
-                    fixed_head=fh, fixed_tail=ft, cursor=cursor,
-                    closed=closed, path=joined)
+                    fixed_head = fh, fixed_tail = ft, cursor = cursor,
+                    closed = closed, path = joined)
         # Next, we step through all the (visible) builtin annotations.
         if background:
             for (ann_name, dat) in self.builtin_annotations.items():
                 if dat is None: continue
                 style = self.state.style(ann_name)
-                if not style['visible']: continue
+                if not style["visible"]: continue
                 points_list = dat.get_data()
                 for points in points_list:
                     grid_points = self.figure_to_image(points)
@@ -391,10 +400,10 @@ class FigurePanel(ipw.HBox):
         # That's it.
     
     
-    def change_annotations(self, annots, builtin_annots,
-                           redraw=True, allow=True,
-                           fixed_heads=None, fixed_tails=None,
-                           annotation_types=None):
+    def change_annotations(
+            self, annots, builtin_annots, redraw = True, allow = True,
+            fixed_heads = None, fixed_tails = None, annotation_types = None
+        ):
         """Changes the set of currently visible annotations.
 
         The argument `annots` must be a dictionary whose keys are the annotation
@@ -414,7 +423,7 @@ class FigurePanel(ipw.HBox):
         self.ignore_input = not allow
     
     
-    def change_foreground(self, annot, redraw=True):
+    def change_foreground(self, annot, redraw = True):
         """Changes the foreground annotation (the annotation being edited).
 
         `figure_panel.change_foreground(annot)` changes the current foreground
@@ -429,15 +438,15 @@ class FigurePanel(ipw.HBox):
     def toggle_cursor(self):
         """Toggles the cursor position between head/tail."""
         orig = self.cursor_position
-        if orig == 'tail':
-            self.cursor_position = 'head'
+        if orig == "tail":
+            self.cursor_position = "head"
         else:
-            self.cursor_position = 'tail'
-        self.redraw_annotations(background=False)
+            self.cursor_position = "tail"
+        self.redraw_annotations(background = False)
         return self.cursor_position
     
     
-    def fixed_head(self, annot=None):
+    def fixed_head(self, annot = None):
         """Returns the 2D fixed-head point for the given annotation or `None`."""
         if self.fixed_heads is None: return None
         if annot is None: annot = self.foreground
@@ -449,7 +458,7 @@ class FigurePanel(ipw.HBox):
         return pt
     
     
-    def fixed_tail(self, annot=None):
+    def fixed_tail(self, annot = None):
         """Returns the 2D fixed-tail point for the given annotation or `None`."""
         if self.fixed_tails is None: return None
         if annot is None: annot = self.foreground
@@ -461,12 +470,12 @@ class FigurePanel(ipw.HBox):
         return pt
     
     
-    def annotation_type(self, annot=None):
+    def annotation_type(self, annot = None):
         """Returns the annotation type of the given annotation."""
-        if self.annotation_types is None: return 'points'
+        if self.annotation_types is None: return "points"
         if annot is None: annot = self.foreground
         at = self.annotation_types.get(annot)
-        return 'points' if at is None else at
+        return "points" if at is None else at
     
     
     @staticmethod
@@ -516,20 +525,20 @@ class FigurePanel(ipw.HBox):
                 ft = points[[-1]]
                 points = points[:-1]
             # Where we add depends on the cursor position.
-            if at in ('point','points'):
+            if at in ( "point", "points" ):
                 points = np.reshape(x, (1,2))
-            elif self.cursor_position == 'head':
+            elif self.cursor_position == "head":
                 points = np.vstack([fh, x, points, ft])
             else:
                 points = np.vstack([fh, points, x, ft])
         self.annotations[self.foreground] = points
         # Redraw the annotations.
         if redraw:
-            self.redraw_annotations(background=False)
+            self.redraw_annotations(background = False)
             self._increment_annotation_change()
     
     
-    def push_impoint(self, x, y=None, redraw=True):
+    def push_impoint(self, x, y = None, redraw = True):
         """Push the given image point onto the selected annotation.
 
         The point may be given as `x, y` or as a vector or 1 x 2 matrix. Image
@@ -540,10 +549,10 @@ class FigurePanel(ipw.HBox):
         x = FigurePanel._to_point_matrix(x, y)
         # Convert to a figure point.
         x = self.image_to_figure(x)
-        return self.push_point(x, redraw=redraw)
+        return self.push_point(x, redraw = redraw)
     
     
-    def pop_point(self, redraw=True):
+    def pop_point(self, redraw = True):
         if self.foreground is None:
             # We got a backspace while not accepting edits; ignore it.
             return None
@@ -577,7 +586,7 @@ class FigurePanel(ipw.HBox):
                     " annotation.")
             self.annotations[self.foreground] = None
         else:
-            if self.cursor_position == 'head':
+            if self.cursor_position == "head":
                 points = points[1:]
             else:
                 points = points[:-1]
@@ -585,7 +594,7 @@ class FigurePanel(ipw.HBox):
             self.annotations[self.foreground] = points
         # Redraw the annotations.
         if redraw:
-            self.redraw_annotations(background=False)
+            self.redraw_annotations(background = False)
             self._increment_annotation_change()
 
     
@@ -602,9 +611,9 @@ class FigurePanel(ipw.HBox):
         if self.ignore_input:
             return
         key = key.lower()
-        if key == 'tab':
+        if key == "tab":
             self.toggle_cursor()
-        elif key == 'backspace':
+        elif key == "backspace":
             # Delete from head/tail, wherever the cursor is.
             self.pop_point()
         else:

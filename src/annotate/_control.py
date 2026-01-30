@@ -24,8 +24,10 @@ from functools import partial
 class SelectionPanel(ipw.VBox):
     """The subpanel of the control panel for target selection."""
     
-    __slots__ = ('state', 'dropdowns', 'annotations_dropdown', 
-                 'target_observers', 'annotation_observers')
+    __slots__ = (
+        "state", "dropdowns", "annotations_dropdown", 
+        "target_observers", "annotation_observers"
+    )
     
     def __init__(self, state):
         self.state = state
@@ -35,14 +37,14 @@ class SelectionPanel(ipw.VBox):
         dd_layout = { "width": "94%", "margin": "1% 3% 1% 3%" }
         for k in state.config.targets.concrete_keys:
             els = state.config.targets.items[k]
-            dd = ipw.Dropdown(options=els, value=els[0], layout=dd_layout,
-                              description=(k + ":"))
+            dd = ipw.Dropdown(options = els, value = els[0], 
+                              layout = dd_layout, description = (k + ":"))
             ch.append(dd)
             self.dropdowns[k] = dd
             
         # We need the annotation bit also.
         self.annotations_dropdown = ipw.Dropdown(
-            options=[], layout=dd_layout, description="Annotation:")
+            options = [], layout = dd_layout, description = "Annotation:")
         ch.append(self.annotations_dropdown)
 
         super().__init__(ch)
@@ -62,6 +64,7 @@ class SelectionPanel(ipw.VBox):
             names='value')
         self.target_observers = []
         self.annotation_observers = []
+        
         # Initialize the annotations menu.
         self.refresh_annotations()
 
@@ -85,7 +88,7 @@ class SelectionPanel(ipw.VBox):
     
 
     def refresh_annotations(self):
-        # Get the new target selection entire.
+        # Get the new target selection entirely.
         sel = self.target
         # Look up the target for this selection.
         target = self.state.config.targets[sel]
@@ -180,38 +183,38 @@ class StylePanel(ipw.VBox):
         # We use the config to populate the collection of style preferences, but
         # we keep track of these separately so that we can remember them.
         self.user_preferences = {}
-        entries = ['Selected Annotation']
+        entries = ["Selected Annotation"]
         entries += list(state.config.annotations.keys())
         entries += list(state.config.builtin_annotations.keys())
         layout = dict(width="94%", margin="0% 3% 0% 3%")
         self.style_dropdown = ipw.Dropdown(
-            options=entries, value=entries[0], description="Annotation:",
-            layout=dict(layout, margin="3% 3% 3% 3%"))
+            options = entries, value = entries[0], description = "Annotation:",
+            layout = dict(layout, margin = "3% 3% 3% 3%"))
         self.visible_checkbox = ipw.Checkbox(
-            description="Visible",
-            value=True,
-            layout=layout)
+            description = "Visible",
+            value = True,
+            layout = layout)
         self.color_picker = ipw.ColorPicker(
-            concise=False,
-            description='Color:',
-            value='blue',
-            layout=layout)
+            concise = False,
+            description = "Color:",
+            value = "blue",
+            layout = layout)
         self.pointsize_slider = ipw.IntSlider(
-            value=1, min=0, max=12, step=1,
-            description="Point Size:",
-            readout=True,
-            continuous_update=False,
-            layout=layout)
+            value = 1, min = 0, max = 12, step = 1,
+            description = "Point Size:",
+            readout = True,
+            continuous_update = False,
+            layout = layout)
         self.linewidth_slider = ipw.IntSlider(
-            value=1, min=1, max=8, step=1,
-            description="Line Width:",
-            readout=True,
-            continuous_update=False,
-            layout=layout)
+            value = 1, min = 1, max = 8, step = 1,
+            description = "Line Width:",
+            readout = True,
+            continuous_update = False,
+            layout = layout)
         self.linestyle_dropdown = ipw.Dropdown(
-            options=['solid', 'dashed', 'dot-dashed', 'dotted'],
-            description="Line Style:",
-            layout=layout)
+            options = [ "solid", "dashed", "dot-dashed", "dotted" ],
+            description = "Line Style:",
+            layout = layout)
         ch = [
             ipw.HTML("<b style=\"margin: 0% 3% 0% 3%;\">Style Options:</b>"),
             self.style_dropdown,
@@ -222,7 +225,7 @@ class StylePanel(ipw.VBox):
             self.linewidth_slider,
             self.linestyle_dropdown
         ]
-        super().__init__(ch, layout= { "margin":"0% 0% 3% 0%" })
+        super().__init__(ch, layout= { "margin": "0% 0% 3% 0%" })
         
         # Set up our observer pattern. We track these manually so that we can
         # call the functions using a parameter order that makes sense.
@@ -235,10 +238,10 @@ class StylePanel(ipw.VBox):
             "linestyle" : self.linestyle_dropdown
         }
         for (k, v) in self.style_names.items():
-            v.observe(partial(self.on_style_change, k), names="value")
+            v.observe(partial(self.on_style_change, k), names = "value")
         # We need to make sure that we update things when the style dropdown
         # changes also.
-        self.style_dropdown.observe(self.refresh_style, names="index")
+        self.style_dropdown.observe(self.refresh_style, names = "index")
         self.refresh_style()
     
     
@@ -256,7 +259,7 @@ class StylePanel(ipw.VBox):
     @property
     def style(self):
         prefs = self.user_preferences
-        prefs['annotation'] = self.annotation
+        prefs["annotation"] = self.annotation
         return prefs
     
 
@@ -306,18 +309,19 @@ class ControlPanel(ipw.VBox):
     """The panel that contains the controls for the Annotation Tool."""
 
     @classmethod
-    def _make_image_size_slider(cls, initial_value=256):
-        return ipw.IntSlider(value=initial_value, min=250, max=1280, step=1,
-                             description="Image Size: ",
-                             readout=False,
-                             continuous_update=False,
-                             layout=dict(width='90%', padding="0px"))
+    def _make_image_size_slider(cls, initial_value = 256):
+        return ipw.IntSlider(value = initial_value, 
+                             min = 250, max = 1280, step = 1,
+                             description = "Image Size: ",
+                             readout = False,
+                             continuous_update = False,
+                             layout = { "width": "90%", "padding": "0px" })
     
 
     @classmethod
     def _make_html_header(cls,
-                          background_color="#f0f0f0",
-                          save_button_color="#e0e0e0"):
+                          background_color = "#f0f0f0",
+                          save_button_color = "#e0e0e0"):
         return ipw.HTML(f"""
             <style>
             .jupyter-widget-Collapse-contents {{
@@ -375,7 +379,7 @@ class ControlPanel(ipw.VBox):
                 <div style="line-height:1.2; margin: 2%;">
                 <center><b>TAB</b> to toggle the circled end.</center></div>
                 """)],
-            layout={'margin': '3%', 'width': '88%'})
+            layout = { "margin": "3%", "width": "88%" })
     
     
     def __init__(
@@ -525,7 +529,7 @@ class ControlPanel(ipw.VBox):
         `control_panel.observe_image_size(fn)` is equivalent to
         `control_panel.image_size_slider.observe(fn, names="value")`.
         """
-        self.image_size_slider.observe(fn, names="value")
+        self.image_size_slider.observe(fn, names = "value")
 
 
     def observe_save(self, fn):
