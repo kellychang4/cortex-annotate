@@ -198,8 +198,7 @@ class CortexControlPanel(ipw.VBox):
         elif key == "participant":
             return state.participant
         elif key == "hemisphere":
-            hemisphere = state.hemisphere.lower()
-            return "Left Hemisphere" if hemisphere.startswith("l") else "Right Hemisphere"
+            return state.convert_hemisphere(state.hemisphere)
         else: # key == "annotation"
             return state.selected_annotation
 
@@ -260,6 +259,7 @@ class CortexControlPanel(ipw.VBox):
         """A method to register a callback for changes in the line points slider."""
         self.line_points_slider.observe(callback, names = "value")
 
+
 # The Cortex Figure Panel ------------------------------------------------------
 
 class CortexFigurePanel(ipw.HBox):
@@ -278,9 +278,9 @@ class CortexFigurePanel(ipw.HBox):
         ):
         # Create a figure background
         self.figure = ipv.figure(
-            width     = width, 
-            height    = height, 
-            animation = animation, 
+            width              = width, 
+            height             = height, 
+            animation          = animation, 
             animation_exponent = animation_exponent
         )
                     

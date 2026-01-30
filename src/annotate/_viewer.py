@@ -56,7 +56,7 @@ class CortexViewerState:
         self.fsaverage = self._get_fsaverage()
 
         # Prepare initial values from annotation widget
-        self.dataset_index = self.get_dataset_index()
+        self.dataset_index = self.get_selected_dataset_index()
         self.dataset       = self.get_selected_dataset()
         self.participant   = self.get_selected_participant()
         self.hemisphere    = self.get_selected_hemisphere() 
@@ -105,24 +105,24 @@ class CortexViewerState:
         }
 
 
-    def get_active_annotation_tool(self):
+    def _get_active_annotation_tool(self):
         """Get the active multicanvas widget."""
         return self.annotation_widgets.children[self.dataset_index]
 
 
-    def get_active_selection_panel(self):
+    def _get_active_selection_panel(self):
         """Get the active selection panel widget."""
-        active_widget = self.get_active_annotation_tool()
+        active_widget = self._get_active_annotation_tool()
         return active_widget.control_panel.selection_panel
     
 
-    def get_active_figure_panel(self):
+    def _get_active_figure_panel(self):
         """Get the active figure panel widget."""
-        active_widget = self.get_active_annotation_tool()
+        active_widget = self._get_active_annotation_tool()
         return active_widget.figure_panel
     
 
-    def get_dataset_index(self):
+    def get_selected_dataset_index(self):
         """Get the current dataset selection index."""
         return self.annotation_widgets.selected_index
     
@@ -134,26 +134,33 @@ class CortexViewerState:
     
     def get_selected_participant(self):
         """Get the current participant selection widget."""
-        active_selection = self.get_active_selection_panel()
+        active_selection = self._get_active_selection_panel()
         return active_selection.children[0].value
     
-    #TODO: I do not like this!!!
-    def format_hemisphere(self, hemisphere):
-        """Format hemisphere value for internal usage."""
-        if hemisphere.lower().startswith("l"): return "lh" 
-        return "rh" # else return "rh"
+    
+    @staticmethod
+    def convert_hemisphere(hemisphere):
+        """Convert hemisphere string to code or vice versa."""
+        str_to_code = { "Left Hemisphere"  : "lh", "Right Hemisphere" : "rh" }
+        code_to_str = { v: k for k, v in str_to_code.items() }
+        if hemisphere in str_to_code.keys():
+            return str_to_code[hemisphere]
+        elif hemisphere in code_to_str.keys():
+            return code_to_str[hemisphere]
+        else: 
+            raise ValueError(f"Invalid hemisphere value: {hemisphere}")
     
 
     def get_selected_hemisphere(self):
         """Get the current hemisphere selection widget."""
-        active_selection = self.get_active_selection_panel()
-        hemisphere = active_selection.children[1].value.lower()
-        return self.format_hemisphere(hemisphere)
+        active_selection = self._get_active_selection_panel()
+        hemisphere = active_selection.children[1].value
+        return self.convert_hemisphere(hemisphere)
     
 
     def get_selected_annotation(self):
         """Get the current annotation selection widget."""
-        active_selection = self.get_active_selection_panel()
+        active_selection = self._get_active_selection_panel()
         return active_selection.children[2].value
 
 
@@ -164,7 +171,7 @@ class CortexViewerState:
     
     def update_style_options(self):
         """Update the style panel options based on current state."""
-        active_widget     = self.get_active_annotation_tool()
+        active_widget     = self._get_active_annotation_tool()
         self.style_panel  = active_widget.control_panel.style_panel
         self.styler       = active_widget.state.style
         self.style_active = active_widget.state.config.display.fg_options
@@ -172,7 +179,8 @@ class CortexViewerState:
 
     def update_flatmap_annotations(self):
         """Get the annotation tool's annotation dictionary"""
-        self.flatmap_annotations = self.get_active_figure_panel().annotations    
+        figure_panel = self._get_active_figure_panel()
+        self.flatmap_annotations = figure_panel.annotations    
 
 
     def update_annotation_styles(self, annotation = None):
@@ -229,8 +237,8 @@ class CortexViewerState:
 
     def update_coordinates(self):
         """Update the cortical mesh coordinates based on the inflation value."""
-        self.coordinates = \
-            ((self.fsaverage[self.hemisphere]["inflated"] - self.midgray) * \
+        inflated_coordinates = self.fsaverage[self.hemisphere]["inflated"]
+        self.coordinates = ((inflated_coordinates - self.midgray) * \
              (self.style["inflation_percent"] / 100.0)) + self.midgray
 
 
@@ -340,33 +348,33 @@ class CortexViewerState:
                 }
 
 
-    def _observe_dataset(self, callback):
+    def observe_dataset_index(self, callback):
         """Assign a callback function to dataset value changes."""
         self.annotation_widgets.observe(callback, names = "selected_index")
 
 
-    def _observe_participant(self, callback):
+    def observe_participant(self, callback):
         """Assign a callback function to participant value changes."""
         for annotation_widget in self.annotation_widgets.children:
             participant_dropdown = annotation_widget.control_panel.selection_panel.children[0]
             participant_dropdown.observe(callback, names = "value")
 
 
-    def _observe_hemisphere(self, callback):
+    def observe_hemisphere(self, callback):
         """Assign a callback function to hemisphere value changes."""
         for annotation_widget in self.annotation_widgets.children:
             hemisphere_dropdown = annotation_widget.control_panel.selection_panel.children[1]
             hemisphere_dropdown.observe(callback, names = "value")
 
     
-    def _observe_annotation(self, callback):
+    def observe_annotation(self, callback):
         """Assign a callback function to annotation value changes."""
         for annotation_widget in self.annotation_widgets.children:
             annotation_dropdown = annotation_widget.control_panel.selection_panel.children[2]
             annotation_dropdown.observe(callback, names = "value")
     
 
-    def _observe_annotation_styles(self, callback):
+    def observe_annotation_styles(self, callback):
         """Assign a callback function to style option changes."""
         for annotation_widget in self.annotation_widgets.children:
             style_panel = annotation_widget.control_panel.style_panel
@@ -374,11 +382,12 @@ class CortexViewerState:
             style_panel.color_picker.observe(callback, names = "value")
 
 
-    def _observe_annotation_change(self, callback):
+    def observe_annotation_change(self, callback):
         """Assign a callback function to annotation data changes."""
         for annotation_widget in self.annotation_widgets.children:
             annotation_figure = annotation_widget.figure_panel
             annotation_figure.observe(callback, names = "_annotation_change")
+
 
 # The Cortex Viewer Widget -----------------------------------------------------
 
@@ -388,7 +397,6 @@ class CortexViewer(ipw.HBox):
     The `CortexViewer` type handles the 3D Cortex figure that renders the 
     cortical mesh that assists the flatmap viewer.
     """
-
 
     def __init__(self, annotation_widgets, dataset_directory):
         # Initialize the Cortex Viewer state
@@ -410,11 +418,11 @@ class CortexViewer(ipw.HBox):
         for k in self.control_panel.infobox.keys():
             self._infobox_observers[k](partial(self.on_selection_change, k))
 
-        # Assign flatmap annotation style observers
-        self.state._observe_annotation_styles(self.on_annotation_style_change)
-
         # Assign user annotation input observers
-        self.state._observe_annotation_change(self.on_annotation_change)
+        self.state.observe_annotation_change(self.on_annotation_change)
+
+        # Assign flatmap annotation style observers
+        self.state.observe_annotation_styles(self.on_annotation_style_change)
 
         # Assign style option observers
         for k in self.state.style.keys():
@@ -425,10 +433,10 @@ class CortexViewer(ipw.HBox):
     def _infobox_observers(self):
         """Return a list of observer functions for the Cortex Viewer state."""
         return {
-            "dataset"     : self.state._observe_dataset,
-            "participant" : self.state._observe_participant,
-            "hemisphere"  : self.state._observe_hemisphere,
-            "annotation"  : self.state._observe_annotation,
+            "dataset"     : self.state.observe_dataset_index,
+            "participant" : self.state.observe_participant,
+            "hemisphere"  : self.state.observe_hemisphere,
+            "annotation"  : self.state.observe_annotation,
         }   
 
 
@@ -457,7 +465,7 @@ class CortexViewer(ipw.HBox):
         elif key == "participant":
             self.state.participant = change.new 
         elif key == "hemisphere":
-            self.state.hemisphere = self.state.format_hemisphere(change.new)
+            self.state.hemisphere = self.state.get_selected_hemisphere()
         elif key == "annotation": 
             self.state.selected_annotation = change.new
         
