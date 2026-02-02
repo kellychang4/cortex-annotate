@@ -238,32 +238,6 @@ class AnnotationState:
         return (image_data, grid_shape, meta_data)
     
     
-    def generate_review(self, target_id, save_hooks):
-        """Generates a single figure for the given target and figure name."""
-        target = self.config.targets[target_id]
-        annots = self.annotations[target_id]
-        fn = self.config.review.function
-        if fn is None:
-            raise RuntimeError("no review function found")
-        # Make a figure and axes for the plots.
-        figure_size = self.config.review.figure_size
-        dpi = self.config.review.dpi
-        (fig,ax) = plt.subplots(1, 1, figsize = figure_size, dpi = dpi)
-        # Run the function from the config that draws the figure.
-        fn(target, annots, fig, ax, save_hooks)
-        # We can go ahead and fix the save hooks now:
-        for (k,fn) in save_hooks.items():
-            save_hooks[k] = (target_id, fn)
-        # Tidy things up for image plotting.
-        ax.axis("off")
-        fig.subplots_adjust(0,0,1,1,0,0)
-        b = BytesIO()
-        plt.savefig(b, format = "png")
-        # We can close the figure now as well.
-        plt.close(fig)
-        return ipw.Image(value = b.getvalue(), format = "png")
-    
-    
     def load_preferences(self):
         """Loads the preferences from the save directory and returns them.
 
@@ -465,28 +439,17 @@ class AnnotationState:
             if not annots.is_lazy(tid):
                 self.save_target_annotations(tid)
 
-
-    def run_save_hooks(self):
-        """Runs any save hooks that were registered by the review."""
-        hooks = self.save_hooks
-        self.save_hooks = None
-        if hooks is not None:
-            for (filename, (tid, fn)) in hooks.items():
-                filename = os.path.join(self.target_save_path(tid), filename)
-                fn(filename)
-    
     
     def save(self):
         """Saves both the user preferences and the user annotations."""
         self.save_preferences()
         self.save_annotations()
-        self.run_save_hooks()
     
 
     __slots__ = (
         "config", "cache_path", "save_path", "git_path", "username",
         "annotations", "builtin_annotations", "preferences",
-        "loading_context", "reviewing_context", "save_hooks"
+        "loading_context", "save_hooks"
     )
     
     def __init__(
@@ -497,7 +460,6 @@ class AnnotationState:
             git_path          = "/git",
             username          = None,
             loading_context   = None,
-            reviewing_context = None
         ):
 
         # Store the configuration and paths.
@@ -513,22 +475,23 @@ class AnnotationState:
             username = git_account
         if not isinstance(username, str):
             raise RuntimeError("username must be a string or None")
+
         # Build up the save path.
         self.username = username
         if username == "": self.save_path = save_path
         else:              self.save_path = os.path.join(save_path, username)
         if not os.path.isdir(self.save_path):
             os.makedirs(self.save_path, mode=0o755)
+
         # Use our loading control if we have one.
         if loading_context is None:
             loading_context = NoOpContext()
         self.loading_context = loading_context
-        if reviewing_context is None:
-            reviewing_context = NoOpContext()
-        self.reviewing_context = reviewing_context
+
         # (Lazily) load the annotations.
         self.annotations = self.load_annotations()
         self.builtin_annotations = self.load_builtin_annotations()
+
         # And (lazily) load the preferences.
         self.preferences = self.load_preferences()
         
@@ -689,8 +652,7 @@ class AnnotationTool(ipw.HBox):
         self.figure_panel = FigurePanel(self.state, image_size = image_size)
         
         # Pass the loading context over to the state.
-        self.state.loading_context   = self.figure_panel.loading_context
-        self.state.reviewing_context = self.figure_panel.reviewing_context
+        self.state.loading_context = self.figure_panel.loading_context
 
         # Go ahead and initialize the HBox component.
         super().__init__((self.control_panel, self.figure_panel))
@@ -708,11 +670,8 @@ class AnnotationTool(ipw.HBox):
         # And a listener for the style change.
         self.control_panel.observe_style(self.on_style_change)
 
-        # And a listener for the review, save, and edit buttons.
+        # And a listener for the save button.
         self.control_panel.observe_save(self.on_save)
-        if self.state.config.review.function is not None:
-            self.control_panel.observe_review(self.on_review)
-            self.control_panel.observe_edit(self.on_edit)
 
 
     def on_image_size_change(self, change):
@@ -829,52 +788,8 @@ class AnnotationTool(ipw.HBox):
         self.figure_panel.redraw_canvas(redraw_image = False)
     
     
-    def on_review(self, button):
-        """This method runs when the control panel's review button is clicked."""
-        self.figure_panel.clear_message()
-        self.state.save_preferences()
-        # This will happen no matter what:
-        self.control_panel.review_button.disabled = True
-        self.control_panel.edit_button.disabled = False
-        # Get the review function.
-        rev = self.state.config.review.function
-        if rev is None:
-            self.control_panel.save_button.disabled = True
-        else:
-            with self.state.reviewing_context:
-                try:
-                    save_hooks = {}
-                    targ = self.control_panel.target
-                    msg = self.state.generate_review(targ, save_hooks)
-                    self.control_panel.save_button.disabled = False
-                    self.state.save_hooks = save_hooks
-                except Exception as e:
-                    msg = str(e)
-                    self.control_panel.save_button.disabled = True
-            self.figure_panel.review_start(msg)
-    
-    
     def on_save(self, button):
         """This method runs when the control panel's save button is clicked."""
-        if self.figure_panel.review_msg is not None:
-            self.control_panel.review_button.disabled = False
-            self.control_panel.save_button.disabled   = True
-            self.control_panel.edit_button.disabled   = True
-            self.figure_panel.review_end()
-            self.refresh_figure()
         self.state.save_annotations()
         self.state.save_preferences()
-        self.state.run_save_hooks()
-    
-    
-    def on_edit(self, button):
-        """This method runs when the control panel's edit button is clicked."""
-        if self.figure_panel.review_msg is not None:
-            self.control_panel.review_button.disabled = False
-            self.control_panel.save_button.disabled   = True
-            self.control_panel.edit_button.disabled   = True
-            self.figure_panel.review_end()
-            self.refresh_figure()
-        self.state.save_hooks = None
-    
     

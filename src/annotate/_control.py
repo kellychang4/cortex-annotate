@@ -396,37 +396,16 @@ class ControlPanel(ipw.VBox):
         self.selection_panel = SelectionPanel(state)
         self.style_panel     = StylePanel(state)
 
-        self.review_button = ipw.Button(
-            description  = "Review",
-            button_style = "",
-            tooltip      = "Review the annotations."
-        )
-        
         self.save_button = ipw.Button(
             description  = "Save",
             button_style = "",
             tooltip      = "Save all annotations and preferences."
         )
         
-        self.edit_button = ipw.Button(
-            description  = "Edit",
-            button_style = "",
-            tooltip      = "Continue editing annotation."
+        self.button_box = ipw.HBox(
+            children = [self.save_button], 
+            layout   = { "margin" : "3% 33% 3% 33%", "width" : "34%" }
         )
-        
-        if state.config.review.function is not None:
-            buttons = [self.review_button, self.save_button, self.edit_button]
-            self.review_button.disabled = False
-            self.save_button.disabled = True
-            self.edit_button.disabled = True
-            layout = { "margin" : "3% 3% 3% 3%", "width" : "94%" }
-        else:
-            buttons = [self.save_button]
-            self.review_button.disabled = True
-            self.save_button.disabled = False
-            self.edit_button.disabled = True
-            layout = { "margin" : "3% 33% 3% 33%", "width" : "34%" }
-        self.button_box = ipw.HBox(buttons, layout=layout)
         self.info_message = self._make_infomsg()
         hline = self._make_hline()
         
@@ -541,15 +520,6 @@ class ControlPanel(ipw.VBox):
         instance.
         """
         self.save_button.on_click(fn)
-
-
-    def observe_review(self, fn):
-        """Registers the argument to be called when the save button is clicked.
-        
-        The function is called with a single argument, which is the review
-        button instance.
-        """
-        self.review_button.on_click(fn)
 
 
     def observe_edit(self, fn):

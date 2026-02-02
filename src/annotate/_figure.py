@@ -90,42 +90,43 @@ class FigurePanel(ipw.HBox):
 
 
     def __init__(self, state, image_size = 256):
-        self.state = state
+        # Store the state and image size.
+        self.state      = state
         self.image_size = image_size
+
         # Make a multicanvas for the image [0] and the drawings [1].
         imsz = image_size
+
         # Make a multicanvas.
-        self.multicanvas = ipc.MultiCanvas(6, width=imsz, height=imsz)
+        self.multicanvas = ipc.MultiCanvas(5, width=imsz, height=imsz)
         html = ipw.HTML(f"""
             <style> canvas {{
                 cursor: crosshair !important;
             }} </style>
             <div class="cortex-annotate-StylePanel-hline"></div>
         """)
+
         # We always seem to need to explicitly set the layout size in pixels.
         imsz = f"{imsz}px"
         self.multicanvas.layout.width  = imsz
         self.multicanvas.layout.height = imsz
+
         # Separate out the two canvases.
         self.image_canvas     = self.multicanvas[0]
         self.draw_canvas      = self.multicanvas[1]
         self.fg_canvas        = self.multicanvas[2]
         self.loading_canvas   = self.multicanvas[3]
-        self.reviewing_canvas = self.multicanvas[4]
-        self.message_canvas   = self.multicanvas[5]
+        self.message_canvas   = self.multicanvas[4]
+
         # Draw the loading screen on the loading canvas and save it.
         self.draw_loading(self.loading_canvas)
         self.loading_canvas.save()
         self.loading_context = FigurePanel.LoadingContext(self.loading_canvas)
-        # Same for the reviewing canvas.
-        review_msg = "Preparing review..."
-        self.draw_loading(self.reviewing_canvas, review_msg)
-        self.reviewing_canvas.save()
-        self.reviewing_context = FigurePanel.LoadingContext(
-            self.reviewing_canvas, review_msg)
+
         # Set up our event observers for clicks/tabs/backspaces.
         self.multicanvas.on_key_down(self.on_key_press)
         self.multicanvas.on_mouse_down(self.on_mouse_click)
+
         # We start out with nothing drawn initially.
         self.image = None
         self.grid_shape = (1,1)
@@ -139,7 +140,7 @@ class FigurePanel(ipw.HBox):
         self.fixed_tails = None
         self.annotation_types = {}
         self.ignore_input = False
-        self.reviewing = False
+
         # Initialize our parent class.
         super().__init__([html, self.multicanvas])
 
@@ -249,20 +250,9 @@ class FigurePanel(ipw.HBox):
         return points
     
     
-    def review_start(self, msg, wrap = True):
-        from ._util import wrap as wordwrap
-        self.review_msg = msg
-        self.redraw_canvas(redraw_review = True)
-    
-    
-    def review_end(self):
-        self.review_msg = None
-        self.redraw_canvas()
-    
-    
     def redraw_canvas(
             self, image = Ellipsis, grid_shape = None, xlim = None, ylim = None,
-            redraw_image = True, redraw_annotations = True, redraw_review = False
+            redraw_image = True, redraw_annotations = True
         ):
         """Redraws the entire canvas.
 
@@ -297,15 +287,13 @@ class FigurePanel(ipw.HBox):
             self.resize_canvas(self.image_size)
             return
         # Redraw the image (assuming one was given).
-        if redraw_image or redraw_annotations or redraw_review:
+        if redraw_image or redraw_annotations:
             self.loading_canvas.restore()
         with ipc.hold_canvas():
             if redraw_image:
                 self.redraw_image()
             if redraw_annotations:
                 self.redraw_annotations()
-            if redraw_review:
-                self.redraw_review()
         # That's all that's required for now.
     
     
@@ -316,28 +304,6 @@ class FigurePanel(ipw.HBox):
             w = self.image_canvas.width
             h = self.image_canvas.height
             self.image_canvas.draw_image(self.image, 0, 0, w, h)
-    
-    
-    def redraw_review(self, wrap = True, fontsize = 32):
-        """Clears the draw and image canvases and draws the review canvas."""
-        if self.review_msg is None:
-            # If there's nothing to review, we do nothing.
-            return
-        self.image_canvas.clear()
-        self.draw_canvas.clear()
-        self.fg_canvas.clear()
-        dc = self.image_canvas
-        if isinstance(self.review_msg, str):
-            with ipc.hold_canvas():
-                dc.fill_style = "white"
-                dc.fill_rect(0, 0, dc.width, dc.height)
-                self.write_message(
-                    self.review_msg,
-                    wrap = wrap,
-                    fontsize = fontsize,
-                    canvas = dc)
-        else:
-            dc.draw_image(self.review_msg, 0, 0, dc.width, dc.height)
     
     
     def redraw_annotations(self, foreground = True, background = True):
