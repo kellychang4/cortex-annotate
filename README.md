@@ -1,11 +1,17 @@
-# cortex-annotate
+# `cortex-annotate` for the DrawFAVA project
 
-A toolkit for annotating contours and boundaries on the cortical surface.
+This repository uses the [`cortex-annotate`](
+https://github.com/noahbenson/cortex-annotate/) toolkit to construct an
+annotation tool for the [DrawFAVA Project](
+https://nbenlab.github.io/drawFAVA/).
+
 
 ## About
 
-### Author
-Noah C. Benson &lt;[nben@uw.edu](mailto:nben@uw.edu)&gt;
+### Authors
+Noah C. Benson &lt;[nben@uw.edu](mailto:nben@uw.edu)&gt;  
+Kelly Chang &lt;[kchang4@uw.edu](mailto:kchang4@uw.edu)&gt;
+
 
 ### License
 [MIT](https://opensource.org/license/mit/)
