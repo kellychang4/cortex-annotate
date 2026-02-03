@@ -15,14 +15,12 @@ FigurePanel widget in the _figure.py file.
 import os
 import json
 import yaml
-from io import BytesIO
-
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 import matplotlib as mpl
 import ipywidgets as ipw
 import imageio.v3 as iio
+import matplotlib.pyplot as plt
 
 from ._util    import (ldict, delay)
 from ._config  import Config
@@ -133,16 +131,16 @@ class AnnotationState:
         # Make a figure and axes for the plots.
         figure_size = self.config.display.figure_size
         dpi = self.config.display.dpi
-        (fig,ax) = plt.subplots(1,1, figsize=figure_size, dpi=dpi)
+        (fig, ax) = plt.subplots(1,1, figsize = figure_size, dpi = dpi)
         # Run the function from the config that draws the figure.
         fn = self.config.figures[figure_name]
         meta_data = {}
         fn(target, figure_name, fig, ax, figure_size, dpi, meta_data)
         # Tidy things up for image plotting.
         ax.axis("off")
-        fig.subplots_adjust(0,0,1,1,0,0)
+        fig.subplots_adjust(0, 0, 1, 1, 0, 0)
         path = self.target_figure_path(target, figure_name)
-        plt.savefig(path, bbox_inches=None)
+        plt.savefig(path, bbox_inches = None)
         # We also need a companion meta-data file.
         if "xlim" not in meta_data: meta_data["xlim"] = ax.get_xlim()
         if "ylim" not in meta_data: meta_data["ylim"] = ax.get_ylim()
@@ -186,24 +184,23 @@ class AnnotationState:
         mdpath = os.path.join(self.target_grid_path(target_id),
                               f"{annotation}.json")
         anndata = self.config.annotations[annotation]
-        grid_shape = np.shape(anndata.grid)
+        # grid_shape = np.shape(anndata.grid)
         # We join up the component arrays.
-        figdata = [[self.figure(target_id, figname) for figname in row]
+        figure_data = [[self.figure(target_id, figname) for figname in row]
                    for row in anndata.grid]
         # Make sure the figure meta-data all match!
-        md0 = figdata[0][0][1]
-        for row in figdata:
-            for (fig,md) in row:
+        md0 = figure_data[0][0][1]
+        for row in figure_data:
+            for (fig, md) in row:
                 if md0["xlim"] != md["xlim"]:
                     raise RuntimeError(f"not all figures have the same xlim for"
                                        f" annotation {annotation}")
                 if md0["ylim"] != md["ylim"]:
                     raise RuntimeError(f"not all figures have the same ylim for"
                                        f" annotation {annotation}")
-        grid = np.concatenate([np.concatenate([fig for (fig,md) in row],
-                                              axis=1)
-                               for row in figdata],
-                              axis=0)
+        grid = np.concatenate([np.concatenate(
+            [fig for (fig, md) in row], axis = 1)
+            for row in figure_data], axis = 0)
         # Save it out as a png file.
         iio.imwrite(impath, grid)
         # And save out the meta-data.
@@ -683,16 +680,17 @@ class AnnotationTool(ipw.HBox):
 
 
     def refresh_figure(self):
-        targ  = self.control_panel.target
+        # Get the target and annotation.
+        target_key = self.control_panel.target
         annot = self.control_panel.annotation
-        targ_annots = self.state.annotations[targ]
+        target_annots = self.state.annotations[target_key]
 
         # First of all, if there is any nonempty annotation that requires the
         # current annotation, we need to print an error about it.
         deps = []
         for (annot_name, annot_data) in self.state.config.annotations.items():
             # If the annotation is empty, it doesn't matter if it a dependant.
-            xy = targ_annots.get(annot_name)
+            xy = target_annots.get(annot_name)
             if xy is None or len(xy) == 0:
                 continue
             for fixed in (annot_data.fixed_head, annot_data.fixed_tail):
@@ -719,13 +717,13 @@ class AnnotationTool(ipw.HBox):
             missing = []
             found = {}
             for r in reqs:
-                xy = targ_annots.get(r, ())
+                xy = target_annots.get(r, ())
                 if len(xy) == 0:
                     missing.append(r)
                 else:
                     found[r] = xy
             if len(missing) == 0:
-                target = self.state.config.targets[targ]
+                target = self.state.config.targets[target_key]
                 try:
                     fs = [(None if f is None else f["calculate"](target, found))
                           for f in fs]
@@ -737,11 +735,12 @@ class AnnotationTool(ipw.HBox):
                 fs = None
                 annlist = ", ".join(missing)
                 error = f"The following annotations are required:\n  {annlist}"
-            (fh,ft) = (None,None) if fs is None else fs
+            (fh, ft) = (None, None) if fs is None else fs
 
+        # Update the annotations in the figure panel.
         self.figure_panel.change_annotations(
-            targ_annots,
-            self.state.builtin_annotations[targ],
+            target_annots,
+            self.state.builtin_annotations[target_key],
             redraw = False,
             annotation_types = self.state.config.annotation_types,
             allow = (fs is not None),
@@ -749,12 +748,13 @@ class AnnotationTool(ipw.HBox):
             fixed_tails = {annot: ft}
         )
 
+        # Update the foreground style.
         self.figure_panel.change_foreground(annot, redraw = False)
 
         # Draw the grid image.
-        (imdata, grid_shape, meta) = self.state.grid(targ, annot)
+        (imdata, grid_shape, meta) = self.state.grid(target_key, annot)
         im = ipw.Image(value = imdata, format = "png")
-        meta = {k:meta[k] for k in ("xlim","ylim") if k in meta}
+        meta = { k: meta[k] for k in ("xlim", "ylim") if k in meta }
         self.figure_panel.redraw_canvas(
             image = im, grid_shape = grid_shape, **meta)
         
@@ -772,8 +772,14 @@ class AnnotationTool(ipw.HBox):
         if change.name != "value": return
         # First, things first: save the annotations.
         self.state.save_annotations()
+        
         # Clear the save hooks if there are any.
         self.state.save_hooks = None
+
+        # Update the control panel legend.
+        self.control_panel.legend.update_legend(
+            self.control_panel.annotation)
+
         # The selection has changed; we need to redraw the image and update the
         # annotations.
         self.refresh_figure()

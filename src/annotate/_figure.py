@@ -15,7 +15,6 @@ import ipywidgets as ipw
 from traitlets import Int
 from collections import defaultdict
 
-
 # The Figure Panel #############################################################
 
 class FigurePanel(ipw.HBox):
@@ -98,7 +97,7 @@ class FigurePanel(ipw.HBox):
         imsz = image_size
 
         # Make a multicanvas.
-        self.multicanvas = ipc.MultiCanvas(5, width=imsz, height=imsz)
+        self.multicanvas = ipc.MultiCanvas(5, width = imsz, height =imsz)
         html = ipw.HTML(f"""
             <style> canvas {{
                 cursor: crosshair !important;

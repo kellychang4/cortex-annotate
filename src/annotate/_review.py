@@ -154,6 +154,17 @@ def observe_review(self, fn):
             for (filename, (tid, fn)) in hooks.items():
                 filename = os.path.join(self.target_save_path(tid), filename)
                 fn(filename)
+
+
+
+    def observe_edit(self, fn):
+        """Registers the argument to be called when the edit button is clicked.
+        
+        The function is called with a single argument, which is the edit button
+        instance.
+        """
+        self.edit_button.on_click(fn)
+
     
         def on_review(self, button):
         """This method runs when the control panel's review button is clicked."""
