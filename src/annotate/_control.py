@@ -322,7 +322,7 @@ class LegendPanel(ipw.VBox):
         self.state = state
 
         # Read the initial image
-        self.image_dir = op.join(op.dirname(__file__), "legend")
+        self.image_dir = op.join(op.dirname(__file__), "annotation-legends")
         annotation = list(state.config.annotations.keys())[0]
         image_path = op.join(self.image_dir, f"{annotation}.png")
         self.image = self._read_image(image_path)
@@ -336,7 +336,7 @@ class LegendPanel(ipw.VBox):
 
         # Create the VBox children
         children = [
-            ipw.HTML("<b style=\"margin: 0% 3% 0% 3%;\">Legend:</b>"),
+            ipw.HTML("<b style=\"margin: 0% 3% 0% 3%;\">Annotation Legend:</b>"),
             self.image_widget
         ]
 
@@ -477,9 +477,9 @@ class ControlPanel(ipw.VBox):
             self._make_hline(),
             self.image_size_slider,
             self._make_hline(),
-            self.style_panel,
-            self._make_hline(),
             self.legend_panel,
+            self._make_hline(),
+            self.style_panel,
             self._make_hline(),
             self.button_box,
             self._make_hline(),

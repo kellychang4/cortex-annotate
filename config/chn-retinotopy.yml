@@ -231,7 +231,7 @@ annotations:
       - ["angle", "eccen"]
       - ["curvature", "vexpl"]
   # VO1|2 boundary:
-  VO1|2 Boundary:
+  VO1|2 Boundary: 
     type: contour
     grid:
       - ["angle", "eccen"]
@@ -251,19 +251,20 @@ annotations:
     grid:
       - ["angle", "eccen"]
       - ["curvature", "vexpl"]
-  # IPS Outer:
-  IPS Outer:
+  # IPS0 Outer:
+  IPS0 Outer:
     type: contour
     grid:
       - ["angle", "eccen"]
       - ["curvature", "vexpl"]
-  VO1|2 Outer: 
+  # LO1 Outer:
+  LO1 Outer:
     type: contour
     fixed_head: V3 Foveal Point
     grid:
       - ["angle", "eccen"]
       - ["curvature", "vexpl"]
- 
+
 
 figures:
   term: |
