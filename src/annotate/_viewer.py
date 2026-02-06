@@ -135,7 +135,7 @@ class CortexViewerState:
     def get_selected_participant(self):
         """Get the current participant selection widget."""
         active_selection = self._get_active_selection_panel()
-        return active_selection.children[0].value
+        return active_selection.children[1].value
     
     
     @staticmethod
@@ -154,14 +154,14 @@ class CortexViewerState:
     def get_selected_hemisphere(self):
         """Get the current hemisphere selection widget."""
         active_selection = self._get_active_selection_panel()
-        hemisphere = active_selection.children[1].value
+        hemisphere = active_selection.children[2].value
         return self.convert_hemisphere(hemisphere)
     
 
     def get_selected_annotation(self):
         """Get the current annotation selection widget."""
         active_selection = self._get_active_selection_panel()
-        return active_selection.children[2].value
+        return active_selection.children[3].value
 
 
     def get_style_annotation(self):
