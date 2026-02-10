@@ -325,10 +325,10 @@ class LegendPanel(ipw.VBox):
 
         # Read the initial image
         self.image_dir = op.join(op.dirname(__file__), "annotation-legends")
-        annotation = list(state.config.annotations.keys())[0]
-        image_path = op.join(self.image_dir, f"{annotation}.png")
         hemisphere = list(state.config.targets.keys())[0][-1]
-        self.image = self._read_image(image_path, hemisphere)
+        annotation = list(state.config.annotations.keys())[0]
+        image_path = op.join(self.image_dir, hemisphere, f"{annotation}.png")
+        self.image = self._read_image(image_path)
 
         # Create the image widget
         self.image_widget = ipw.Image(
@@ -350,24 +350,18 @@ class LegendPanel(ipw.VBox):
         )
 
 
-    def _read_image(self, image_path, hemisphere):
+    def _read_image(self, image_path):
         """Reads the image data from the given path."""
-        # If this is the right hemisphere, we need to flip the image left/right
-        if hemisphere.lower().startswith("right"):
-            image = np.fliplr(iio.imread(image_path))
-            image_path = op.join("/tmp", "temp.png")
-            iio.imwrite(image_path, image)
-        
         # Read the image data and return it.
         with open(image_path, "rb") as f:
             image_data = f.read()
         return image_data
     
 
-    def update_legend(self, annotation, hemisphere):
+    def update_legend(self, hemisphere, annotation):
         """Updates the legend image to the given legend name."""
-        image_path = op.join(self.image_dir, f"{annotation}.png")
-        self.image_widget.value = self._read_image(image_path, hemisphere)
+        image_path = op.join(self.image_dir, hemisphere, f"{annotation}.png")
+        self.image_widget.value = self._read_image(image_path)
 
 
 # The Control Panel Widget -----------------------------------------------------

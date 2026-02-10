@@ -778,8 +778,8 @@ class AnnotationTool(ipw.HBox):
 
         # Update the control panel legend.
         self.control_panel.legend.update_legend(
+            hemisphere = self.control_panel.target[-1],
             annotation = self.control_panel.annotation, 
-            hemisphere = self.control_panel.target[-1]
         )
 
         # The selection has changed; we need to redraw the image and update the
