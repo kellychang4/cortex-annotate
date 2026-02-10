@@ -356,21 +356,21 @@ class CortexViewerState:
     def observe_participant(self, callback):
         """Assign a callback function to participant value changes."""
         for annotation_widget in self.annotation_widgets.children:
-            participant_dropdown = annotation_widget.control_panel.selection_panel.children[0]
+            participant_dropdown = annotation_widget.control_panel.selection_panel.children[1]
             participant_dropdown.observe(callback, names = "value")
 
 
     def observe_hemisphere(self, callback):
         """Assign a callback function to hemisphere value changes."""
         for annotation_widget in self.annotation_widgets.children:
-            hemisphere_dropdown = annotation_widget.control_panel.selection_panel.children[1]
+            hemisphere_dropdown = annotation_widget.control_panel.selection_panel.children[2]
             hemisphere_dropdown.observe(callback, names = "value")
 
     
     def observe_annotation(self, callback):
         """Assign a callback function to annotation value changes."""
         for annotation_widget in self.annotation_widgets.children:
-            annotation_dropdown = annotation_widget.control_panel.selection_panel.children[2]
+            annotation_dropdown = annotation_widget.control_panel.selection_panel.children[3]
             annotation_dropdown.observe(callback, names = "value")
     
 

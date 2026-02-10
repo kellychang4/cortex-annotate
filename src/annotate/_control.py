@@ -14,7 +14,9 @@ in `_figure.py` as appropriate.
 
 # Imports ----------------------------------------------------------------------
 
+import numpy as np
 import os.path as op
+import imageio.v3 as iio
 import ipywidgets as ipw
 from functools import partial
 
@@ -325,7 +327,8 @@ class LegendPanel(ipw.VBox):
         self.image_dir = op.join(op.dirname(__file__), "annotation-legends")
         annotation = list(state.config.annotations.keys())[0]
         image_path = op.join(self.image_dir, f"{annotation}.png")
-        self.image = self._read_image(image_path)
+        hemisphere = list(state.config.targets.keys())[0][-1]
+        self.image = self._read_image(image_path, hemisphere)
 
         # Create the image widget
         self.image_widget = ipw.Image(
@@ -347,18 +350,24 @@ class LegendPanel(ipw.VBox):
         )
 
 
-    @classmethod
-    def _read_image(cls, image_path):
+    def _read_image(self, image_path, hemisphere):
         """Reads the image data from the given path."""
+        # If this is the right hemisphere, we need to flip the image left/right
+        if hemisphere.lower().startswith("right"):
+            image = np.fliplr(iio.imread(image_path))
+            image_path = op.join("/tmp", "temp.png")
+            iio.imwrite(image_path, image)
+        
+        # Read the image data and return it.
         with open(image_path, "rb") as f:
             image_data = f.read()
         return image_data
     
 
-    def update_legend(self, annotation):
+    def update_legend(self, annotation, hemisphere):
         """Updates the legend image to the given legend name."""
         image_path = op.join(self.image_dir, f"{annotation}.png")
-        self.image_widget.value = self._read_image(image_path)
+        self.image_widget.value = self._read_image(image_path, hemisphere)
 
 
 # The Control Panel Widget -----------------------------------------------------
