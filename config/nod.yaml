@@ -265,27 +265,27 @@ annotations:
   0.5 degrees Eccentricity:
     type: contour
     grid:
-      - ["eccen_0.5", "angle"]:
+      - ["eccen_0.5", "angle"]
       - ["eccen", "vexpl"]
   1.0 degrees Eccentricity:
     type: contour
     grid:
-      - ["eccen_1.0", "angle"]:
+      - ["eccen_1.0", "angle"]
       - ["eccen", "vexpl"]
   2.0 degrees Eccentricity:
     type: contour
     grid:
-      - ["eccen_2.0", "angle"]:
+      - ["eccen_2.0", "angle"]
       - ["eccen", "vexpl"]
   4.0 degrees Eccentricity:
     type: contour
     grid:
-      - ["eccen_4.0", "angle"]:
+      - ["eccen_4.0", "angle"]
       - ["eccen", "vexpl"]
   7.0 degrees Eccentricity:
     type: contour
     grid:
-      - ["eccen_7.0", "angle"]:
+      - ["eccen_7.0", "angle"]
       - ["eccen", "vexpl"]
 
 
@@ -317,9 +317,8 @@ figures:
   _: |
     # Prepare property name and threshold from figure name
     prop_name, threshold = key.split("_")
-    values = target["flatmap"].properties[prop_name]
-    values = np.abs(values - float(threshold))
-
+    values = target["flatmap"].properties[prop_name] - float(threshold)
+    values = np.exp( -(values ** 2) / (2 * (0.25 ** 2)) ) # gaussian filter
+    
     ny.cortex_plot(target["flatmap"], 
       color = values, cmap = "Greys_r", vmin = 0, vmax = 1, axes = axes)
-  
