@@ -70,8 +70,8 @@ class CortexViewerState:
             "inflation_percent" : 100,
             "overlay"           : "curvature",
             "overlay_alpha"     : 1.0, 
-            "point_size"        : 1.0, 
-            "line_size"         : 0.5,
+            "point_size"        : 2.5, 
+            "line_size"         : 1.0,
             "line_points"       : 10,
         }
 
@@ -233,7 +233,7 @@ class CortexViewerState:
             fname.split(".")[-1]: self._read_property(fname)
             for fname in property_files
         }
-    
+
 
     def update_coordinates(self):
         """Update the cortical mesh coordinates based on the inflation value."""
@@ -244,26 +244,28 @@ class CortexViewerState:
 
     def update_mesh(self):
         """Update the cortical mesh object based on the current state."""
+        # Update the mesh with current coordinates and properties
         self.mesh = ny.geometry.Mesh(
             faces       = self.fsaverage[self.hemisphere]["tesselation"],
             coordinates = self.coordinates,
             properties  = self.properties
         )
-    
 
+        # Assign curvature color (for default coloring)
+        self.curvature = ny.graphics.cortex_plot_colors(self.mesh)[:, :3]    
+
+    
     def update_color(self):
         """Update the cortical mesh color based on curvature."""
         if self.style["overlay"] == "curvature":
-            mesh_color = ny.graphics.cortex_plot_colors(self.mesh)[:, :3]
+            self.color = None
         else: # Get property kwargs and values 
             overlay_style = self.style["overlay"]
             prop_kwargs   = CortexViewerState.__PROPERTY_KWARGS[overlay_style]
             prop_values   = self.mesh.properties[overlay_style]
             prop_color    = prop_kwargs["func"](prop_values, self.hemisphere)
-            mesh_color = ny.graphics.cortex_plot_colors(self.mesh, 
-                color = prop_color, alpha = self.style["overlay_alpha"], 
-                **prop_kwargs["kwargs"])[:, :3]
-        self.color = mesh_color
+            self.color    = ny.graphics.cortex_plot_colors(self.mesh, 
+                color = prop_color, **prop_kwargs["kwargs"])[:, :3]
 
 
     @staticmethod
@@ -388,17 +390,16 @@ class CortexViewerState:
             annotation_figure = annotation_widget.figure_panel
             annotation_figure.observe(callback, names = "_annotation_change")
 
-
 # The Cortex Viewer Widget -----------------------------------------------------
 
-class CortexViewer(ipw.HBox):
+class CortexViewer(ipw.GridBox):
     """The Cortex Viewer widget.
 
     The `CortexViewer` type handles the 3D Cortex figure that renders the 
     cortical mesh that assists the flatmap viewer.
     """
 
-    def __init__(self, annotation_widgets, dataset_directory):
+    def __init__(self, annotation_widgets, dataset_directory, panel_width=270):
         # Initialize the Cortex Viewer state
         self.state = CortexViewerState(
             annotation_widgets = annotation_widgets,
@@ -411,13 +412,15 @@ class CortexViewer(ipw.HBox):
         # Create the Cortex Viewer figure panel
         self.figure_panel = CortexFigurePanel(self.state)
 
-        # Initialize the HBox with the control panel and figure panel
+        # Initialize the GridBox with the control panel and figure panel
         super().__init__(
             children = [self.control_panel, self.figure_panel], 
-            layout   = { 
-                "border"  : "1px solid rgb(158, 158, 158)", 
-                "padding" : "15px"
-            }
+            layout   = ipw.Layout(
+                border="1px solid rgb(158, 158, 158)", 
+                padding="15px",
+                grid_template_columns=f'{panel_width}px 1fr',
+                grid_template_rows='auto'
+            )
         )
 
         # Assign information box observers
