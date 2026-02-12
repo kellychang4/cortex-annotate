@@ -640,9 +640,10 @@ class AnnotationState:
                 ms = 0
             if ms > 0:
                 canvas.stroke_circle(x, y, ms)
-        # That"s all!
+        # That's all!
 
-    def _calc_fixed_ends(self, annot, targ, error=False):
+
+    def _calc_fixed_ends(self, annot, targ, error = False):
         """Given an annotation name and a dict of annotations for a target, 
         calculates the fixed head/tail and returns them as a tuple.
         """
@@ -700,7 +701,7 @@ class AnnotationTool(ipw.HBox):
             username    = None,
             control_panel_background_color = "#f0f0f0",
             save_button_color = "#e0e0e0",
-            allow_fixed_edit = True
+            allow_fixed_edit  = True
         ):        
         """Initializes the annotation tool."""
         
@@ -764,9 +765,10 @@ class AnnotationTool(ipw.HBox):
         self.figure_panel.resize_canvas(change.new)
 
 
-    def _calc_fixed_ends(self, annot, targ=None, error=False):
+    def _calc_fixed_ends(self, annot, targ = None, error = False):
         targ = self.control_panel.target if targ is None else targ
-        return self.state._calc_fixed_ends(annot, targ=targ, error=error)
+        return self.state._calc_fixed_ends(annot, targ = targ, error = error)
+
 
     def refresh_figure(self):
         targ  = self.control_panel.target
@@ -795,7 +797,7 @@ class AnnotationTool(ipw.HBox):
         else:
             # Figure out the fixed heads and tails
             try:
-                fs = self._calc_fixed_ends(annot, targ=targ, error=True)
+                fs = self._calc_fixed_ends(annot, targ = targ, error = True)
                 error = None
             except ValueError as e:
                 fs = None
@@ -898,5 +900,3 @@ class AnnotationTool(ipw.HBox):
             self.figure_panel.review_end()
             self.refresh_figure()
         self.state.save_hooks = None
-    
-    
