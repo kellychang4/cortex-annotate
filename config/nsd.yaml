@@ -260,7 +260,28 @@ annotations:
     grid:
       - ["angle", "eccen"]
       - ["curvature", "vexpl"]
- 
+  # Isoecentricity contours:
+  0.5 degrees Eccentricity:
+    type: contour
+    grid:
+      - ["eccen_0.5", "angle"]:
+      - ["eccen", "vexpl"]
+  1.0 degrees Eccentricity:
+    type: contour
+    grid:
+      - ["eccen_1.0", "angle"]:
+      - ["eccen", "vexpl"]
+  2.0 degrees Eccentricity:
+    type: contour
+    grid:
+      - ["eccen_2.0", "angle"]:
+      - ["eccen", "vexpl"]
+  4.0 degrees Eccentricity:
+    type: contour
+    grid:
+      - ["eccen_4.0", "angle"]:
+      - ["eccen", "vexpl"]
+
 
 figures:
   term: |
@@ -287,3 +308,12 @@ figures:
       vmin = 0, vmax = 100, axes = axes)
   curvature: |
     ny.cortex_plot(target["flatmap"], axes = axes)
+  _: |
+    # Prepare property name and threshold from figure name
+    prop_name, threshold = key.split("_")
+    values = target["flatmap"].properties[prop_name]
+    values = np.abs(values - float(threshold))
+
+    ny.cortex_plot(target["flatmap"], 
+      color = values, cmap = "Greys_r", vmin = 0, vmax = 1, axes = axes)
+  
