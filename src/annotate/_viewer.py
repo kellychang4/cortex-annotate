@@ -135,7 +135,7 @@ class CortexViewerState:
     def get_selected_participant(self):
         """Get the current participant selection widget."""
         active_selection = self._get_active_selection_panel()
-        return active_selection.children[0].value
+        return active_selection.children[1].value
     
     
     @staticmethod
@@ -154,14 +154,14 @@ class CortexViewerState:
     def get_selected_hemisphere(self):
         """Get the current hemisphere selection widget."""
         active_selection = self._get_active_selection_panel()
-        hemisphere = active_selection.children[1].value
+        hemisphere = active_selection.children[2].value
         return self.convert_hemisphere(hemisphere)
     
 
     def get_selected_annotation(self):
         """Get the current annotation selection widget."""
         active_selection = self._get_active_selection_panel()
-        return active_selection.children[2].value
+        return active_selection.children[3].value
 
 
     def get_style_annotation(self):
@@ -358,21 +358,21 @@ class CortexViewerState:
     def observe_participant(self, callback):
         """Assign a callback function to participant value changes."""
         for annotation_widget in self.annotation_widgets.children:
-            participant_dropdown = annotation_widget.control_panel.selection_panel.children[0]
+            participant_dropdown = annotation_widget.control_panel.selection_panel.children[1]
             participant_dropdown.observe(callback, names = "value")
 
 
     def observe_hemisphere(self, callback):
         """Assign a callback function to hemisphere value changes."""
         for annotation_widget in self.annotation_widgets.children:
-            hemisphere_dropdown = annotation_widget.control_panel.selection_panel.children[1]
+            hemisphere_dropdown = annotation_widget.control_panel.selection_panel.children[2]
             hemisphere_dropdown.observe(callback, names = "value")
 
     
     def observe_annotation(self, callback):
         """Assign a callback function to annotation value changes."""
         for annotation_widget in self.annotation_widgets.children:
-            annotation_dropdown = annotation_widget.control_panel.selection_panel.children[2]
+            annotation_dropdown = annotation_widget.control_panel.selection_panel.children[3]
             annotation_dropdown.observe(callback, names = "value")
     
 

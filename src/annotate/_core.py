@@ -15,14 +15,12 @@ FigurePanel widget in the _figure.py file.
 import os
 import json
 import yaml
-from io import BytesIO
-
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 import matplotlib as mpl
 import ipywidgets as ipw
 import imageio.v3 as iio
+import matplotlib.pyplot as plt
 
 from ._util    import (ldict, delay)
 from ._config  import Config
@@ -133,16 +131,16 @@ class AnnotationState:
         # Make a figure and axes for the plots.
         figure_size = self.config.display.figure_size
         dpi = self.config.display.dpi
-        (fig,ax) = plt.subplots(1,1, figsize=figure_size, dpi=dpi)
+        (fig, ax) = plt.subplots(1,1, figsize = figure_size, dpi = dpi)
         # Run the function from the config that draws the figure.
         fn = self.config.figures[figure_name]
         meta_data = {}
         fn(target, figure_name, fig, ax, figure_size, dpi, meta_data)
         # Tidy things up for image plotting.
         ax.axis("off")
-        fig.subplots_adjust(0,0,1,1,0,0)
+        fig.subplots_adjust(0, 0, 1, 1, 0, 0)
         path = self.target_figure_path(target, figure_name)
-        plt.savefig(path, bbox_inches=None)
+        plt.savefig(path, bbox_inches = None)
         # We also need a companion meta-data file.
         if "xlim" not in meta_data: meta_data["xlim"] = ax.get_xlim()
         if "ylim" not in meta_data: meta_data["ylim"] = ax.get_ylim()
@@ -186,24 +184,23 @@ class AnnotationState:
         mdpath = os.path.join(self.target_grid_path(target_id),
                               f"{annotation}.json")
         anndata = self.config.annotations[annotation]
-        grid_shape = np.shape(anndata.grid)
+        # grid_shape = np.shape(anndata.grid)
         # We join up the component arrays.
-        figdata = [[self.figure(target_id, figname) for figname in row]
+        figure_data = [[self.figure(target_id, figname) for figname in row]
                    for row in anndata.grid]
         # Make sure the figure meta-data all match!
-        md0 = figdata[0][0][1]
-        for row in figdata:
-            for (fig,md) in row:
+        md0 = figure_data[0][0][1]
+        for row in figure_data:
+            for (fig, md) in row:
                 if md0["xlim"] != md["xlim"]:
                     raise RuntimeError(f"not all figures have the same xlim for"
                                        f" annotation {annotation}")
                 if md0["ylim"] != md["ylim"]:
                     raise RuntimeError(f"not all figures have the same ylim for"
                                        f" annotation {annotation}")
-        grid = np.concatenate([np.concatenate([fig for (fig,md) in row],
-                                              axis=1)
-                               for row in figdata],
-                              axis=0)
+        grid = np.concatenate([np.concatenate(
+            [fig for (fig, md) in row], axis = 1)
+            for row in figure_data], axis = 0)
         # Save it out as a png file.
         iio.imwrite(impath, grid)
         # And save out the meta-data.
@@ -236,32 +233,6 @@ class AnnotationState:
             meta_data = json.load(f)
         # And return them.
         return (image_data, grid_shape, meta_data)
-    
-    
-    def generate_review(self, target_id, save_hooks):
-        """Generates a single figure for the given target and figure name."""
-        target = self.config.targets[target_id]
-        annots = self.annotations[target_id]
-        fn = self.config.review.function
-        if fn is None:
-            raise RuntimeError("no review function found")
-        # Make a figure and axes for the plots.
-        figure_size = self.config.review.figure_size
-        dpi = self.config.review.dpi
-        (fig,ax) = plt.subplots(1, 1, figsize = figure_size, dpi = dpi)
-        # Run the function from the config that draws the figure.
-        fn(target, annots, fig, ax, save_hooks)
-        # We can go ahead and fix the save hooks now:
-        for (k,fn) in save_hooks.items():
-            save_hooks[k] = (target_id, fn)
-        # Tidy things up for image plotting.
-        ax.axis("off")
-        fig.subplots_adjust(0,0,1,1,0,0)
-        b = BytesIO()
-        plt.savefig(b, format = "png")
-        # We can close the figure now as well.
-        plt.close(fig)
-        return ipw.Image(value = b.getvalue(), format = "png")
     
     
     def load_preferences(self):
@@ -465,28 +436,17 @@ class AnnotationState:
             if not annots.is_lazy(tid):
                 self.save_target_annotations(tid)
 
-
-    def run_save_hooks(self):
-        """Runs any save hooks that were registered by the review."""
-        hooks = self.save_hooks
-        self.save_hooks = None
-        if hooks is not None:
-            for (filename, (tid, fn)) in hooks.items():
-                filename = os.path.join(self.target_save_path(tid), filename)
-                fn(filename)
-    
     
     def save(self):
         """Saves both the user preferences and the user annotations."""
         self.save_preferences()
         self.save_annotations()
-        self.run_save_hooks()
     
 
     __slots__ = (
         "config", "cache_path", "save_path", "git_path", "username",
         "annotations", "builtin_annotations", "preferences",
-        "loading_context", "reviewing_context", "save_hooks"
+        "loading_context", "save_hooks"
     )
     
     def __init__(
@@ -497,7 +457,6 @@ class AnnotationState:
             git_path          = "/git",
             username          = None,
             loading_context   = None,
-            reviewing_context = None
         ):
 
         # Store the configuration and paths.
@@ -513,22 +472,23 @@ class AnnotationState:
             username = git_account
         if not isinstance(username, str):
             raise RuntimeError("username must be a string or None")
+
         # Build up the save path.
         self.username = username
         if username == "": self.save_path = save_path
         else:              self.save_path = os.path.join(save_path, username)
         if not os.path.isdir(self.save_path):
             os.makedirs(self.save_path, mode=0o755)
+
         # Use our loading control if we have one.
         if loading_context is None:
             loading_context = NoOpContext()
         self.loading_context = loading_context
-        if reviewing_context is None:
-            reviewing_context = NoOpContext()
-        self.reviewing_context = reviewing_context
+
         # (Lazily) load the annotations.
         self.annotations = self.load_annotations()
         self.builtin_annotations = self.load_builtin_annotations()
+
         # And (lazily) load the preferences.
         self.preferences = self.load_preferences()
         
@@ -731,8 +691,7 @@ class AnnotationTool(ipw.HBox):
         self.figure_panel = FigurePanel(self.state, image_size = image_size)
         
         # Pass the loading context over to the state.
-        self.state.loading_context   = self.figure_panel.loading_context
-        self.state.reviewing_context = self.figure_panel.reviewing_context
+        self.state.loading_context = self.figure_panel.loading_context
 
         # Go ahead and initialize the HBox component.
         super().__init__((self.control_panel, self.figure_panel))
@@ -750,11 +709,8 @@ class AnnotationTool(ipw.HBox):
         # And a listener for the style change.
         self.control_panel.observe_style(self.on_style_change)
 
-        # And a listener for the review, save, and edit buttons.
+        # And a listener for the save button.
         self.control_panel.observe_save(self.on_save)
-        if self.state.config.review.function is not None:
-            self.control_panel.observe_review(self.on_review)
-            self.control_panel.observe_edit(self.on_edit)
 
 
     def on_image_size_change(self, change):
@@ -771,16 +727,17 @@ class AnnotationTool(ipw.HBox):
 
 
     def refresh_figure(self):
-        targ  = self.control_panel.target
+        # Get the target and annotation.
+        target_key = self.control_panel.target
         annot = self.control_panel.annotation
-        targ_annots = self.state.annotations[targ]
+        target_annots = self.state.annotations[target_key]
 
         # First of all, if there is any nonempty annotation that requires the
         # current annotation, we need to print an error about it.
         deps = []
         for (annot_name, annot_data) in self.state.config.annotations.items():
             # If the annotation is empty, it doesn't matter if it a dependant.
-            xy = targ_annots.get(annot_name)
+            xy = target_annots.get(annot_name)
             if xy is None or len(xy) == 0:
                 continue
             for fixed in (annot_data.fixed_head, annot_data.fixed_tail):
@@ -804,8 +761,8 @@ class AnnotationTool(ipw.HBox):
                 error = e.args[0]
         (fh,ft) = (None, None) if fs is None else fs
         self.figure_panel.change_annotations(
-            targ_annots,
-            self.state.builtin_annotations[targ],
+            target_annots,
+            self.state.builtin_annotations[target_key],
             redraw = False,
             annotation_types = self.state.config.annotation_types,
             allow = (fs is not None),
@@ -814,12 +771,13 @@ class AnnotationTool(ipw.HBox):
             target=targ
         )
 
+        # Update the foreground style.
         self.figure_panel.change_foreground(annot, redraw = False)
 
         # Draw the grid image.
-        (imdata, grid_shape, meta) = self.state.grid(targ, annot)
+        (imdata, grid_shape, meta) = self.state.grid(target_key, annot)
         im = ipw.Image(value = imdata, format = "png")
-        meta = {k:meta[k] for k in ("xlim","ylim") if k in meta}
+        meta = { k: meta[k] for k in ("xlim", "ylim") if k in meta }
         self.figure_panel.redraw_canvas(
             image = im, grid_shape = grid_shape, **meta)
         
@@ -837,8 +795,16 @@ class AnnotationTool(ipw.HBox):
         if change.name != "value": return
         # First, things first: save the annotations.
         self.state.save_annotations()
+        
         # Clear the save hooks if there are any.
         self.state.save_hooks = None
+
+        # Update the control panel legend.
+        self.control_panel.legend.update_legend(
+            hemisphere = self.control_panel.target[-1],
+            annotation = self.control_panel.annotation, 
+        )
+
         # The selection has changed; we need to redraw the image and update the
         # annotations.
         self.refresh_figure()
@@ -853,50 +819,8 @@ class AnnotationTool(ipw.HBox):
         self.figure_panel.redraw_canvas(redraw_image = False)
     
     
-    def on_review(self, button):
-        """This method runs when the control panel's review button is clicked."""
-        self.figure_panel.clear_message()
-        self.state.save_preferences()
-        # This will happen no matter what:
-        self.control_panel.review_button.disabled = True
-        self.control_panel.edit_button.disabled = False
-        # Get the review function.
-        rev = self.state.config.review.function
-        if rev is None:
-            self.control_panel.save_button.disabled = True
-        else:
-            with self.state.reviewing_context:
-                try:
-                    save_hooks = {}
-                    targ = self.control_panel.target
-                    msg = self.state.generate_review(targ, save_hooks)
-                    self.control_panel.save_button.disabled = False
-                    self.state.save_hooks = save_hooks
-                except Exception as e:
-                    msg = str(e)
-                    self.control_panel.save_button.disabled = True
-            self.figure_panel.review_start(msg)
-    
-    
     def on_save(self, button):
         """This method runs when the control panel's save button is clicked."""
-        if self.figure_panel.review_msg is not None:
-            self.control_panel.review_button.disabled = False
-            self.control_panel.save_button.disabled   = True
-            self.control_panel.edit_button.disabled   = True
-            self.figure_panel.review_end()
-            self.refresh_figure()
         self.state.save_annotations()
         self.state.save_preferences()
-        self.state.run_save_hooks()
     
-    
-    def on_edit(self, button):
-        """This method runs when the control panel's edit button is clicked."""
-        if self.figure_panel.review_msg is not None:
-            self.control_panel.review_button.disabled = False
-            self.control_panel.save_button.disabled   = True
-            self.control_panel.edit_button.disabled   = True
-            self.figure_panel.review_end()
-            self.refresh_figure()
-        self.state.save_hooks = None
