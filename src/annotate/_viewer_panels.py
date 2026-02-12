@@ -19,6 +19,7 @@ CortexViewer is implmented in _viewer.py.
 
 # Imports ----------------------------------------------------------------------
 
+from turtle import color, position
 import numpy as np
 import k3d
 import neuropythy as ny
@@ -315,108 +316,163 @@ class CortexFigurePanel(ipw.GridBox):
     The panel that contains the 3D cortex plot for the Cortex Viewer tool.
     """
     
-    def __init__(
-            self, 
-            state, 
-            width  = None,
-            height = 400
-        ):
-        # Create a figure background
+    def __init__(self, state, width = None, height = 400):
+
+        # Create a figure background (k3d plot)
         self.figure = k3d.plot(
-            #width   = width,  # K3d doesn't use width, just fills the space
-            height=height,
-            grid_visible=False,
-            camera_auto_fit=True,
-            camera_fov=1,
-            axes_helper=0,
-            menu_visibility=False,
+            # K3d does not use width, just fills the space
+            height          = height, 
+            grid_visible    = False,
+            camera_auto_fit = False,
+            menu_visibility = False,
+            camera_fov      = 60,
+            axes_helper     = 0, # remove axes direction helper
+            camera_zoom_speed = 1.5,
         )
-        
-        # Draw the cortex plot (meshes) onto the k3d plot
-        self.k3dmesh = k3d.mesh(
-            state.mesh.coordinates.T.astype(np.float32),
-            state.mesh.tess.indexed_faces.T.astype(np.uint32),
-            flat_shading=False,
-            wireframe=False,
-            colors=self._rgb_to_k3dcolor(
-                ny.graphics.cortex_plot_colors(state.mesh)))
-        self.figure += self.k3dmesh
-        #if state.hemisphere == 'lh':
-        #    self.figure.camera = [
-        #        4000.0, -9300.0, 800.0,
-        #        0, 0, 0,
-        #        0, 0, 1
-        #    ]
-        #else:
-        #    self.figure.camera = [
-        #        -4000.0, -9300.0, 800.0,
-        #        0, 0, 0,
-        #        0, 0, 1
-        #    ]
-        
-        # Add scatter plots for annotations ( points and lines )
-        self.k3dpoints_active = self._init_active_scatter(state)
-        # Background annotation points
-        self.k3dpoints_background = self._init_background_scatter(state)
 
+        # Create and add the cortex mesh to the figure
+        self.k3dmesh_cortex = self._init_cortex(state)
+
+        # Create and add the overlay mesh to the figure
+        self.k3dmesh_overlay = self._init_overlay(state)
+        
+        # Create active points to figure 
+        self.k3dpoints_active = self._init_active_points(state)
+
+        # Create background points to figure
+        self.k3dpoints_background = self._init_background_points(state)
+
+        # Add the meshes and points to the figure and initial render
+        self.figure += self.k3dmesh_cortex
+        self.figure += self.k3dmesh_overlay 
+        self.figure += self.k3dpoints_active 
+        self.figure += self.k3dpoints_background 
+
+        # Set initial camera values
+        self.figure.camera = [-160, -10, -6, 15, -30, 0, 0, 0, 1]
+
+        # Define layout (GridBox as HBox)
         layout = ipw.Layout(
-            grid_template_columns='1fr',
-            height=f"{height}px",
-            width=("100%" if width is None else "{width}px"))
-        super().__init__([self.figure], layout=layout)
-
-    def _rgb_to_k3dcolor(self, color, nrows=None):
-        """Converts a matplorlib color into a color integer for k3d.
-
-        If the given color is a matrix of RGB or RGBA triples, then a list of
-        integers, one per row, is returned. If the given color is a list of
-        strings or colors, then each is converted.
-        """
-        if nrows is not None:
-            c = self._rgb_to_k3dcolor(color)
-            if isinstance(c, int):
-                return [c]*nrows
-            elif len(c) == nrows:
-                return c
-            raise ValueError(f"{nrows} rows requested but {len(c)} produced")
-        if isinstance(color, int):
-            return color
-        if isinstance(color, str):
-            return self._rgb_to_k3dcolor(to_rgb(color))
-        color = np.asarray(color)
-        if np.issubdtype(color.dtype, np.floating):
-            color = np.round(color * 255).astype(np.uint8)
-        elif np.issubdtype(color.dtype, np.str_):
-            return self._rgb_to_k3dcolor(list(map(to_rgb, color)))
-        elif not np.issubdtype(color.dtype, np.uint8):
-            raise ValueError("RGB arrays must be floating point or uint8")
-        if len(color.shape) == 2:
-            # Matrix of RGB or RGBA...
-            if color.shape[1] == 4:
-                if not np.all(color[:, -1] == 255):
-                    raise ValueError("k3dcolors cannot include transparency")
-                color = color[:, :3]
-            elif color.shape[1] != 3:
-                raise ValueError("color matrices must be N x 3 or N x 4")
-            color = color.T
-        elif len(color.shape) != 1:
-            raise ValueError("can only convert lists and matrices of rgb")
-        elif color.shape[0] != 3 and color.shape[0] != 4:
-            raise ValueError("rgb or rgba values are required")
-        (r,g,b) = color.astype(np.uint32)
-        return ((r << 16) | (g << 8) | b)
-
-    def _init_scatter(self):
-        """Initialize an empty scatter plot."""
-        #return ipv.scatter(0, 0, 0, visible = False, marker = "sphere")
-        return k3d.points(
-            positions=np.array([[0,0,0]], dtype=np.float32),
-            point_size=0.5,
-            shader='2d',
-            color=0x8888ff
+            grid_template_columns = "1fr",
+            height = f"{height}px",
+            width  = f"{width}px" if width is not None else "100%"
         )
+        super().__init__([ self.figure ], layout = layout)
+        self.figure.camera_auto_fit = False
+        
 
-    def _prep_active_scatter(self, state):
+
+    def _rgb_to_k3dcolor(self, colors):
+        """Converts a matplotlib color (RGB) into a hex integer for k3d.
+
+        If the given color is a matrix of RGB triples, then a list of
+        integers, one per row, is returned. 
+        """
+        # Convert to numpy array for easier processing
+        colors = np.array(colors)
+        
+        # Handle string color inputs (e.g. "red", "#ff0000", etc.)
+        if np.issubdtype(colors.dtype, np.str_):
+            if colors.ndim == 0: colors = colors.reshape(-1,)
+            colors = np.array([to_rgb(x) for x in colors], dtype = float)
+
+        # Handle single RGB or RGBA triple input (e.g. [1, 0, 0] or [1, 0, 0, 1])
+        if colors.ndim == 1: colors = colors.reshape((1, -1))
+            
+        # Handle floating point inputs by converting to uint8
+        if np.issubdtype(colors.dtype, np.floating):
+            if colors.max() > 1.0: # if max is greater than 1, assume 0-255 range
+                colors = colors.astype(np.uint8)
+            else: # else assume 0-1 range and convert to 0-255
+                colors = (colors * 255).astype(np.uint8)
+
+        # Handle integer inputs by checking if they are within uint8 range and converting to uint8
+        if np.issubdtype(colors.dtype, np.integer):
+            if colors.min() < 0 or colors.max() > 255:
+                raise ValueError("Color values must be within uint8 range [0-255].")    
+            colors = colors.astype(np.uint8)
+
+        # Check that colors are now uint8 and converted to 2D array
+        if not np.issubdtype(colors.dtype, np.uint8):
+            raise ValueError("Color values must be convertible from float [0,1] or uint8 [0,255].")
+        if colors.ndim != 2:
+            raise ValueError("Color input must be scalar, 1D RGB/RGBA, or 2D Nx3/Nx4.")
+        
+        # Convert RGB/RGBA values to k3d color integers
+        colors = colors.astype(np.uint32) # ensure uint32 for bitwise operations
+        if colors.shape[1] == 3: # if RGB, convert to k3d color integer
+            return np.array([ ((r << 16) | (g << 8) | b) for r, g, b in colors ], dtype = np.uint32)
+        elif colors.shape[1] == 4: # if RGBA, ignore the alpha channel
+            # NOTE: k3d does not support alpha in the color integer
+            return np.array([ ((r << 16) | (g << 8) | b) for r, g, b, _ in colors ], dtype = np.uint32)
+        else:
+            raise ValueError("Color matrices must be RGB (Nx3) or RGBA (Nx4).")
+
+
+    def _init_mesh(self):
+        """Initialize an empty and invisible mesh."""
+        mesh = k3d.mesh(
+            vertices     = np.array([[0, 0, 0]], dtype = np.float32), 
+            indices      = np.array([[0, 0, 0]], dtype = np.uint32),
+            colors       = np.array([0x000000], dtype = np.uint32),
+            wireframe    = False,
+            flat_shading = False
+        )
+        mesh.visible = False
+        return mesh
+
+
+    def _prep_cortex(self, state):
+        """Prepare the data for the cortex mesh."""
+        vertices  = state.coordinates.T.astype(np.float32) # (n_vertices, 3)
+        indices   = state.fsaverage[state.hemisphere]["tesselation"].T.astype(np.uint32)
+        curvature = self._rgb_to_k3dcolor(state.curvature)
+        return { 
+            "vertices" : vertices, 
+            "indices"  : indices, 
+            "colors"   : curvature 
+        }
+    
+
+    def _prep_overlay(self, state):
+        """Prepare the data for the cortex overlay mesh."""
+        # If no overlay, return None
+        if state.style["overlay"] == "curvature":
+            return None
+
+        # Else return the overlay mesh keyword arguments
+        return {
+            **self._prep_cortex(state), # same vertices + indices
+            "colors"   : self._rgb_to_k3dcolor(state.color),
+            "opacity"  : state.style["overlay_alpha"]
+        }
+    
+
+    def _init_cortex(self, state):
+        """Initialize the cortex mesh."""
+        cortex_kwargs = self._prep_cortex(state)
+        return k3d.mesh(**cortex_kwargs, wireframe = False, flat_shading = False)          
+    
+
+    def _init_overlay(self, state):
+        """Initialize the cortex overlay mesh."""
+        overlay_kwargs = self._prep_overlay(state)
+        if overlay_kwargs is None:
+            return self._init_mesh()
+        return k3d.mesh(**overlay_kwargs, wireframe = False, flat_shading = False)
+
+
+    def _init_points(self):
+        """Initialize an empty and invisible points plot."""
+        points = k3d.points(
+            positions  = np.array([[0, 0, 0]], dtype = np.float32),
+            shader     = "3d"
+        )
+        points.visible = False
+        return points
+    
+
+    def _prep_active_points(self, state):
         """Prepare the data for the active annotation."""
         # Get the selected annotation
         selected_annotation = state.selected_annotation
@@ -434,24 +490,22 @@ class CortexFigurePanel(ipw.GridBox):
         n_points = coordinates.shape[1]
 
         # Prepare scatter sizes by anchor points
-        scatter_sizes = np.ones(n_points) * state.style["line_size"]
-        scatter_sizes[anchor == 1] = state.style["point_size"]
+        point_sizes = np.ones(n_points) * state.style["line_size"]
+        point_sizes[anchor == 1] = state.style["point_size"]
 
         # Prepare colors
-        rgb_color = np.array(to_rgb(state.style_active["color"]))
-        rgb_color = np.tile(rgb_color, (n_points, 1))
+        point_colors = self._rgb_to_k3dcolor(state.style_active["color"])
+        point_colors = np.tile(point_colors, (n_points, 1))
 
         # Return the scatter plot keyword arguments
         return { 
-            "x"     : coordinates[0, :], 
-            "y"     : coordinates[1, :], 
-            "z"     : coordinates[2, :], 
-            "size"  : scatter_sizes, 
-            "color" : rgb_color 
+            "positions"   : coordinates.T.astype(np.float32), 
+            "point_sizes" : point_sizes.astype(np.float32), 
+            "colors"      : point_colors 
         }
 
 
-    def _prep_background_scatter(self, state):
+    def _prep_background_points(self, state):
         """Prepare the data for the background annotations."""
         # Get the list of annotations excluding the selected one
         selected_annotation = state.selected_annotation
@@ -468,12 +522,12 @@ class CortexFigurePanel(ipw.GridBox):
 
             if annotation_style["visible"] and coordinates is not None: 
                 # Get colors for the annotation points
-                rgb_color = np.array(to_rgb(annotation_style["color"]))
-                rgb_color = np.tile(rgb_color, (coordinates.shape[-1], 1)) 
+                point_colors = self._rgb_to_k3dcolor(annotation_style["color"])
+                point_colors = np.tile(point_colors, (coordinates.shape[-1], 1)) 
 
                 # Concatenate coordinates and colors
                 all_coordinates = np.hstack((all_coordinates, coordinates))
-                all_colors = np.vstack((all_colors, rgb_color))
+                all_colors = np.vstack((all_colors, point_colors))
 
         # If no coordinates, return None
         if all_coordinates.shape[1] == 0:
@@ -481,68 +535,71 @@ class CortexFigurePanel(ipw.GridBox):
         
         # Return the scatter plot keyword arguments
         return { 
-            "x"     : all_coordinates[0,:], 
-            "y"     : all_coordinates[1,:], 
-            "z"     : all_coordinates[2,:], 
-            "size"  : state.style["line_size"], 
-            "color" : all_colors 
+            "positions"  : all_coordinates.T.astype(np.float32),
+            "point_size" : state.style["line_size"].astype(np.float32), 
+            "colors"     : all_colors 
         }
             
     
-    def _init_active_scatter(self, state):
-        """Initialize the scatter plot for the active annotation."""
-        scatter_kwargs = self._prep_active_scatter(state)
-        if scatter_kwargs is None:
-            points = self._init_scatter()
-        else:
-            points = k3d.points(
-                np.transpose([scatter_kwargs[k] for k in ('x','y','z')]).astype(np.float32),
-                shader='2d',
-                point_size=float(scatter_kwargs['size']),
-                color=int(self._rgb_to_k3dcolor(scatter_kwargs['color'][0]))
-            )
-        self.figure += points
-        return points
+    def _init_active_points(self, state):
+        """Initialize the points plot for the active annotation."""
+        points_kwargs = self._prep_active_points(state)
+        if points_kwargs is None:
+            return self._init_points()
+        return k3d.points(**points_kwargs, shader = "3d")
 
-    def _init_background_scatter(self, state):
-        """Initialize the scatter plot for the background annotations."""
-        scatter_kwargs = self._prep_background_scatter(state)
-        if scatter_kwargs is None:
-            points = self._init_scatter()
-        else:
-            points = k3d.points(
-                np.transpose([scatter_kwargs[k] for k in ('x','y','z')]).astype(np.float32),
-                shader='2d',
-                point_size=float(scatter_kwargs['size']),
-                color=int(self._rgb_to_k3dcolor(scatter_kwargs['color'][0]))
-            )
-        self.figure += points
-        return points
+
+    def _init_background_points(self, state):
+        """Initialize the points plot for the background annotations."""
+        points_kwargs = self._prep_background_points(state)
+        if points_kwargs is None:
+            return self._init_points()
+        return k3d.points(**points_kwargs, shader = "3d")
+
 
     def refresh_figure(self, state):
         """Update the existing figure mesh coordinates and annotation points."""
-        # Update the figure panel's mesh values
-        self.k3dmesh.vertices = state.coordinates.T.astype(np.float32)
-        self.k3dmesh.colors = self._rgb_to_k3dcolor(state.color)
+        # Disable auto rendering for performance
+        self.figure.auto_rendering = False
+
+        # Update the cortex mesh values
+        cortex_kwargs = self._prep_cortex(state)
+        self.k3dmesh_cortex.vertices = cortex_kwargs["vertices"]
+        self.k3dmesh_cortex.indices  = cortex_kwargs["indices"]
+        self.k3dmesh_cortex.colors   = cortex_kwargs["colors"] # curvature
+
+        # Update the overlay mesh values 
+        overlay_kwargs = self._prep_overlay(state)
+        if state.style["overlay"] == "curvature":
+            self.k3dmesh_overlay.visible = False
+        else:
+            self.k3dmesh_overlay.vertices = overlay_kwargs["vertices"]
+            self.k3dmesh_overlay.indices  = overlay_kwargs["indices"]
+            self.k3dmesh_overlay.colors   = overlay_kwargs["colors"]
+            self.k3dmesh_overlay.opacity  = overlay_kwargs["opacity"]
+            self.k3dmesh_overlay.visible  = True
         
+        # re-enable auto rendering after cortex and overlay values
+        self.figure.auto_rendering = True
+        self.figure.render()
+
         # Update the surface active annotation
-        active_kwargs = self._prep_active_scatter(state)
+        active_kwargs = self._prep_active_points(state)
         if active_kwargs is None:
             self.k3dpoints_active.visible = False
         else:
-            coords = np.transpose([active_kwargs[k] for k in ('x','y','z')])
-            self.k3dpoints_active.positions = coords.astype(np.float32)
-            self.k3dpoints_active.size = active_kwargs["size"]
-            self.k3dpoints_active.colors = self._rgb_to_k3dcolor(active_kwargs["color"], len(coords))
-            self.k3dpoints_active.visible = True
+            self.k3dpoints_active.positions   = active_kwargs["positions"]
+            self.k3dpoints_active.point_sizes = active_kwargs["point_sizes"]
+            self.k3dpoints_active.colors      = active_kwargs["colors"]
+            self.k3dpoints_active.visible     = True
         
         # Update the surface background annotation
-        background_kwargs = self._prep_background_scatter(state)
+        background_kwargs = self._prep_background_points(state)
         if background_kwargs is None:
             self.k3dpoints_background.visible = False
         else:
-            coords = np.transpose([background_kwargs[k] for k in ('x','y','z')])
-            self.k3dpoints_background.positions = coords.astype(np.float32)
-            self.k3dpoints_background.size = background_kwargs["size"]
-            self.k3dpoints_background.colors = self._rgb_to_k3dcolor(background_kwargs["color"], len(coords))
-            self.k3dpoints_background.visible = True
+            self.k3dpoints_background.positions   = background_kwargs["positions"]
+            self.k3dpoints_background.point_sizes = background_kwargs["point_sizes"]
+            self.k3dpoints_background.colors      = background_kwargs["colors"]  
+            self.k3dpoints_background.visible     = True
+
