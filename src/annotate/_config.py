@@ -18,7 +18,7 @@ from ._util import (delay, ldict)
 
 def _compile_fn(argstr, codestr, init):
     name = f"__fn_{os.urandom(8).hex()}"
-    lines = [('    ' + ln) for ln in codestr.split('\n')]
+    lines = [("    " + ln) for ln in codestr.split("\n")]
     code = "\n".join(lines)
     loc = init.exec(f"def {name}({argstr}):\n{code}")
     return loc[name]

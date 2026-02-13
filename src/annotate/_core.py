@@ -607,9 +607,9 @@ class AnnotationState:
         """Given an annotation name and a dict of annotations for a target, 
         calculates the fixed head/tail and returns them as a tuple.
         """
-        target = self.config.targets[targ]
+        target      = self.config.targets[targ]
         targ_annots = self.annotations[targ]
-        annot_data = self.config.annotations[annot]
+        annot_data  = self.config.annotations[annot]
         fs = []
         for fixed in (annot_data.fixed_head, annot_data.fixed_tail):
             if fixed is None:
@@ -754,7 +754,7 @@ class AnnotationTool(ipw.HBox):
         else:
             # Figure out the fixed heads and tails
             try:
-                fs = self._calc_fixed_ends(annot, targ = targ, error = True)
+                fs = self._calc_fixed_ends(annot, targ = target_key, error = True)
                 error = None
             except ValueError as e:
                 fs = None
@@ -768,7 +768,7 @@ class AnnotationTool(ipw.HBox):
             allow = (fs is not None),
             fixed_heads = {annot: fh},
             fixed_tails = {annot: ft},
-            target=targ
+            target = target_key
         )
 
         # Update the foreground style.

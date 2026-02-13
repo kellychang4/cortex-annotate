@@ -19,12 +19,10 @@ CortexViewer is implmented in _viewer.py.
 
 # Imports ----------------------------------------------------------------------
 
-from turtle import color, position
-import numpy as np
 import k3d
-import neuropythy as ny
+import numpy as np
 import ipywidgets as ipw
-from matplotlib.colors import to_rgb, to_rgba
+from matplotlib.colors import to_rgb
 
 # The Cortex Control Panel  ----------------------------------------------------
 
@@ -98,7 +96,7 @@ class CortexControlPanel(ipw.VBox):
 
         # Add CSS class for styling
         self.add_class("cortex-control-panel")
-
+        
 
     @classmethod
     def _make_html_header(cls):
@@ -401,10 +399,16 @@ class CortexFigurePanel(ipw.GridBox):
         # Convert RGB/RGBA values to k3d color integers
         colors = colors.astype(np.uint32) # ensure uint32 for bitwise operations
         if colors.shape[1] == 3: # if RGB, convert to k3d color integer
-            return np.array([ ((r << 16) | (g << 8) | b) for r, g, b in colors ], dtype = np.uint32)
+            return np.array(
+                [ ((r << 16) | (g << 8) | b) for r, g, b in colors ], 
+                dtype = np.uint32
+            )
         elif colors.shape[1] == 4: # if RGBA, ignore the alpha channel
             # NOTE: k3d does not support alpha in the color integer
-            return np.array([ ((r << 16) | (g << 8) | b) for r, g, b, _ in colors ], dtype = np.uint32)
+            return np.array(
+                [ ((r << 16) | (g << 8) | b) for r, g, b, _ in colors ], 
+                dtype = np.uint32
+            )
         else:
             raise ValueError("Color matrices must be RGB (Nx3) or RGBA (Nx4).")
 
@@ -501,7 +505,7 @@ class CortexFigurePanel(ipw.GridBox):
         return { 
             "positions"   : coordinates.T.astype(np.float32), 
             "point_sizes" : point_sizes.astype(np.float32), 
-            "colors"      : point_colors 
+            "colors"      : point_colors
         }
 
 

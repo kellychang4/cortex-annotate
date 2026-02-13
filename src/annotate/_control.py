@@ -361,7 +361,10 @@ class LegendPanel(ipw.VBox):
     def update_legend(self, hemisphere, annotation):
         """Updates the legend image to the given legend name."""
         image_path = op.join(self.image_dir, hemisphere, f"{annotation}.png")
+        if not op.isfile(image_path): # if the image does not exist, use empty
+            image_path = op.join(self.image_dir, "empty.png")
         self.image_widget.value = self._read_image(image_path)
+        
 
 
 # The Control Panel Widget -----------------------------------------------------

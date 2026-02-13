@@ -24,7 +24,8 @@ init: |
   import os.path as op
   import neuropythy as ny
   from struct import unpack
-  
+  from matplotlib.colors import LinearSegmentedColormap
+
   # Define directories
   dataset  = "nsd"
   data_dir = op.join("/home", "jovyan", "datasets", dataset)
@@ -43,6 +44,18 @@ init: |
   fsa_flatmaps = {} # initialize
   fsa_flatmaps["lh"] = fsa.hemis["lh"].mask_flatmap(**FLATMAP_KWARGS)
   fsa_flatmaps["rh"] = fsa.hemis["rh"].mask_flatmap(**FLATMAP_KWARGS)
+
+  # define a custom colormap for edge figures
+  edge_cmap = LinearSegmentedColormap.from_list(
+    name = "edge", 
+    colors = [
+      (0, (0, 1, 1)),    # negative values begin at cyan
+      (0.48, (0, 0, 0)), # black edge, just before the threshold value
+      (0.52, (1, 1, 1)), # white edge, just after the threshold value
+      (1, (1, 0, 0))     # positive values go towards red
+    ]
+  )
+  
 
 targets:
   # The "Participant" is a choice for the user. It will appear as a dropdown 
@@ -311,9 +324,20 @@ figures:
   _: |
     # Prepare property name and threshold from figure name
     prop_name, threshold = key.split("_")
-    values = target["flatmap"].properties[prop_name] - float(threshold)
-    values = np.exp( -(values ** 2) / (2 * (0.25 ** 2)) ) # gaussian filter
     
-    ny.cortex_plot(target["flatmap"], 
-      color = values, cmap = "Greys_r", vmin = 0, vmax = 1, axes = axes)
+    # Compute values relative to threshold 
+    # (clipped to [0, 9] eccentricity to remove extreme outliers)
+    values = np.clip(target["flatmap"].properties[prop_name].copy(), 0, 9)
+    values = values - float(threshold) 
   
+    # Normalize negative values to [-1, 0]
+    negative_index = values < 0
+    values[negative_index] = values[negative_index] / np.abs(np.nanmin(values[negative_index]))
+
+    # Normalize positive values to [0, 1]
+    positive_index = values > 0
+    values[positive_index] = values[positive_index] / np.nanmax(values[positive_index])
+
+    # Plot with diverging colormap, centered at the threshold value
+    ny.cortex_plot(target["flatmap"], 
+      color = values, cmap = edge_cmap, vmin = -1, vmax = 1, axes = axes)
