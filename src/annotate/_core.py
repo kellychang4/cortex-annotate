@@ -44,10 +44,10 @@ class AnnotationState:
     """
     
     default_style = {
-        "linewidth"  : 1,
-        "linestyle"  : "solid",
-        "markersize" : 1,
         "color"      : "black",
+        "linestyle"  : "solid",
+        "linewidth"  : 1,
+        "markersize" : 1,
         "visible"    : True
     }
 
@@ -255,36 +255,36 @@ class AnnotationState:
     
     
     @classmethod
-    def fix_style(cls, styledict):
+    def fix_style(cls, style_dict):
         """Ensures that the given dictionary is valid as a style dictionary."""
-        for (k,v) in styledict.items():
+        for (k,v) in style_dict.items():
             if k not in AnnotationState.style_keys:
-                raise RuntimeError(f"fix_style given invalid key {k}")
+                raise RuntimeError(f"Invalid key: {k}")
         # Make sure the values are also valid.
-        if "linewidth" in styledict:
-            lw = styledict["linewidth"]
+        if "linewidth" in style_dict:
+            lw = style_dict["linewidth"]
             if lw < 0 or lw > 20:
-                raise RuntimeError(f"fix_style given bad linewidth: {lw}")
-        if "linestyle" in styledict:
-            ls = styledict["linestyle"]
+                raise RuntimeError(f"Invalid linewidth: {lw}")
+        if "linestyle" in style_dict:
+            ls = style_dict["linestyle"]
             if ls not in ("solid", "dashed", "dot-dashed", "dotted"):
-                raise RuntimeError(f"fix_style given bad linestyle: {ls}")
-        if "color" in styledict:
-            clr = styledict["color"]
+                raise RuntimeError(f"Invalid linestyle: {ls}")
+        if "color" in style_dict:
+            clr = style_dict["color"]
             try: c = mpl.colors.to_hex(clr)
             except Exception: c = None
             if c is None:
-                raise RuntimeError(f"fix_style given bad color: {c}")
-            styledict["color"] = c
-        if "markersize" in styledict:
-            ms = styledict["markersize"]
+                raise RuntimeError(f"Invalid color: {clr}")
+            style_dict["color"] = c
+        if "markersize" in style_dict:
+            ms = style_dict["markersize"]
             if ms < 0 or ms > 20:
-                raise RuntimeError(f"fix_style given bad markersize: {ms}")
-        if "visible" in styledict:
-            v = styledict["visible"]
+                raise RuntimeError(f"Invalid markersize: {ms}")
+        if "visible" in style_dict:
+            v = style_dict["visible"]
             if not isinstance(v, bool):
-                raise RuntimeError(f"fix_style given bad visible: {v}")
-        return styledict
+                raise RuntimeError(f"Invalid visible: {v}")
+        return style_dict
     
     
     def style(self, annotation, *args):

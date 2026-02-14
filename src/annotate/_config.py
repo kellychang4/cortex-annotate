@@ -5,25 +5,20 @@
 # Utility types and functions used in the annotation toolkit.
 
 
-# Imports ######################################################################
+# Imports ----------------------------------------------------------------------
 
 import os
+from matplotlib.pyplot import grid
 import yaml
 import numpy as np
+from itertools import product
+from functools import partial
 from collections import namedtuple
+from numbers import Real, Integral
 
-from ._util import (delay, ldict)
+from ._util import delay, ldict
 
-# Helper Functions #############################################################
-
-def _compile_fn(argstr, codestr, init):
-    name = f"__fn_{os.urandom(8).hex()}"
-    lines = [("    " + ln) for ln in codestr.split("\n")]
-    code = "\n".join(lines)
-    loc = init.exec(f"def {name}({argstr}):\n{code}")
-    return loc[name]
-
-# Configuration Panels #########################################################
+# Configuration Error ----------------------------------------------------------
 
 class ConfigError(Exception):
     """An exception raised due to errors in the config.yaml file.
@@ -33,13 +28,132 @@ class ConfigError(Exception):
     `cortex-annotate` project.
     """
     
-    __slots__ = ( "section", "yaml" )
+    __slots__ = ( )
    
-    def __init__(self, section, message, yaml = None):
-        super().__init__(f"{section}: {message}")
-        self.section = section
-        self.yaml    = yaml
+    def __init__(self, section, message): 
+        super().__init__(
+            f"Invalid `config.{section}`\n"
+            f"{message}"
+        )
 
+
+# Display Configuration --------------------------------------------------------
+
+class DisplayConfig:
+    """An object that tracks the configuration of the tool's image display.
+
+    The `DisplayConfig` type keeps track of the `display` section of the
+    `config.yaml` file for the `cortex-annotate` project.
+    """
+    
+    __slots__ = ( 
+        "figsize", "dpi", "image_size", "background_style", "active_style" 
+    )
+    
+    def __init__(self, display_yaml):
+        
+        # The display section is optional. If None, we use default values.
+        if display_yaml is None: 
+            display_yaml = {}
+        
+        # Initialize the figure size.
+        self.figsize = self._init_figsize(display_yaml, default = [4, 4])
+
+        # Initialize the DPI. 
+        self.dpi = self._init_dpi(display_yaml, default = 128)
+
+        # Calculate the image size in pixels from the figure size and DPI.
+        self.image_size = tuple([round(self.dpi * x) for x in self.figsize])
+        
+        # Initialize the background style.
+        self.background_style = self._init_style(
+            display_yaml, parameter = "background_style", default = {})
+
+        # Initialize the active style.
+        self.active_style = self._init_style(
+            display_yaml, parameter = "active_style", default = {})
+
+        # We need to merge the background and active styles together since
+        # the background style is the defaults for the active style.
+        self.active_style = { **self.background_style, **self.active_style } 
+
+
+    def _init_figsize(self, display_yaml, default = [4, 4]):
+        """Initializes the figure size from the display yaml."""
+
+        # Prepare ConfigError arguments for any errors that may arise in this function.
+        err = partial(ConfigError, "display.figsize")
+
+        # Extract the figure size from the yaml. 
+        figsize0 = figsize = display_yaml.get("figsize", default)
+
+        # Check that the figure size is not a string.
+        if isinstance(figsize, str):
+            raise err(f"figsize cannot be a string: {figsize}")
+
+        # If the figure size is a single number, use both for the dimensions.
+        if isinstance(figsize, (int, float)):
+            figsize = [figsize, figsize]
+
+        # If the figure size is a list/tuple, check there are two dimensions.
+        if isinstance(figsize, (list, tuple)):
+            # Check that there are two dimensions.
+            if len(figsize) != 2:
+                raise err(
+                    f"figsize must be a number or 2-element list/tuple: "
+                    f"{figsize}"
+                )
+            # Check that the figure size elements are positive numbers.
+            if not all(isinstance(u, Real) and u > 0 for u in figsize):
+                raise err(
+                    f"figsize elements must be positive numbers: "
+                    f"{figsize0}",
+                )
+        
+        # Return the figure size as a tuple in the form (width, height).
+        return tuple(figsize)
+
+
+    def _init_dpi(self, display_yaml, default = 128):
+        """Initializes the DPI from the display yaml."""
+
+        # Prepare ConfigError arguments for any errors that may arise in this function.
+        err = partial(ConfigError, "display.dpi")
+
+        # Extract the DPI from the yaml.
+        dpi = display_yaml.get("dpi", default)
+
+        # Check that the DPI is a positive integer.
+        if not isinstance(dpi, Integral) or dpi < 1:
+            raise err(f"dpi must be a positive integer: {dpi}")
+        
+        # Return the DPI.
+        return dpi
+    
+
+    def _init_style(self, display_yaml, parameter, default = {}):
+        """Initializes a style from the display yaml."""
+        # Import for style checking.
+        from ._core import AnnotationState
+
+        # Prepare ConfigError arguments for any errors that may arise in this function.
+        err = partial(ConfigError, f"display.{parameter}")
+
+        # Extract the background style from the yaml.
+        background_style = display_yaml.get(parameter, default)
+
+        # Check that the background style is a yaml mapping (dictionary)
+        if not isinstance(background_style, dict):
+            raise err(f"{parameter} must be a mapping")
+        
+        # Try to make sure the background style keys are valid
+        try: AnnotationState.fix_style(background_style)
+        except RuntimeError as e: raise err(e) from e
+
+        return background_style
+
+
+# Init Configuration -----------------------------------------------------------
 
 class InitConfig:
     """An object that keeps track of the `init` section of `config.yaml`.
@@ -52,115 +166,79 @@ class InitConfig:
     available throughout the config file.
     """
     
-    __slots__ = ( "code", "locals", "globals" )
+    __slots__ = ( "code", "env" )
     
     def __init__(self, code, globals = None, locals = None):
-        if code is None:
-            code = "None"
+        # Initialize the code string.
+        self.code = self._init_code(code)
+
+        # Prepare the given globals and locals for the merged environment.
+        # NOTE: __builtins__ might not be available this version, get if crashes!
+        self.env = self._init_env(globals, locals)
+
+        # Execute the code block to populate the environment.
+        exec(self.code, self.env, self.env)
+
+
+    def _init_code(self, code):
+        """Initializes the given code string by executing it in the context of the init code."""
+
+        # Prepare ConfigError arguments for any errors that may arise in this function.
+        err = partial(ConfigError, "init")
+
+        # The code is optional. If None, we just use an empty code block.
+        if code is None: code = "None"
+
+        # Check that the code is a string.
         if not isinstance(code, str):
-            raise ConfigError("init", "init section must be a string", code)
-        self.code = code
-        # Hack to get the globals function back:
-        globs = globals
-        globals = eval("globals", {}, None)
-        # Save the passed values.
-        self.locals = {} if locals is None else locals
-        self.globals = globals().copy() if globs is None else globs
-        exec(code, self.globals, self.locals)
-        self.globals = dict(self.globals, **self.locals)
-        self.locals = {}
+            raise err(f"init section must be a string: {code}")
+        
+        return code
 
 
-    def exec(self, code, copy=True):
+    def _init_env(self, globals, locals):
+        """Initializes the environment by merging the given locals and globals with the init environment."""
+        base_globals = {} if globals is None else globals
+        # base_gloabls = { **globals, "delay": delay, "ldict": ldict }
+        base_locals  = {} if locals is None else locals
+        return { **base_globals, **base_locals }
+
+
+    def _exec(self, code, copy = True):
+        """Executes the given code string in the `init` environment."""
         if copy:
-            loc = self.locals.copy()
-            glo = self.globals.copy()
+            env = self.env.copy()
         else:
-            loc = self.locals
-            glo = self.globals
-        exec(code, glo, loc)
-        return loc
+            env = self.env
+        exec(code, env, env)
+        return env
     
 
-    def eval(self, code, copy=True):
+    def _eval(self, code, copy = True):
+        """Evaluates the given code string in the `init` environment."""
         if copy:
-            loc = self.locals.copy()
-            glo = self.globals.copy()
+            env = self.env.copy()
         else:
-            loc = self.locals
-            glo = self.globals
-        exec(code, glo, loc)
-        return eval(code, glo, loc)
+            env = self.env
+        return eval(code, env, env)
     
 
-class DisplayConfig:
-    """An object that tracks the configuration of the tool's image display.
+    def compile_fn(self, argstr, codestr):
+        """Compiles the given code string as a function in the `init` environment."""
+        # Generate a random function name to avoid collisions
+        fn_name = f"__fn_{os.urandom(8).hex()}" 
+        
+        # Parse the code string (add indentation for function definition).
+        code = "\n".join([("    " + ln) for ln in codestr.split("\n")])
 
-    The `DisplayConfig` type keeps track of the `display` section of the
-    `config.yaml` file for the `cortex-annotate` project.
-    """
-    
-    __slots__ = ( "figure_size", "dpi", "imsize", "plot_options", "fg_options" )
-    
-    def __init__(self, disp):
-        from numbers import (Real, Integral)
-        from ._core import AnnotationState
-        if disp is None: disp = {}
-        figure_size0 = figure_size = disp.get("figure_size", [4,4])
-        if not isinstance(figure_size, (list,tuple)):
-            figure_size = [figure_size, figure_size]
-        if not all(isinstance(u, Real) and u > 0 for u in figure_size):
-            raise ConfigError("display",
-                              "invalid figure_size in config.display: {figure_size0}",
-                              disp)
-        figure_size = tuple(figure_size)
-        dpi = disp.get("dpi", 128)
-        if not isinstance(dpi, Integral) or dpi < 1:
-            raise ConfigError("display",
-                              "invalid dpi in config.display: {dpi}",
-                              disp)
-        # Compute the image size.
-        imsize = (round(dpi*figure_size[0]), round(dpi*figure_size[0]))
-        # Extract the plot options and foreground options.
-        plot_opts = disp.get("plot_options", {})
-        if not isinstance(plot_opts, dict):
-            raise ConfigError("display", 
-                              "plot_options in display must be a mapping",
-                              disp)
-        try: AnnotationState.fix_style(plot_opts)
-        except Exception: plot_opts = None
-        if plot_opts is None:
-            raise ConfigError("display.plot_options", "invalid plot_options",
-                              disp)
-        fg_opts = disp.get("fg_options", {})
-        if not isinstance(fg_opts, dict):
-            raise ConfigError("display", 
-                              "fg_options in display must be a mapping",
-                              disp)
-        try: AnnotationState.fix_style(fg_opts)
-        except Exception: fg_opts = None
-        if fg_opts is None:
-            raise ConfigError("display.fg_options", "invalid fg_options",
-                              disp)
-        # Make sure the keys are valid
-        style_keys = AnnotationState.style_keys
-        for (opts, name) in zip([plot_opts, fg_opts], ["plot","fg"]):
-            bad = [k for k in opts.keys() if k not in style_keys]
-            if len(bad) > 0:
-                raise ConfigError(
-                    "display",
-                    f"invalid keys in display.{name}_options: {bad}",
-                    disp)
-        # We need to merge the plot options and fg options together since the
-        # plot options are the defaults for the fg options.
-        fg_opts = dict(plot_opts, **fg_opts)
-        # That's the whole section; we can set values and return now.
-        self.figure_size = figure_size
-        self.dpi = dpi
-        self.imsize = imsize
-        self.plot_options = plot_opts
-        self.fg_options = fg_opts
+        # Execute the function definition in the `init` environment. 
+        local_env = self._exec(f"def {fn_name}({argstr}):\n{code}")
 
+        # Return the compiled function from the local environment.
+        return local_env[fn_name]
+    
+    
+# Targets Configuration --------------------------------------------------------
 
 class TargetsConfig(ldict):
     """A dict-like configuration item for the annotation tool's targets.
@@ -174,70 +252,84 @@ class TargetsConfig(ldict):
     for the ordered concrete key `id1, id2...`.
     """
     
-    __slots__ = ( "items", "concrete_keys" )
-    
-    @staticmethod
-    def _reify_target(items, concrete_keys, targ):
-        """Builds up and returns an `ldict` of the all target data.
+    __slots__ = ( "items", "concrete_keys" )    
 
-        `TargetsConfig._reify_target(items, concrete_keys, targ)` takes the
-        target-id tuple `targ` and builds up the `ldict` representation of the
-        target data, in which all keys in the `config.yaml` file have values
-        (albeit lazy ones in the case of the keys that are not concrete). The
-        parameters `items` and `concrete_keys` must be the configuration's
-        target data and the list of concrete keys must be the concrete keys for
-        the target, respectively.
-        """
-        d = ldict()
-        targ_iter = iter(targ)
-        for (k,v) in items.items():
-            if k in concrete_keys:
-                d[k] = next(targ_iter)
-            else:
-                d[k] = delay(v, ldict(d))
-        return d
-    
+    def __init__(self, targets_yaml, init):
+        # The targets section is required.
+        if targets_yaml is None:
+            raise ConfigError("targets", "targets section is required.")
 
-    def __init__(self, yaml, init):
-        from itertools import product
-        if yaml is None:
-            raise ConfigError("targets", "targets section is required", yaml)
-        if not isinstance(yaml, dict):
-            raise ConfigError("targets",
-                              "targets section must be a mapping",
-                              yaml)
-        # First we step through and compile the keys when necessary.
-        concrete_keys = []
-        items = {}
-        for (k,v) in yaml.items():
-            if isinstance(v, list):
-                concrete_keys.append(k)
-                items[k] = v
-            elif isinstance(v, str):
-                items[k] = _compile_fn("target", v, init)
+        # The targets section must be a mapping (dictionary).
+        if not isinstance(targets_yaml, dict):
+            raise ConfigError("targets", "targets section must be a mapping.")
+
+        # First, we step through and compile the keys when necessary.
+        self.items = {}
+        self.concrete_keys = []
+        for (key, value) in targets_yaml.items(): 
+            if isinstance(value, list):
+                # If list, then this will become a concrete_key -> dropdown.
+                self.items[key] = value 
+                self.concrete_keys.append(key)
+            elif isinstance(value, str):
+                # If string, then this is treated as a code block that is 
+                # compiled into a function that takes `target` as an argument.
+                self.items[key] = init.compile_fn("target", value)
             else:
-                raise ConfigError(f"targets.{k}",
-                                  "target elements must be strings or lists",
-                                  yaml)
+                # Error if the item value is not a list or string.
+                raise ConfigError(f"targets.{key}", 
+                    f"Target elements must be strings or lists: {value}"
+                )
+
         # We then fill these out into a lazy dict that reifies each target
         # individually. We start with a dict but put the delays into this object
         # (which is a lazy dict itself).
-        d = dict()
-        for tup in product(*[items[k] for k in concrete_keys]):
-            d[tup] = delay(TargetsConfig._reify_target,
-                           items, concrete_keys, tup)
-        self.concrete_keys = concrete_keys
-        self.items = items
-        self.update(d)
+        targets_dict = {} 
+        for target_key in product(*[self.items[k] for k in self.concrete_keys]):
+            targets_dict[target_key] = delay(
+                TargetsConfig._reify_target, 
+                self.items, 
+                self.concrete_keys, 
+                target_key
+            )
+            
+        # Finally, we update this object with the target data.
+        self.update(targets_dict)
+
+
+    @staticmethod
+    def _reify_target(items, concrete_keys, target_key):
+        """Builds up and returns an `ldict` of the all target data.
+
+        `TargetsConfig._reify_target(items, concrete_keys, target_key)`
+        takes the target-id tuple `target_key` and builds up the `ldict` 
+        representation of the target data, in which all keys in the 
+        `config.yaml` file have values (albeit lazy ones in the case of the keys
+        that are not concrete). The parameters `items` and `concrete_keys` 
+        must be the configuration's target data and the list of concrete keys 
+        must be the concrete keys for the target, respectively.
+        """
+        d = ldict()
+        target_iter = iter(target_key)
+        for (key, value) in items.items():
+            if key in concrete_keys:
+                d[key] = next(target_iter)
+            else:
+                d[key] = delay(value, ldict(d))
+        return d
+
+
+# Annotation Configuration -----------------------------------------------------
 
 
 Annotation = namedtuple(
-    "Annotation",
-    ( "grid", "filter", "type", "plot_options", "fixed_head", "fixed_tail" ),
-    defaults = ( None, None )
+    typename    = "Annotation",
+    field_names = ( "type", "fixed_head", "fixed_tail", "figure_grid", 
+                    "style_options", "filter" ),
+    defaults    = ( "contour", None, None, None, {}, None )
 )
 
-  
+
 class AnnotationsConfig(dict):
     """An object that stores the configuration of the annotations to be drawn.
 
@@ -245,109 +337,184 @@ class AnnotationsConfig(dict):
     be drawn on the annotation targets for the `cortex-annotate` project.
     """
     
+    #TODO: make sure that the annotation types dictionary is actually required.
     __slots__ = ( "all_figures", "types" )
     
-    def __init__(self, yaml, init):
+    def __init__(self, annotations_yaml, init):
+        # The annotations section is required as a mapping (dictionary)
+        if not isinstance(annotations_yaml, dict):
+            raise ConfigError("annotations", "annotations must contain a mapping.")
+
+        # Go through and build up the annotation data.
+        annotations_dict = {}
+        for (key, value) in annotations_yaml.items():
+            # Check that the annotation value is a list or mapping.
+            if not isinstance(value, (list, dict)):
+                raise ConfigError(f"annotations.`{key}`",
+                    f"annotation `{key}` must be a list or mapping.")
+        
+            if isinstance(value, list):
+                # If the value is a list, then this is treated as a figure_grid.
+                figure_grid = self._init_figure_grid(
+                    value, partial(ConfigError, f"annotations.`{key}`"))
+                annotations_dict[key] = Annotation(figure_grid = figure_grid)
+            else: 
+                # If the value is a mapping, then this is treated as an annotation
+                # specification that is processed by the `_init_annotation` method.
+                annotations_dict[key] = self._init_annotation(key, value, init)
+        
+        # And now all the annotations are processed, update the dictionary.
+        self.update(annotations_dict)
+
+        # Make the types dictionary.
+        self.types = { k: v.type for (k, v) in self.items() }
+
+        # Finally, we get all the unique figures.
+        self.all_figures = set([
+            x for annotation in self.values()
+            for row in annotation.figure_grid 
+            for x in row if x is not None
+        ])
+                
+    
+    def _init_figure_grid(self, figure_grid, err):
+        """Initializes the figure grid from the annotation specification."""
+        # Check that the figure grid is a list.
+        if not isinstance(figure_grid, list):
+            raise err(f"figure_grid is required and must be a list/matrix.")
+        
+        # Single-row shorthand: ["a", "b", None] -> [["a", "b", None]]
+        if all(el is None or isinstance(el, str) for el in figure_grid):
+            figure_grid = [ figure_grid ]
+
+        # Check the elements of the figure_grid.
+        cols = None
+        for row in figure_grid: 
+            # Check that the row is a list. 
+            if not isinstance(row, list):
+                raise err("figure_grid must be a list/matrix.")
+            
+            # Check that the row has the same number of columns.
+            if cols is None: cols = len(row) # defined by the first row
+            elif len(row) != cols:
+                raise err(
+                    f"figure_grid cannot be a ragged matrix: "
+                    f"expected {cols} columns, got {len(row)}"
+                )
+            
+            # Check that the row elements are strings or None.
+            for el in row:
+                if el is None: continue
+                elif not isinstance(el, str):
+                    raise err("figure_grid items must be null or strings.")
+
+        # Return the figure_grid.
+        return figure_grid
+    
+
+    def _init_fixed_points(self, key, fixed_point, err, init):
+        """Initializes the fixed points from the annotation specification."""
+        # If the fixed point is None, then we just return None.
+        if fixed_point is None: return None
+
+        # Check that the fixed point is a string or mapping.
+        if not isinstance(fixed_point, (str, dict)):
+            raise err(f"{key} must be null, strings, or mappings.")
+        
+        # If the fixed point is a string, we use the last point of the given
+        # annotation as the fixed point. 
+        if isinstance(fixed_point, str):
+            fixed_point = { 
+                "calculate" : f"return annotations['{fixed_point}'][-1,:]",
+                "requires"  : fixed_point
+            }
+
+        # Extract the requires and calculate fields from the mapping.
+        requires  = fixed_point.get("requires", [])
+        calculate = fixed_point.get("calculate", None)
+
+        # Check that the requires field is a string.
+        if isinstance(requires, str):
+            requires = [ requires ]
+        
+        # Check that the requires field is a list of strings.
+        if isinstance(requires, list):
+            if not all(isinstance(el, str) for el in requires):
+                raise err(f"{key} 'requires' field must be a string or list of strings.")
+            
+        # Check that the calculate field is a string.
+        if calculate is None:
+            raise err(f"{key} must contain 'calculate' if it is a mapping.")
+            
+        # Compile the calculate code string into a function. 
+        calculate = init.compile_fn("target, annotations", calculate)
+        
+        # Return the fixed point dictionary.
+        return { "calculate": calculate, "requires": requires }
+
+
+    def _init_annotation(self, annotation_name, annotation_spec, init):
+        """Initializes the annotation from the annotation specification."""
+        # Import for style checking.
         from ._core import AnnotationState
-        # The yaml should just contain entries for the annotations.
-        if not isinstance(yaml, dict):
-            raise ConfigError("annotations",
-                              "annotations must contain a mapping",
-                              yaml)
-        # Go through and build up the lists of figures and the annotation data.
-        annots = {}
-        figs = set([])
-        for (k,v) in yaml.items():
-            if isinstance(v, list):
-                # It is legal to just provide the grid.
-                v = { "grid": v }
-            if not isinstance(v, dict):
-                raise ConfigError(f"annotations.{k}",
-                                  f"annotation {k} must be a list or mapping",
-                                  yaml)
-            # Now just go through and parse the options.
-            plot_opts = v.get("plot_options", {})
-            if not isinstance(plot_opts, dict):
-                raise ConfigError(f"annotations.{k}", 
-                                  "annotation plot_options must be mappings",
-                                  yaml)
-            try: AnnotationState.fix_style(plot_opts)
-            except Exception: plot_opts = None
-            if plot_opts is None:
-                raise ConfigError(f"annotations.{k}", "invalid plot_options",
-                                  yaml)
-            ctype = v.get("type", "contour")
-            if ctype not in ("contour", "boundary", "point"):
-                raise ConfigError(
-                    f"annotations.{k}", 
-                    "type must be one of 'contour', 'boundary', or 'point'",
-                    yaml)
-            filter = v.get("filter", None)
-            if filter is not None and not isinstance(filter, str):
-                raise ConfigError(f"annotations.{k}",
-                                  "filter must be null or a Python code string",
-                                  yaml)
-            grid = v.get("grid", None)
-            if not isinstance(grid, list):
-                raise ConfigError(f"annotations.{k}",
-                                  "grid is required and must be a list/matrix",
-                                  yaml)
-            if all(el is None or isinstance(el, str) for el in grid):
-                # Single row; this is fine.
-                grid = [grid]
-            cols = None
-            for row in grid:
-                if not isinstance(row, list):
-                    raise ConfigError(f"annotations.{k}",
-                                      "grid must be a list/matrix", yaml)
-                if cols is None:
-                    cols = len(row)
-                elif cols != len(row):
-                    raise ConfigError(f"annotations.{k}"
-                                      "grid cannot be a ragged matrix", yaml)
-                for el in row:
-                    if el is None: continue
-                    elif not isinstance(el, str):
-                        raise ConfigError(f"annotations.{k}",
-                                          "grid items must be null or strings",
-                                          yaml)
-                    figs.add(el)
-            fixed = [v.get("fixed_head"), v.get("fixed_tail")]
-            for (ii,f) in enumerate(fixed):
-                if f is None: continue
-                if isinstance(f, str):
-                    f = dict(calculate=f'return annotations["{f}"][-1,:]',
-                             requires=f)
-                if not isinstance(f, dict):
-                    raise ConfigError(
-                        f"annotations.{k}",
-                        f"fixed_{['head','tail'][ii]} must be a str or mapping",
-                        yaml)
-                reqs = f.get("requires", [])
-                reqs = reqs if isinstance(reqs, list) else [reqs]
-                calc = f.get("calculate")
-                if calc is None:
-                    raise ConfigError(
-                        f"annotations.{k}",
-                        f"fixed_{['head','tail'][ii]} must contain 'calculate'",
-                        yaml)
-                calc = _compile_fn("target, annotations", calc, init)
-                f = dict(calculate=calc, requires=reqs)
-                fixed[ii] = f
-            (fh,ft) = fixed
-            # We have extracted the data now; go ahead and compile the filter.
-            if filter is not None:
-                filter = _compile_fn("target", filter, init)
-            # Everything for this annotation is now processed; just set up its
-            # Annotation object.
-            annots[k] = Annotation(grid, filter, ctype, plot_opts, fh, ft)
-        # And now all the annotations are processed.
-        self.update(annots)
-        self.all_figures = figs
-        # Last thing to do is to make the annotation types dictionary.
-        self.types = {k:v.type for (k,v) in self.items()}
+
+        # Prepare ConfigError arguments for any errors that may arise in this loop.
+        err = partial(ConfigError, f"annotations.`{annotation_name}`")
+
+        # Check that the key is a valid annotation option.
+        for key in annotation_spec.keys():
+            if key not in Annotation._fields:
+                raise err(f"Invalid annotation key: {key}")
+
+        # Extract annotation values or assign default values.
+        ctype         = annotation_spec.get("type", "contour")
+        fixed_head    = annotation_spec.get("fixed_head", None)
+        fixed_tail    = annotation_spec.get("fixed_tail", None)
+        figure_grid   = annotation_spec.get("figure_grid", None)
+        style_options = annotation_spec.get("style_options", {})
+        filter        = annotation_spec.get("filter", None)
+        
+        # Check that the annotation type is valid.
+        if ctype not in ( "contour", "boundary", "point"):
+            raise err("Type must be one of 'contour', 'boundary', or 'point'.")
+
+        # Check and initialize the fixed points.
+        fixed_head = self._init_fixed_points("fixed_head", fixed_head, err, init)
+        fixed_tail = self._init_fixed_points("fixed_tail", fixed_tail, err, init)
+
+        # Prepare and check the figure grid.
+        figure_grid = self._init_figure_grid(figure_grid, err)
+
+        # Check that the background style is a yaml mapping (dictionary)
+        if not isinstance(style_options, dict):
+            raise err(f"style_options must be a mapping.")
+        
+        # Try to make sure the style options keys are valid
+        try: AnnotationState.fix_style(style_options)
+        except RuntimeError as e: raise err(e) from e
+
+        # Check that the filter is a string or None.
+        if filter is not None and not isinstance(filter, str):
+            raise err(f"filter must be null or a Python code string.")
+
+        # We have extracted the data now; go ahead and compile the filter.
+        if filter is not None:
+            filter = init.compile_fn("target", filter)
+
+        # Return the annotation as an Annotation object.    
+        return Annotation(
+            type          = ctype,
+            fixed_head    = fixed_head,
+            fixed_tail    = fixed_tail,
+            figure_grid   = figure_grid,
+            style_options = style_options,
+            filter        = filter,
+        )
 
 
+# Builtin Annotation Configuration ---------------------------------------------
+
+# TODO: This entire section is current not called on, will edit later
 _BuiltinAnnotationBase = namedtuple(
     "_BuiltinAnnotationBase",
     ("type", "filter", "data", "plot_options", "target", "cache"),
@@ -481,7 +648,7 @@ class BuiltinAnnotationsConfig(dict):
             data = v.get("data", None)
             if isinstance(data, str):
                 # A code-block.
-                data = _compile_fn("target", data, init)
+                data = init.compile_fn("target", data)
             else:
                 raise ConfigError(
                     f"builtin_annotations.{k}",
@@ -495,6 +662,8 @@ class BuiltinAnnotationsConfig(dict):
         # Finally make the types dictionary.
         self.types = {k: v.type for (k,v) in self.items()}
 
+
+# Figure Configuration ---------------------------------------------------------
 
 class FiguresConfig(dict):
     """An object that stores configuration information for making figures.
@@ -511,17 +680,17 @@ class FiguresConfig(dict):
     @staticmethod
     def _compile_figfn(code, initcode, termcode, initcfg):
         return _compile_fn(
-            "target, key, figure, axes, figure_size, dpi, meta_data",
+            "target, key, figure, axes, figsize, dpi, meta_data",
             f"{initcode}\n{code}\n{termcode}",
             initcfg)
     
     
-    def __init__(self, yaml, init, all_figures):
-        if not isinstance(yaml, dict):
+    def __init__(self, figures_yaml, init, all_figures):
+        if not isinstance(figures_yaml, dict):
             raise ConfigError("figures",
-                              "figures section must contain a mapping", yaml)
-        self.yaml = yaml
-        yaml = yaml.copy() # Don't modify the original yaml dict.
+                              "figures section must contain a mapping", figures_yaml)
+        self.yaml = figures_yaml
+        yaml = figures_yaml.copy() # Don't modify the original yaml dict.
         # Pull out the relevant special entries.
         initcode = yaml.pop("init", None)
         termcode = yaml.pop("term", None)
@@ -529,16 +698,16 @@ class FiguresConfig(dict):
         if initcode is not None and not isinstance(initcode, str):
             raise ConfigError("figures.init",
                               "figure entries must contain (code) strings",
-                              yaml)
+                              figures_yaml)
         if termcode is not None and not isinstance(termcode, str):
             raise ConfigError("figures.term",
                               "figure entries must contain (code) strings",
-                              yaml)
+                              figures_yaml)
         if wildcode is not None:
             if not isinstance(wildcode, str):
                 raise ConfigError("figures._",
                                   "figure entries must contain (code) strings",
-                                  yaml)
+                                  figures_yaml)
             wildfn = FiguresConfig._compile_figfn(wildcode, initcode, termcode,
                                                   init)
         else:
@@ -563,6 +732,7 @@ class FiguresConfig(dict):
         # Same these into the dictionary.
         self.update(res)
 
+# Config Object ----------------------------------------------------------------
 
 class Config:
     """The configuration object for the `cortex-annotate` project.
@@ -577,7 +747,7 @@ class Config:
     
     __slots__ = (
         "config_path", "yaml", "display", "init", "targets", "figures",
-        "annotations", "builtin_annotations", "review", "annotation_types",
+        "annotations", "builtin_annotations", "annotation_types",
         "fixed_deps"
     )
     
@@ -594,7 +764,9 @@ class Config:
         self.init = InitConfig(self.yaml.get("init", None))
 
         # Parse the targets section.
-        self.targets = TargetsConfig(self.yaml.get("targets", None), self.init)
+        self.targets = TargetsConfig(
+            self.yaml.get("targets", None), self.init
+        )
 
         # Parse the annotations section.
         self.annotations = AnnotationsConfig(
@@ -604,13 +776,15 @@ class Config:
         # Parse the builtin_annotations section.
         self.builtin_annotations = BuiltinAnnotationsConfig(
             self.yaml.get("builtin_annotations", None),
-            self.init)
+            self.init
+        )
 
         # Parse the figures section.
         self.figures = FiguresConfig(
             self.yaml.get("figures", None),
             self.init,
-            self.annotations.all_figures)
+            self.annotations.all_figures
+        )
         
         # Make the annotation types dictionary.
         d = self.annotations.types.copy()
