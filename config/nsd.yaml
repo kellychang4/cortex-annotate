@@ -7,14 +7,15 @@
 display:
   figsize: [4, 4]
   dpi: 128
-  plot_options:
+  background_style:
     color: [0.55, 0.55, 0.9]
     markersize: 0
     linewidth: 2
     linestyle: "solid"
-  fg_options:
+  active_style:
     color: [0.97, 0.97, 0.97]
-    markersize: 2
+    markersize: 4
+
 
 init: |
   # Load libraries that will be used throughout the configuration file.
@@ -45,16 +46,18 @@ init: |
   fsa_flatmaps["lh"] = fsa.hemis["lh"].mask_flatmap(**FLATMAP_KWARGS)
   fsa_flatmaps["rh"] = fsa.hemis["rh"].mask_flatmap(**FLATMAP_KWARGS)
 
-  # define a custom colormap for edge figures
+  # define a custom colormap for isoeccentricity figures
   edge_cmap = LinearSegmentedColormap.from_list(
     name = "edge", 
     colors = [
       (0, (0, 1, 1)),    # negative values begin at cyan
-      (0.48, (0, 0, 0)), # black edge, just before the threshold value
-      (0.52, (1, 1, 1)), # white edge, just after the threshold value
+      (0.49, (0, 0, 0)), # black edge, just before the threshold value
+      (0.50, (1, 1, 0)), # yellow edge, at the threshold value
+      (0.51, (1, 1, 1)), # white edge, just after the threshold value
       (1, (1, 0, 0))     # positive values go towards red
     ]
   )
+
   
 
 targets:
@@ -297,6 +300,65 @@ annotations:
 
 
 figures:
+  angle: |
+    # prepare (formatted) target information for figure code below
+    hemisphere = target["Hemisphere"]  # string
+    fs_hemi    = f"{hemisphere[0].lower()}h"
+
+    # prepare colormap name and values for figure
+    colormap_name   = f"polar_angle_{fs_hemi}"
+    colormap_values = target["flatmap"].properties["angle"]
+
+    ny.cortex_plot(
+      mesh  = target["flatmap"], 
+      color = { colormap_name: colormap_values }, 
+      axes  = axes
+    )
+  eccen: |
+    ny.cortex_plot(
+      mesh  = target["flatmap"], 
+      color = { "eccentricity": target["flatmap"].properties["eccen"] }, 
+      axes = axes
+    )
+  vexpl: |
+    ny.cortex_plot(
+      mesh  = target["flatmap"], 
+      color = "vexpl", 
+      cmap  = "hot", 
+      vmin  = 0, 
+      vmax  = 100, 
+      axes = axes
+    )
+  curvature: |
+    ny.cortex_plot(mesh = target["flatmap"], axes = axes)
+  _: |
+    # Prepare property name and threshold from figure name
+    prop_name, threshold = key.split("_")
+    
+    # Compute values relative to threshold 
+    # (clipped to [0, 16] eccentricity to remove extreme outliers)
+    values = np.clip(target["flatmap"].properties[prop_name].copy(), 0, 16)
+    values = values - float(threshold) 
+  
+    # Normalize negative values to [-1, 0]
+    negative_index = values < 0
+    values[negative_index] = (values[negative_index] /
+      np.abs(np.nanmin(values[negative_index])))
+
+    # Normalize positive values to [0, 1]
+    positive_index = values > 0
+    values[positive_index] = (values[positive_index] / 
+      np.nanmax(values[positive_index]))
+
+    # Plot with diverging colormap, centered at the threshold value
+    ny.cortex_plot(
+      mesh  = target["flatmap"], 
+      color = values, 
+      cmap  = edge_cmap, 
+      vmin  = -1, 
+      vmax  = 1, 
+      axes  = axes
+    )
   term: |
     # figure aesthetics and limits
     xy = target["flatmap"].coordinates
@@ -304,40 +366,3 @@ figures:
     (xmax, ymax) = np.max(xy, axis = 1)
     axes.set_xlim((xmin, xmax))
     axes.set_ylim((ymin, ymax))
-  angle: |
-    # prepare hemisphere information
-    hemi    = target["Hemisphere"]  # string
-    fs_hemi = f"{hemi[0].lower()}h"
-
-    ny.cortex_plot(target["flatmap"], 
-      color = { f"polar_angle_{fs_hemi}": target["flatmap"].properties["angle"] }, 
-      axes = axes)
-  eccen: |
-    ny.cortex_plot(target["flatmap"], 
-      color = { "eccentricity": target["flatmap"].properties["eccen"] }, 
-      axes = axes)
-  vexpl: |
-    ny.cortex_plot(target["flatmap"], color = "vexpl", cmap = "hot", 
-      vmin = 0, vmax = 100, axes = axes)
-  curvature: |
-    ny.cortex_plot(target["flatmap"], axes = axes)
-  _: |
-    # Prepare property name and threshold from figure name
-    prop_name, threshold = key.split("_")
-    
-    # Compute values relative to threshold 
-    # (clipped to [0, 9] eccentricity to remove extreme outliers)
-    values = np.clip(target["flatmap"].properties[prop_name].copy(), 0, 9)
-    values = values - float(threshold) 
-  
-    # Normalize negative values to [-1, 0]
-    negative_index = values < 0
-    values[negative_index] = values[negative_index] / np.abs(np.nanmin(values[negative_index]))
-
-    # Normalize positive values to [0, 1]
-    positive_index = values > 0
-    values[positive_index] = values[positive_index] / np.nanmax(values[positive_index])
-
-    # Plot with diverging colormap, centered at the threshold value
-    ny.cortex_plot(target["flatmap"], 
-      color = values, cmap = edge_cmap, vmin = -1, vmax = 1, axes = axes)

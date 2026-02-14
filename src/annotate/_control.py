@@ -166,6 +166,7 @@ class SelectionPanel(ipw.VBox):
         self.observe_target(fn)
         self.observe_annotation(partial(fn, None))
 
+
 # The Style Subpanel Widget ----------------------------------------------------
 
 class StylePanel(ipw.VBox):

@@ -129,13 +129,13 @@ class AnnotationState:
         """Generates a single figure for the given target and figure name."""
         target = self.config.targets[target_id]
         # Make a figure and axes for the plots.
-        figure_size = self.config.display.figure_size
+        figsize = self.config.display.figsize
         dpi = self.config.display.dpi
-        (fig, ax) = plt.subplots(1,1, figsize = figure_size, dpi = dpi)
+        (fig, ax) = plt.subplots(1,1, figsize = figsize, dpi = dpi)
         # Run the function from the config that draws the figure.
         fn = self.config.figures[figure_name]
         meta_data = {}
-        fn(target, figure_name, fig, ax, figure_size, dpi, meta_data)
+        fn(target, figure_name, fig, ax, figsize, dpi, meta_data)
         # Tidy things up for image plotting.
         ax.axis("off")
         fig.subplots_adjust(0, 0, 1, 1, 0, 0)
