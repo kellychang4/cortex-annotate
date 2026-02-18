@@ -100,9 +100,9 @@ class AnnotationState:
 
         # (Lazily) load the annotations.
         self.annotations = self.load_annotations()
-        self.builtin_annotations = self.load_builtin_annotations()
+        # self.builtin_annotations = self.load_builtin_annotations()
 
-        # And (lazily) load the preferences.
+        # # And (lazily) load the preferences.
         self.preferences = self.load_preferences()
         
     
@@ -137,8 +137,9 @@ class AnnotationState:
             warn(f"error finding gitdata: {e}")
             return ( "", "" )
     
-    
-    def target_path(self, target):
+    # Pathing Methods ----------------------------------------------------------
+
+    def _target_path(self, target):
         """Returns the relative path for a target."""
         if isinstance(target, tuple):
             path = target
@@ -149,7 +150,7 @@ class AnnotationState:
     
     def target_figure_path(self, target, figure = None, ensure = True):
         """Returns the cache path for a target's figures."""
-        path = self.target_path(target)
+        path = self._target_path(target)
         path = op.join(self.cache_path, "figures", path)
         if ensure and not op.isdir(path):
             os.makedirs(path, mode = 0o755)
@@ -160,7 +161,7 @@ class AnnotationState:
     
     def target_grid_path(self, target, annotation = None, ensure = True):
         """Returns the cache path for a target's grids."""
-        path = self.target_path(target)
+        path = self._target_path(target)
         path = op.join(self.cache_path, "grids", path)
         if ensure and not op.isdir(path):
             os.makedirs(path, mode = 0o755)
@@ -171,7 +172,7 @@ class AnnotationState:
     
     def target_save_path(self, target, annotation = None, ensure = True):
         """Returns the save path for a target's annotation data."""
-        path = self.target_path(target)
+        path = self._target_path(target)
         path = op.join(self.save_path, path)
         if ensure and not op.isdir(path):
             os.makedirs(path, mode = 0o755)
@@ -179,8 +180,9 @@ class AnnotationState:
             path = op.join(path, f"{annotation}.tsv")
         return path
     
+    # Figure/Grid Methods ------------------------------------------------------
     
-    def generate_figure(self, target_id, figure_name):
+    def _generate_figure(self, target_id, figure_name):
         """Generates a single figure for the given target and figure name."""
         # Get the current target.
         target = self.config.targets[target_id]
@@ -190,13 +192,12 @@ class AnnotationState:
         mdpath = re.sub(".png$", ".json", impath)
         
         # Get the display settings and figure function.
-        figsize = self.config.display.figsize
-        dpi = self.config.display.dpi
+        figsize, dpi = self.config.display.figsize, self.config.display.dpi
         figure_fn = self.config.figures[figure_name]
 
         # Run the function from the config that draws the figure.
         (fig, ax) = plt.subplots(1, 1, figsize = figsize, dpi = dpi)
-        meta_data = {} # TODO: make sure that this can get filled in the figure config!!!
+        meta_data = {} # initalize, can be populated by figure function
         figure_fn(target, figure_name, fig, ax, figsize, dpi, meta_data)
         fig.subplots_adjust(0, 0, 1, 1, 0, 0)
         ax.axis("off")
@@ -207,9 +208,9 @@ class AnnotationState:
         # We also need a companion meta-data file.
         if "xlim" not in meta_data: meta_data["xlim"] = ax.get_xlim()
         if "ylim" not in meta_data: meta_data["ylim"] = ax.get_ylim()
-        jscode = json.dumps(meta_data)
 
         # Save the meta data as a json file.
+        jscode = json.dumps(meta_data)
         with open(mdpath, "wt") as f:
             f.write(jscode)
 
@@ -226,8 +227,7 @@ class AnnotationState:
         if figure_name is None:
             # This is a request for an empty image.
             image_size = self.config.display.image_size
-            return ( np.zeros(image_size + (4,), dtype = np.uint8),
-                     { "xlim" : (0, 1), "ylim" : (0, 1) } )
+            return ( np.ones(image_size + (4,), dtype = np.uint8) * 255, None)
         
         # Prepare the image and meta data file paths.
         impath = self.target_figure_path(target_id, figure_name)
@@ -236,54 +236,55 @@ class AnnotationState:
         # If the files does not already exist, we generate them first.
         if not op.isfile(impath) or not op.isfile(mdpath):
             with self.loading_context:
-                self.generate_figure(target_id, figure_name)
+                self._generate_figure(target_id, figure_name)
         
         # Now read the figure image data and meta data.
         image_data = iio.imread(impath)
         with open(mdpath, "rt") as f:
             meta_data = json.load(f)
 
-        # And return them.
+        # And return the image data and meta data.
         return ( image_data, meta_data )
 
 
-
-    def generate_grid(self, target_id, annotation):
+    def _generate_grid(self, target_id, annotation):
         """Generates a single figure grid for an annotation."""
         # Prepare the image and meta data file paths.
         impath = self.target_grid_path(target_id, annotation)
         mdpath = re.sub(".png$", ".json", impath)
 
-        # Get the annotation data for this annotation.
-        anndata = self.config.annotations[annotation]
-        # grid_shape = np.shape(anndata.grid)
+        # Get the annotation information for this annotation.
+        annotation_info = self.config.annotations[annotation]
         
-        # We join up the component arrays.
+        # Get the figure image/meta data for the entire figure grid
         figure_data = [
-            [ self.figure(target_id, figname) for figname in row ]
-            for row in anndata.grid
+            [ self.figure(target_id, figure_name) for figure_name in row ]
+            for row in annotation_info.figure_grid
         ]
         
-        # Make sure the figure meta-data all match!
-        md0 = figure_data[0][0][1]
-        for row in figure_data:
-            for (fig, md) in row:
-                if md0["xlim"] != md["xlim"]:
-                    raise RuntimeError(f"not all figures have the same xlim for"
-                                       f" annotation {annotation}")
-                if md0["ylim"] != md["ylim"]:
-                    raise RuntimeError(f"not all figures have the same ylim for"
-                                       f" annotation {annotation}")
+        # Make sure the figure xlim and ylim meta-data all match!
+        meta_data = [ md for row in figure_data for (_, md) in row ]
+        meta_data0 = meta_data[0] # we use this as the reference meta data
+        for md in meta_data: # for each figure in the grid
+            if md is not None: # skip the empty figures
+                if meta_data0["xlim"] != md["xlim"]:
+                    raise RuntimeError(f"Not all figures have the same `xlim` "
+                                    f"for annotation: {annotation}")
+                if meta_data0["ylim"] != md["ylim"]:
+                    raise RuntimeError(f"Not all figures have the same `ylim` "
+                                    f"for annotation: {annotation}")
                 
-        grid = np.concatenate([np.concatenate(
-            [fig for (fig, md) in row], axis = 1)
-            for row in figure_data], axis = 0)
+        # Concatenate the figures to make a single grid image.
+        grid = np.concatenate([
+            np.concatenate([fig for (fig, _) in row], axis = 1)
+            for row in figure_data], axis = 0
+        )
         
         # Save it out as a png file.
         iio.imwrite(impath, grid)
 
         # And save out the meta-data.
-        jscode = json.dumps(md0)
+        jscode = json.dumps(meta_data0)
         with open(mdpath, "wt") as f:
             f.write(jscode)
 
@@ -300,27 +301,110 @@ class AnnotationState:
         impath = self.target_grid_path(target_id, annotation)
         mdpath = re.sub(".png$", ".json", impath)
 
-        # Get the annotation data for this annotation.
-        anndata = self.config.annotations[annotation]
-        grid_shape = np.shape(anndata.grid)
+        # Get the annotation information for this annotation.
+        annotation_info = self.config.annotations[annotation]
+        grid_shape = np.shape(annotation_info.figure_grid) 
 
         # If the files aren't here already, we generate them first.
         if not op.isfile(impath) or not op.isfile(mdpath):
             with self.loading_context:
-                self.generate_grid(target_id, annotation)
+                self._generate_grid(target_id, annotation)
         
-        # Read in image data and meta data.
+        # Read in image data. 
         with open(impath, "rb") as f:
             image_data = f.read()
+
+        # Read in meta data.
         with open(mdpath, "rt") as f:
             meta_data = json.load(f)
         
         # And return them.
         return ( image_data, grid_shape, meta_data )
+
+    # Annotation Methods -------------------------------------------------------
+
+    def load_target_annotation(self, target_id, annotation):
+        """Loads a single annotation from the save path for a given target."""
+        # Get the path for this annotation.
+        tsv_file = self.target_save_path(target_id, annotation)
+
+        # If there is no file, we return an empty matrix of points.
+        if not op.isfile(tsv_file):
+            return np.zeros((0, 2), dtype = float)
+
+        # Read in the coordinates using pandas (tab separated, no header).
+        coords = pd.read_csv(tsv_file, sep = "\t", header = None).values
+
+        # The TSV file must contain an N x 2 matrix of values!
+        if len(coords.shape) != 2 or coords.shape[1] != 2:
+            raise RuntimeError(
+                f"File '{tsv_file}' for annotation '{annotation}' and "
+                f"target '{target_id}' has invalid shape: {coords.shape}"
+            )
+
+        # Return the coordinates.
+        return coords
     
-    # TODO: still working on before functions (generate = makes, <name> = smart loading)
-    # ------------------------------------------------------------------------
-    # Preferences management ---------------------------------------------------
+    
+    def load_target_annotations(self, target_id):
+        """Loads (lazily) the annotations for the current tool user for a single target"""
+        target_annotations = ldict() # initialize
+        for annotation in self.config.annotations.keys():
+            target_annotations[annotation] = delay(
+                self.load_target_annotation, target_id, annotation)
+        return target_annotations
+
+    
+    def load_annotations(self):
+        """Loads (lazily) the annotations for the current tool user from the save path."""
+        return ldict({
+            target_id: delay(self.load_target_annotations, target_id)
+                for target_id in self.config.targets.keys()
+            })
+
+
+    def save_target_annotations(self, target_id):
+        """Saves the annotations for the current tool user for a single target"""
+        # Get the target's annotations.
+        target_annotations = self.annotations[target_id]
+
+        for annotation_name in target_annotations.keys(): 
+            # Skip anything lazy. We never want to save anything that's still
+            # lazy because that means that the original file hasn't been read in
+            # (and thus can't have any updates).
+            if target_annotations.is_lazy(annotation_name): continue
+            
+            # Get this annotation's coordinates.
+            coords = np.asarray(target_annotations.get(annotation_name))
+
+            # Make sure they are the right shape.
+            if len(coords.shape) != 2 or coords.shape[1] != 2:
+                raise RuntimeError(
+                    f"Annotation '{annotation_name}' for target "
+                    f"{target_id} has invalid shape: {coords.shape}"
+                )
+            
+            # If they're empty, no need to save them; delete the file if it
+            # exists instead.
+            tsv_file = self.target_save_path(target_id, annotation_name)
+            if len(coords) == 0 and op.isfile(tsv_file):
+                os.remove(tsv_file)
+                continue
+
+            # Save them using pandas.
+            df = pd.DataFrame(coords)
+            df.to_csv(tsv_file, index = False, header = None, sep = "\t")
+    
+    
+    def save_annotations(self):
+        """Saves the annotations for a given target."""
+        annotations = self.annotations
+        for target_id in annotations.keys():
+            # Skip lazy keys; these targets have not even been loaded yet.
+            if not annotations.is_lazy(target_id):
+                self.save_target_annotations(target_id)
+    
+    # Preferences Methods ------------------------------------------------------
 
     def load_preferences(self):
         """Loads the preferences from the save directory and returns them.
@@ -329,7 +413,7 @@ class AnnotationState:
         """
         preferences_yaml = op.join(self.save_path, ".annot-prefs.yaml")
         if not op.isfile(preferences_yaml):
-            return { "style": {}, "image_size": 256 }
+            return { "style": {}, "image_size" : 256 }
         with open(preferences_yaml, "rt") as f:
             return yaml.safe_load(f)
     
@@ -340,39 +424,56 @@ class AnnotationState:
         with open(preferences_yaml, "wt") as f:
             yaml.dump(self.preferences, f)
     
-
-    # Style management ---------------------------------------------------------
+    # Save Method --------------------------------------------------------------
     
+    def save(self):
+        """Saves both the user preferences and the user annotations."""
+        self.save_preferences()
+        self.save_annotations()
+    
+    # Style Methods ------------------------------------------------------------\
+
     @classmethod
     def fix_style(cls, style_dict):
         """Ensures that the given dictionary is valid as a style dictionary."""
-        for (k,v) in style_dict.items():
-            if k not in AnnotationState.STYLE_KEYS:
-                raise RuntimeError(f"Invalid key: {k}")
-        # Make sure the values are also valid.
+        # Check that all the keys are valid style keys.
+        for key in style_dict.keys():
+            if key not in AnnotationState.STYLE_KEYS:
+                raise RuntimeError(f"Invalid style key: {key}")
+            
+        # Check that the linewidth is a valid number.
         if "linewidth" in style_dict:
-            lw = style_dict["linewidth"]
-            if lw < 0 or lw > 20:
-                raise RuntimeError(f"Invalid linewidth: {lw}")
+            linewidth = style_dict["linewidth"]
+            if linewidth < 0 or linewidth > 20:
+                raise RuntimeError(f"Invalid linewidth: {linewidth}")
+        
+        # Check that the linestyle is valid.
         if "linestyle" in style_dict:
-            ls = style_dict["linestyle"]
-            if ls not in ("solid", "dashed", "dot-dashed", "dotted"):
-                raise RuntimeError(f"Invalid linestyle: {ls}")
+            linestyle = style_dict["linestyle"]
+            if linestyle not in ("solid", "dashed", "dot-dashed", "dotted"):
+                raise RuntimeError(f"Invalid linestyle: {linestyle}")
+            
+        # Check that the color is valid.
         if "color" in style_dict:
-            clr = style_dict["color"]
-            try: c = mpl.colors.to_hex(clr)
-            except Exception: c = None
-            if c is None:
-                raise RuntimeError(f"Invalid color: {clr}")
-            style_dict["color"] = c
+            color = style_dict["color"]
+            try: color = mpl.colors.to_hex(color)
+            except Exception as e: 
+                raise RuntimeError(f"Invalid color: {color}") from e
+            style_dict["color"] = color # store as hex, if valid
+
+        # Check that the markersize is a valid number.
         if "markersize" in style_dict:
-            ms = style_dict["markersize"]
-            if ms < 0 or ms > 20:
-                raise RuntimeError(f"Invalid markersize: {ms}")
+            markersize = style_dict["markersize"]
+            if markersize < 0 or markersize > 20:
+                raise RuntimeError(f"Invalid markersize: {markersize}")
+        
+        # Check that the visible is a boolean.
         if "visible" in style_dict:
-            v = style_dict["visible"]
-            if not isinstance(v, bool):
-                raise RuntimeError(f"Invalid visible: {v}")
+            visible = style_dict["visible"]
+            if not isinstance(visible, bool):
+                raise RuntimeError(f"Invalid visible: {visible}")
+        
+        # Return the style dictionary, if valid.
         return style_dict
     
     
@@ -386,25 +487,27 @@ class AnnotationState:
         `state.style(annot, new_styledict)` updates the current styledict
         to have the contents of `new_styledict` then returns the new value.
 
-        `state.style(annot, key, val)` is equivalent to
-        `state.style(annot, {key:val})`.
+        `state.style(annot, key, value)` is equivalent to
+        `state.style(annot, { key : value })`.
         
         The styledict contains the keys `"linewidth"`, `"linestyle"`,
         `"markersize"`, `"color"`, and `"visible"`.
         """
+        # Check the number of argumments and 
         nargs = len(args)
-        if nargs > 1 and 0 != nargs % 2:
-            raise RuntimeError("invalid number of arguments given to styledict")
+        if nargs > 1 and nargs % 2 != 0:
+            raise RuntimeError("Invalid number of arguments given to styledict")
+        
         # In all cases, we start by calculating our own styledict.
         # See if there is a dict in the preferences already.
         styles = self.preferences["style"]
         if nargs == 0:
             # We're just returning the current reified dict.
-            prefs = styles.get(annotation, {})
+            preferences = styles.get(annotation, {})
         elif nargs == 1:
             # We"re updating the dict to have exactly these values.
-            prefs = args[0]
-            styles[annotation] = self.fix_style(prefs)
+            preferences = args[0]
+            styles[annotation] = self.fix_style(preferences)
         else:
             update = {k:v for (k,v) in zip(args[0::2], args[1::2])}
             self.fix_style(update)
@@ -412,128 +515,28 @@ class AnnotationState:
                 styles[annotation] = {}
             prefs = styles[annotation]
             prefs.update(update)
+
         # Now that we have performed the update, we just need to merge with
         # default options in order to reify the styledict.
         rval = AnnotationState.DEFAULT_STYLE.copy()
-        rval.update(self.config.display.plot_options)
+        rval.update(self.config.display.active_style)
+
         if annotation is None:
-            rval.update(self.config.display.fg_options)
+            rval.update(self.config.display.active_style)
         elif annotation in self.config.annotations:
             rval.update(self.config.annotations[annotation].plot_options)
-        else:
-            d = self.config.builtin_annotations[annotation].plot_options
-            rval.update(d)
+        # else:
+            # d = self.config.builtin_annotations[annotation].plot_options
+            # rval.update(d)
+
         # Finally, merge in the user's preferences.
-        rval.update(prefs)
+        rval.update(preferences)
+
         # And return.
-        return rval
-    
-    
-    def image_size(self, new_image_size = None):
-        """Returns the image size from the user's preferences.
-
-        `state.image_size()` returns the current image size.
-
-        `state.image_size(new_image_size)` updates the current image size.
-        """
-        if new_image_size is None:
-            return self.preferences.get("image_size", 256)
-        else:
-            self.preferences["image_size"] = new_image_size
-            return new_image_size
-    
-    
-    def load_target_annotation(self, tid, annot_name):
-        "Loads a single annotation from the save path for a given target."
-        path = self.target_save_path(tid, annot_name)
-        if not op.isfile(path):
-            # If there"s no file, we return an empty matrix of points.
-            return np.zeros((0,2), dtype=float)
-        df = pd.read_csv(path, sep="\t", header=None)
-        coords = df.values
-        # The TSV file must contain an N x 2 matrix of values!
-        if len(coords.shape) != 2 or coords.shape[1] != 2:
-            raise RuntimeError(f"file '{path}' for annotation '{annot_name}'"
-                               f" and target {tid} has invalid shape"
-                               f" {coords.shape}")
-        return coords
-    
-    
-    def load_target_annotations(self, tid):
-        "Loads the annotations for the current tool user for a single target"
-        result = ldict()
-        for name in self.config.annotations.keys():
-            result[name] = delay(self.load_target_annotation, tid, name)
-        return result
-    
-    
-    def load_annotations(self):
-        "Loads the annotations for the current tool user from the save path."
-        return ldict({tid: delay(self.load_target_annotations, tid)
-                      for tid in self.config.targets.keys()})
-    
-    
-    def _fix_targets(self, tid):
-        targ = self.config.targets[tid]
-        return {k: annot.with_target(targ)
-                for (k,annot) in self.config.builtin_annotations.items()}
-    
-    
-    def load_builtin_annotations(self):
-        "Preps the builtin annotations for the tool."
-        # We really just need to prep individual BuiltinAnnotation objects.
-        return ldict({tid: delay(self._fix_targets, tid)
-                      for tid in self.config.targets.keys()})
+        return rval  
     
 
-    def save_target_annotations(self, tid):
-        "Saves the annotations for the current tool user for a single target"
-        # Get the taget"s annotations.
-        annots = self.annotations[tid]
-        for k in annots.keys():
-            # Skip anything lazy. We never want to save anything that"s still
-            # lazy because that means that the original file hasn"t been read in
-            # (and thus can"t have any updates).
-            if annots.is_lazy(k): continue
-            # Get this annotation"s coordinates.
-            coords = annots.get(k)
-            if coords is None:
-                coords = np.array(())
-            else:
-                coords = np.asarray(annots[k])
-                # Make sure they"re the right shape.
-                if len(coords.shape) != 2 or coords.shape[1] != 2:
-                    raise RuntimeError(f"annotation {k} for target {tid} has"
-                                       f" invalid shape {coords.shape}")
-            # If they"re empty, no need to save them; delete the file if it
-            # exists instead.
-            path = self.target_save_path(tid, k)
-            if len(coords) == 0:
-                if op.isfile(path):
-                    os.remove(path)
-                continue
-            # Save them using pandas.
-            df = pd.DataFrame(coords)
-            df.to_csv(path, index=False, header=None, sep="\t")
-    
-    
-    def save_annotations(self):
-        """Saves the annotations for a given target."""
-        annots = self.annotations
-        for tid in annots.keys():
-            # Skip lazy keys; these targets have not even been loaded yet.
-            if not annots.is_lazy(tid):
-                self.save_target_annotations(tid)
-
-    
-    def save(self):
-        """Saves both the user preferences and the user annotations."""
-        self.save_preferences()
-        self.save_annotations()
-    
-    # Canvas nonsense -------------------------------------------------------------
-
-    def apply_style(self, ann_name, canvas, style = None):
+    def apply_style(self, annotation, canvas, style = None):
         """Applies the style associated with an annotation name to a canvas.
 
         `state.apply_style(name, canvas)` applies the annotation preferences
@@ -545,11 +548,11 @@ class AnnotationState:
         applies the style but returns `False`. Otherwise, it returns `True`.
 
         If the optional argument `style` is given, then that style dictionary is
-        used in place of the style dictionary associated with `ann_name`.
+        used in place of the style dictionary associated with `annotation`.
         """
         # Get the appropriate style first.
         if style is None:
-            style = self.style(ann_name)
+            style = self.style(annotation)
         # And walk through the key/values applying them.
         lw = style["linewidth"]
         ls = style["linestyle"]
@@ -566,15 +569,16 @@ class AnnotationState:
             canvas.set_line_dash([lw, lw])
         else:
             raise RuntimeError(
-                f"Invalid linestyle for annotation '{ann_name}': {ls}")
+                f"Invalid linestyle for annotation '{annotation}': {ls}")
         c = mpl.colors.to_hex(c)
         canvas.stroke_style = c
         canvas.fill_style = c
         return v
-    
+
+    # Canvas Drawing Methods ---------------------------------------------------
 
     def draw_path(
-            self, ann_name, points, canvas, path = True, closed = False,
+            self, annotation, points, canvas, path = True, closed = False,
             style = None, cursor = None, fixed_head = False, fixed_tail = False
         ):
         """Draws the given path on the given canvas using the named style.
@@ -590,7 +594,7 @@ class AnnotationState:
         If the optional argument `style` is given, then the given style dict
         is used instead of the stling for the `ann_name` annotation.
         """
-        self.apply_style(ann_name, canvas, style = None)
+        self.apply_style(annotation, canvas, style = None)
         # First, draw stroke the path.
         if path and len(points) > 1:
             canvas.begin_path()
@@ -602,7 +606,7 @@ class AnnotationState:
                 canvas.line_to(x0, y0)
             canvas.stroke()
         # Next, draw the points.
-        sty = self.style(ann_name)
+        sty = self.style(annotation)
         ms = sty["markersize"]
         if ms <= 0 and cursor is None: return
         if fixed_head and len(points) > 0:
@@ -683,183 +687,213 @@ class AnnotationState:
         return fs
 
 
+    def image_size(self, new_image_size = None):
+        """Returns the image size from the user's preferences.
+
+        `state.image_size()` returns the current image size.
+
+        `state.image_size(new_image_size)` updates the current image size.
+        """
+        if new_image_size is None:
+            return self.preferences.get("image_size", 256)
+        else:
+            self.preferences["image_size"] = new_image_size
+            return new_image_size
+    
+
+
+    # TODO: we are not current loading the builtin annotations, skip for now.
+    # def _fix_targets(self, target_id):
+    #     targ = self.config.targets[target_id]
+    #     return {k: annot.with_target(targ)
+    #             for (k,annot) in self.config.builtin_annotations.items()}
+    
+    
+    # TODO: we are not current loading the builtin annotations, skip for now.
+    # def load_builtin_annotations(self):
+    #     "Preps the builtin annotations for the tool."
+    #     # We really just need to prep individual BuiltinAnnotation objects.
+    #     return ldict({tid: delay(self._fix_targets, tid)
+                    #   for tid in self.config.targets.keys()})
+    
+
 # The Annotation Tool ##########################################################
 
 # class AnnotationTool(ipw.HBox):
-    """The core annotation tool for the `cortex-annotate` project.
+#     """The core annotation tool for the `cortex-annotate` project.
 
-    The `AnnotationTool` type handles the annotation of the cortical surface
-    images for the `cortex-annotate` project.
-    """
+#     The `AnnotationTool` type handles the annotation of the cortical surface
+#     images for the `cortex-annotate` project.
+#     """
 
-    def __init__(
-            self,
-            config_path = "/config/config.yaml",
-            cache_path  = "/cache",
-            save_path   = "/save",
-            git_path    = "/git",
-            username    = None,
-            control_panel_background_color = "#f0f0f0",
-            save_button_color = "#e0e0e0",
-            allow_fixed_edit  = True
-        ):        
-        """Initializes the annotation tool."""
+#     def __init__(
+#             self,
+#             config_path = "/config/config.yaml",
+#             cache_path  = "/cache",
+#             save_path   = "/save",
+#             git_path    = "/git",
+#             username    = None,
+#             control_panel_background_color = "#f0f0f0",
+#             save_button_color = "#e0e0e0",
+#             allow_fixed_edit  = True
+#         ):        
+#         """Initializes the annotation tool."""
         
-        # Store the state.
-        self.state = AnnotationState(
-            config_path = config_path,
-            cache_path  = cache_path,
-            save_path   = save_path,
-            git_path    = git_path,
-            username    = username
-        )
-        self.allow_fixed_edit = allow_fixed_edit
+#         # Store the state.
+#         self.state = AnnotationState(
+#             config_path = config_path,
+#             cache_path  = cache_path,
+#             save_path   = save_path,
+#             git_path    = git_path,
+#             username    = username
+#         )
+#         self.allow_fixed_edit = allow_fixed_edit
 
-        # Store the cache path.
-        self.cache_path = cache_path
+#         # Store the cache path.
+#         self.cache_path = cache_path
 
-        # Make the control panel.
-        image_size = self.state.image_size()
-        self.control_panel = ControlPanel(
-            self.state,
-            background_color  = control_panel_background_color,
-            save_button_color = save_button_color,
-            image_size        = image_size
-        )
+#         # Make the control panel.
+#         image_size = self.state.image_size()
+#         self.control_panel = ControlPanel(
+#             self.state,
+#             background_color  = control_panel_background_color,
+#             save_button_color = save_button_color,
+#             image_size        = image_size
+#         )
         
-        # Make the figure panel.
-        self.figure_panel = FigurePanel(self.state, image_size = image_size)
+#         # Make the figure panel.
+#         self.figure_panel = FigurePanel(self.state, image_size = image_size)
         
-        # Pass the loading context over to the state.
-        self.state.loading_context = self.figure_panel.loading_context
+#         # Pass the loading context over to the state.
+#         self.state.loading_context = self.figure_panel.loading_context
 
-        # Go ahead and initialize the HBox component.
-        super().__init__((self.control_panel, self.figure_panel))
+#         # Go ahead and initialize the HBox component.
+#         super().__init__((self.control_panel, self.figure_panel))
 
-        # Give the figure the initial image to plot.
-        with self.state.loading_context:
-            self.refresh_figure()
+#         # Give the figure the initial image to plot.
+#         with self.state.loading_context:
+#             self.refresh_figure()
 
-        # Add a listener for the image size change.
-        self.control_panel.observe_image_size(self.on_image_size_change)
+#         # Add a listener for the image size change.
+#         self.control_panel.observe_image_size(self.on_image_size_change)
 
-        # And a listener for the selection change.
-        self.control_panel.observe_selection(self.on_selection_change)
+#         # And a listener for the selection change.
+#         self.control_panel.observe_selection(self.on_selection_change)
 
-        # And a listener for the style change.
-        self.control_panel.observe_style(self.on_style_change)
+#         # And a listener for the style change.
+#         self.control_panel.observe_style(self.on_style_change)
 
-        # And a listener for the save button.
-        self.control_panel.observe_save(self.on_save)
-
-
-    def on_image_size_change(self, change):
-        """This method runs when the control panel's image size slider changes."""
-        if change.name != "value": return
-        self.state.image_size(change.new)
-        # Resize the figure panel.
-        self.figure_panel.resize_canvas(change.new)
+#         # And a listener for the save button.
+#         self.control_panel.observe_save(self.on_save)
 
 
-    def _calc_fixed_ends(self, annot, targ = None, error = False):
-        targ = self.control_panel.target if targ is None else targ
-        return self.state._calc_fixed_ends(annot, targ = targ, error = error)
+#     def on_image_size_change(self, change):
+#         """This method runs when the control panel's image size slider changes."""
+#         if change.name != "value": return
+#         self.state.image_size(change.new)
+#         # Resize the figure panel.
+#         self.figure_panel.resize_canvas(change.new)
 
 
-    def refresh_figure(self):
-        # Get the target and annotation.
-        target_key = self.control_panel.target
-        annot = self.control_panel.annotation
-        target_annots = self.state.annotations[target_key]
+#     def _calc_fixed_ends(self, annot, targ = None, error = False):
+#         targ = self.control_panel.target if targ is None else targ
+#         return self.state._calc_fixed_ends(annot, targ = targ, error = error)
 
-        # First of all, if there is any nonempty annotation that requires the
-        # current annotation, we need to print an error about it.
-        deps = []
-        for (annot_name, annot_data) in self.state.config.annotations.items():
-            # If the annotation is empty, it doesn't matter if it a dependant.
-            xy = target_annots.get(annot_name)
-            if xy is None or len(xy) == 0:
-                continue
-            for fixed in (annot_data.fixed_head, annot_data.fixed_tail):
-                if fixed is not None and annot in fixed["requires"]:
-                    deps.append(annot_name)
-                    break
-        if not self.allow_fixed_edit and len(deps) > 0:
-            fs = None
-            annlist = ", ".join(deps)
-            error = (
-                f"The following annotations are dependant on the annotation"
-                f" {annot}: {annlist}. Please select an annotation that does"
-                f" not depend on other existing annotations.")
-        else:
-            # Figure out the fixed heads and tails
-            try:
-                fs = self._calc_fixed_ends(annot, targ = target_key, error = True)
-                error = None
-            except ValueError as e:
-                fs = None
-                error = e.args[0]
-        (fh,ft) = (None, None) if fs is None else fs
-        self.figure_panel.change_annotations(
-            target_annots,
-            self.state.builtin_annotations[target_key],
-            redraw = False,
-            annotation_types = self.state.config.annotation_types,
-            allow = (fs is not None),
-            fixed_heads = {annot: fh},
-            fixed_tails = {annot: ft},
-            target = target_key
-        )
 
-        # Update the foreground style.
-        self.figure_panel.change_foreground(annot, redraw = False)
+#     def refresh_figure(self):
+#         # Get the target and annotation.
+#         target_key = self.control_panel.target
+#         annot = self.control_panel.annotation
+#         target_annots = self.state.annotations[target_key]
 
-        # Draw the grid image.
-        (imdata, grid_shape, meta) = self.state.grid(target_key, annot)
-        im = ipw.Image(value = imdata, format = "png")
-        meta = { k: meta[k] for k in ("xlim", "ylim") if k in meta }
-        self.figure_panel.redraw_canvas(
-            image = im, grid_shape = grid_shape, **meta)
+#         # First of all, if there is any nonempty annotation that requires the
+#         # current annotation, we need to print an error about it.
+#         deps = []
+#         for (annot_name, annot_data) in self.state.config.annotations.items():
+#             # If the annotation is empty, it doesn't matter if it a dependant.
+#             xy = target_annots.get(annot_name)
+#             if xy is None or len(xy) == 0:
+#                 continue
+#             for fixed in (annot_data.fixed_head, annot_data.fixed_tail):
+#                 if fixed is not None and annot in fixed["requires"]:
+#                     deps.append(annot_name)
+#                     break
+#         if not self.allow_fixed_edit and len(deps) > 0:
+#             fs = None
+#             annlist = ", ".join(deps)
+#             error = (
+#                 f"The following annotations are dependant on the annotation"
+#                 f" {annot}: {annlist}. Please select an annotation that does"
+#                 f" not depend on other existing annotations.")
+#         else:
+#             # Figure out the fixed heads and tails
+#             try:
+#                 fs = self._calc_fixed_ends(annot, targ = target_key, error = True)
+#                 error = None
+#             except ValueError as e:
+#                 fs = None
+#                 error = e.args[0]
+#         (fh,ft) = (None, None) if fs is None else fs
+#         self.figure_panel.change_annotations(
+#             target_annots,
+#             self.state.builtin_annotations[target_key],
+#             redraw = False,
+#             annotation_types = self.state.config.annotation_types,
+#             allow = (fs is not None),
+#             fixed_heads = {annot: fh},
+#             fixed_tails = {annot: ft},
+#             target = target_key
+#         )
+
+#         # Update the foreground style.
+#         self.figure_panel.change_foreground(annot, redraw = False)
+
+#         # Draw the grid image.
+#         (imdata, grid_shape, meta) = self.state.grid(target_key, annot)
+#         im = ipw.Image(value = imdata, format = "png")
+#         meta = { k: meta[k] for k in ("xlim", "ylim") if k in meta }
+#         self.figure_panel.redraw_canvas(
+#             image = im, grid_shape = grid_shape, **meta)
         
-        # If the annotation requires something that is missing, or if a fixed
-        # head or tail can"t yet be calculated, we need to put an appropriate
-        # message up.
-        if error is not None:
-            self.figure_panel.write_message(error)
-        else:
-            self.figure_panel.clear_message()
+#         # If the annotation requires something that is missing, or if a fixed
+#         # head or tail can"t yet be calculated, we need to put an appropriate
+#         # message up.
+#         if error is not None:
+#             self.figure_panel.write_message(error)
+#         else:
+#             self.figure_panel.clear_message()
     
     
-    def on_selection_change(self, key, change):
-        """This method runs when the control panel's selection changes."""
-        if change.name != "value": return
-        # First, things first: save the annotations.
-        self.state.save_annotations()
+#     def on_selection_change(self, key, change):
+#         """This method runs when the control panel's selection changes."""
+#         if change.name != "value": return
+#         # First, things first: save the annotations.
+#         self.state.save_annotations()
         
-        # Clear the save hooks if there are any.
-        self.state.save_hooks = None
+#         # Clear the save hooks if there are any.
+#         self.state.save_hooks = None
 
-        # Update the control panel legend.
-        self.control_panel.legend.update_legend(
-            hemisphere = self.control_panel.target[-1],
-            annotation = self.control_panel.annotation, 
-        )
+#         # Update the control panel legend.
+#         self.control_panel.legend.update_legend(
+#             hemisphere = self.control_panel.target[-1],
+#             annotation = self.control_panel.annotation, 
+#         )
 
-        # The selection has changed; we need to redraw the image and update the
-        # annotations.
-        self.refresh_figure()
+#         # The selection has changed; we need to redraw the image and update the
+#         # annotations.
+#         self.refresh_figure()
     
     
-    def on_style_change(self, annotation, key, change):
-        """This method runs when the control panel's style elements change."""
-        # Update the state.
-        if change.name != "value": return
-        self.state.style(annotation, key, change.new)
-        # Then redraw the annotation.
-        self.figure_panel.redraw_canvas(redraw_image = False)
+#     def on_style_change(self, annotation, key, change):
+#         """This method runs when the control panel's style elements change."""
+#         # Update the state.
+#         if change.name != "value": return
+#         self.state.style(annotation, key, change.new)
+#         # Then redraw the annotation.
+#         self.figure_panel.redraw_canvas(redraw_image = False)
     
     
-    def on_save(self, button):
-        """This method runs when the control panel's save button is clicked."""
-        self.state.save_annotations()
-        self.state.save_preferences()
+#     def on_save(self, button):
+        # """This method runs when the control panel's save button is clicked."""
+        # self.state.save_annotations()
+        # self.state.save_preferences()

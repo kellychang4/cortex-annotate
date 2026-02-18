@@ -359,7 +359,6 @@ class CortexFigurePanel(ipw.GridBox):
         self.figure.camera_auto_fit = False
         
 
-
     def _rgb_to_k3dcolor(self, colors):
         """Converts a matplotlib color (RGB) into a hex integer for k3d.
 
@@ -404,7 +403,7 @@ class CortexFigurePanel(ipw.GridBox):
                 dtype = np.uint32
             )
         elif colors.shape[1] == 4: # if RGBA, ignore the alpha channel
-            # NOTE: k3d does not support alpha in the color integer
+            # NOTE: k3d does not support alpha in the color integer, ignor
             return np.array(
                 [ ((r << 16) | (g << 8) | b) for r, g, b, _ in colors ], 
                 dtype = np.uint32
@@ -583,7 +582,7 @@ class CortexFigurePanel(ipw.GridBox):
             self.k3dmesh_overlay.opacity  = overlay_kwargs["opacity"]
             self.k3dmesh_overlay.visible  = True
         
-        # re-enable auto rendering after cortex and overlay values
+        # Re-enable auto rendering after cortex and overlay values
         self.figure.auto_rendering = True
         self.figure.render()
 

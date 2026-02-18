@@ -174,7 +174,7 @@ class CortexViewerState:
         active_widget     = self._get_active_annotation_tool()
         self.style_panel  = active_widget.control_panel.style_panel
         self.styler       = active_widget.state.style
-        self.style_active = active_widget.state.config.display.fg_options
+        self.style_active = active_widget.state.config.display.active_style
 
 
     def update_flatmap_annotations(self):
@@ -186,8 +186,7 @@ class CortexViewerState:
     def update_annotation_styles(self, annotation = None):
         """Get the annotation tool's flatmap style dictionary"""
         # Initialize annotation styles dictionary if not present
-        if hasattr(self, "annotation_styles") is False:
-            self.annotation_styles = {}
+        self.annotation_styles = self.get("annotation_styles", {})
         
         # Define annotations to update
         annotation_list = [annotation] if annotation is not None \
@@ -307,8 +306,7 @@ class CortexViewerState:
     def update_surface_annotations(self, annotation = None): 
         """Update cortical surface annotation coordinates."""
         # Initialize surface annotations dictionary if not present
-        if hasattr(self, "surface_annotations") is False:
-            self.surface_annotations = {}
+        self.surface_annotations = self.get("surface_annotations", {})
 
         # Get current fsaverage hemisphere flatmap
         fsa_flatmap = self.fsaverage[self.hemisphere]["flatmap"]
@@ -399,7 +397,7 @@ class CortexViewer(ipw.GridBox):
     cortical mesh that assists the flatmap viewer.
     """
 
-    def __init__(self, annotation_widgets, dataset_directory, panel_width=270):
+    def __init__(self, annotation_widgets, dataset_directory, panel_width = 270):
         # Initialize the Cortex Viewer state
         self.state = CortexViewerState(
             annotation_widgets = annotation_widgets,
@@ -416,10 +414,10 @@ class CortexViewer(ipw.GridBox):
         super().__init__(
             children = [self.control_panel, self.figure_panel], 
             layout   = ipw.Layout(
-                border="1px solid rgb(158, 158, 158)", 
-                padding="15px",
-                grid_template_columns=f'{panel_width}px 1fr',
-                grid_template_rows='auto'
+                border  = "1px solid rgb(158, 158, 158)", 
+                padding = "15px",
+                grid_template_columns = f"{panel_width}px 1fr",
+                grid_template_rows    = "auto"
             )
         )
 

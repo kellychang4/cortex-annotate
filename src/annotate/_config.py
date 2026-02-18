@@ -8,7 +8,6 @@
 # Imports ----------------------------------------------------------------------
 
 import os
-from matplotlib.pyplot import grid
 import yaml
 import numpy as np
 from itertools import product

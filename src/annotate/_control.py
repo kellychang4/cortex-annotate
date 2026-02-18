@@ -14,9 +14,7 @@ in `_figure.py` as appropriate.
 
 # Imports ----------------------------------------------------------------------
 
-import numpy as np
 import os.path as op
-import imageio.v3 as iio
 import ipywidgets as ipw
 from functools import partial
 
@@ -32,7 +30,7 @@ class SelectionPanel(ipw.VBox):
     
     def __init__(self, state):
         # Store the state
-        self.state     = state
+        self.state = state
 
         # Initialize the dropdowns.
         self.dropdowns = {}
@@ -40,12 +38,12 @@ class SelectionPanel(ipw.VBox):
         # Create the dropdown widgets as children (excluding annotation).
         ch = [ ipw.HTML("<b style=\"margin: 0% 3% 0% 3%;\">Selection:</b>") ]
         dd_layout = { "width": "94%", "margin": "1% 3% 1% 3%" }
-        for k in state.config.targets.concrete_keys:
-            els = state.config.targets.items[k]
+        for key in state.config.targets.concrete_keys:
+            els = state.config.targets.items[key]
             dd = ipw.Dropdown(options = els, value = els[0], 
-                              layout = dd_layout, description = (k + ":"))
+                              layout = dd_layout, description = (key + ":"))
             ch.append(dd)
-            self.dropdowns[k] = dd
+            self.dropdowns[key] = dd
             
         # We need the annotation bit also.
         self.annotations_dropdown = ipw.Dropdown(
@@ -60,9 +58,9 @@ class SelectionPanel(ipw.VBox):
         # the Figure panel's listener does not get updated before the annotation
         # selection dropbox is changed when the user changes the target
         # selection.
-        for k in state.config.targets.concrete_keys:
-            self.dropdowns[k].observe(
-                partial(self.on_target_change, k), names = "value")
+        for key in state.config.targets.concrete_keys:
+            self.dropdowns[key].observe(
+                partial(self.on_target_change, key), names = "value")
         self.annotations_dropdown.observe(
             self.on_annotation_change, names = "value")
         
@@ -100,8 +98,8 @@ class SelectionPanel(ipw.VBox):
         target = self.state.config.targets[selected_target]
     
         # Recalculate the annotations for this target and update the menu.
-        anns = [k for (k, ann) in self.state.config.annotations.items()
-                if ann.filter is None or ann.filter(target)]
+        anns = [ key for (key, ann) in self.state.config.annotations.items()
+                if ann.filter is None or ann.filter(target) ]
         self.annotations_dropdown.options = anns
         self.annotations_dropdown.value   = anns[0]
 
@@ -109,6 +107,7 @@ class SelectionPanel(ipw.VBox):
     def on_target_change(self, key, change):
         # Refresh the annotations menu.
         self.refresh_annotations()
+
         # Alert our other observers, now that our updates are finished.
         for fn in self.target_observers:
             fn(key, change)
@@ -172,23 +171,6 @@ class SelectionPanel(ipw.VBox):
 class StylePanel(ipw.VBox):
     """The subpanel of the control panel containing the style controls."""
     
-    @classmethod
-    def _make_hline(cls, width = 85):
-        return ipw.HTML(f"""
-            <style> 
-                .cortex-annotate-StylePanel-hline {{
-                    border-color: lightgray;
-                    border-style: dotted;
-                    border-width: 1px;
-                    height: 0px;
-                    width: {width}%;
-                    margin: 0% {(100-width)//2}% 0% {100 - width - (100-width)//2}%;
-                }} 
-            </style>
-            <div class="cortex-annotate-StylePanel-hline"></div>
-        """)
-    
-
     def __init__(self, state):
         self.state = state
         # We use the config to populate the collection of style preferences, but
@@ -255,7 +237,24 @@ class StylePanel(ipw.VBox):
         self.style_dropdown.observe(self.refresh_style, names = "index")
         self.refresh_style()
     
+
+    @classmethod
+    def _make_hline(cls, width = 85):
+        return ipw.HTML(f"""
+            <style> 
+                .cortex-annotate-StylePanel-hline {{
+                    border-color: lightgray;
+                    border-style: dotted;
+                    border-width: 1px;
+                    height: 0px;
+                    width: {width}%;
+                    margin: 0% {(100-width)//2}% 0% {100 - width - (100-width)//2}%;
+                }} 
+            </style>
+            <div class="cortex-annotate-StylePanel-hline"></div>
+        """)
     
+
     @property
     def annotation(self):
         dd = self.style_dropdown
@@ -367,11 +366,63 @@ class LegendPanel(ipw.VBox):
         self.image_widget.value = self._read_image(image_path)
         
 
-
 # The Control Panel Widget -----------------------------------------------------
 
 class ControlPanel(ipw.VBox):
     """The panel that contains the controls for the Annotation Tool."""
+
+    def __init__(
+            self, 
+            state,
+            image_size = 256,
+            background_color  = "#f0f0f0", 
+            save_button_color = "#e0e0e0"
+        ):
+
+        # Create the subcomponents.
+        self.html_header = self._make_html_header(
+            background_color, save_button_color)
+        self.image_size_slider = self._make_image_size_slider(image_size)
+        self.selection_panel = SelectionPanel(state)
+        self.style_panel     = StylePanel(state)
+        self.legend_panel    = LegendPanel(state)
+
+        # Create the save button.
+        self.save_button = ipw.Button(
+            description  = "Save",
+            button_style = "",
+            tooltip      = "Save all annotations and preferences."
+        )
+        
+        # Create the wrapper for the buttons.
+        self.button_box = ipw.HBox(
+            children = [self.save_button], 
+            layout   = { "margin" : "3% 33% 3% 33%", "width" : "34%" }
+        )
+        self.info_message = self._make_info_message()
+        
+        self.vbox_children = [
+            self.selection_panel,
+            self._make_hline(),
+            self.image_size_slider,
+            self._make_hline(),
+            self.legend_panel,
+            self._make_hline(),
+            self.style_panel,
+            self._make_hline(),
+            self.button_box,
+            self._make_hline(),
+            self.info_message
+        ]
+        vbox = ipw.VBox(self.vbox_children, layout = { "width": "250px" })
+        
+        children = [
+            self.html_header,
+            ipw.Accordion((vbox,), selected_index = 0),
+        ]
+
+        super().__init__(children, layout = { "border": "0px", "height": "100%" })
+
 
     @classmethod
     def _make_image_size_slider(cls, initial_value = 256):
@@ -447,59 +498,6 @@ class ControlPanel(ipw.VBox):
                 <center><b>TAB</b> to toggle the circled end.</center></div>
                 """)],
             layout = { "margin": "3%", "width": "88%" })
-    
-    
-    def __init__(
-            self, 
-            state,
-            image_size = 256,
-            background_color  = "#f0f0f0", 
-            save_button_color = "#e0e0e0"
-        ):
-
-        # Create the subcomponents.
-        self.html_header = self._make_html_header(
-            background_color, save_button_color)
-        self.image_size_slider = self._make_image_size_slider(image_size)
-        self.selection_panel = SelectionPanel(state)
-        self.style_panel     = StylePanel(state)
-        self.legend_panel    = LegendPanel(state)
-
-        # Create the save button.
-        self.save_button = ipw.Button(
-            description  = "Save",
-            button_style = "",
-            tooltip      = "Save all annotations and preferences."
-        )
-        
-        # Create the wrapper for the buttons.
-        self.button_box = ipw.HBox(
-            children = [self.save_button], 
-            layout   = { "margin" : "3% 33% 3% 33%", "width" : "34%" }
-        )
-        self.info_message = self._make_info_message()
-        
-        self.vbox_children = [
-            self.selection_panel,
-            self._make_hline(),
-            self.image_size_slider,
-            self._make_hline(),
-            self.legend_panel,
-            self._make_hline(),
-            self.style_panel,
-            self._make_hline(),
-            self.button_box,
-            self._make_hline(),
-            self.info_message
-        ]
-        vbox = ipw.VBox(self.vbox_children, layout = { "width": "250px" })
-        
-        children = [
-            self.html_header,
-            ipw.Accordion((vbox,), selected_index = 0),
-        ]
-
-        super().__init__(children, layout = { "border": "0px", "height": "100%" })
 
 
     def observe_target(self, fn):
