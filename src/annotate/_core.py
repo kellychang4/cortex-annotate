@@ -13,13 +13,16 @@ FigurePanel widget in the _figure.py file.
 # Imports ######################################################################
 
 import os
+import re
 import json
 import yaml
 import numpy as np
 import pandas as pd
+import os.path as op
 import matplotlib as mpl
 import ipywidgets as ipw
 import imageio.v3 as iio
+from warnings import warn
 import matplotlib.pyplot as plt
 
 from ._util    import (ldict, delay)
@@ -43,7 +46,7 @@ class AnnotationState:
     saved annotations.
     """
     
-    default_style = {
+    DEFAULT_STYLE = {
         "color"      : "black",
         "linestyle"  : "solid",
         "linewidth"  : 1,
@@ -51,19 +54,70 @@ class AnnotationState:
         "visible"    : True
     }
 
-    style_keys = tuple(default_style.keys())
+    STYLE_KEYS = tuple(DEFAULT_STYLE.keys())
+
+    #TODO: what are save_hooks
+    __slots__ = (
+        "config", "cache_path", "save_path", "git_path", "username",
+        "annotations", "builtin_annotations", "preferences",
+        "loading_context", "save_hooks"
+    )
     
+    def __init__(
+            self,
+            config_path     = "/config/config.yaml",
+            cache_path      = "/cache",
+            save_path       = "/save",
+            git_path        = "/git",
+            username        = None,
+            loading_context = None,
+        ):
+
+        # Store the configuration and paths.
+        self.config     = Config(config_path)
+        self.cache_path = cache_path
+        self.save_path  = save_path
+        self.git_path   = git_path
+        self.save_hooks = None
+
+        # We add the git username to the save path if needed here.
+        if username is None:
+            (username, git_reponame) = self.gitdata
+        if not isinstance(username, str):
+            raise RuntimeError("username must be a string or None")
+
+        # Build up the save path.
+        self.username = username
+        if username != "": # if username, add as subdirectory of save path
+            self.save_path = op.join(save_path, username)
+        if not op.isdir(self.save_path):
+            os.makedirs(self.save_path, mode = 0o755)
+
+        # Use our loading control if we have one.
+        if loading_context is None:
+            loading_context = NoOpContext()
+        self.loading_context = loading_context
+
+        # (Lazily) load the annotations.
+        self.annotations = self.load_annotations()
+        self.builtin_annotations = self.load_builtin_annotations()
+
+        # And (lazily) load the preferences.
+        self.preferences = self.load_preferences()
+        
+    
+    #TODO: need to edit this
     @property
     def gitdata(self):
         """Reads and returns the repo username and the repo name."""
-        # If we weren"t given a git path, we return standard nothings.
+        # If we were not given a git path, we return standard nothings.
         if self.git_path is None:
-            return ("", "")
+            return ( "", "" )
         try:
-            # For some reason, it seems that sometimes docker doesn"t fully
-            # mount the directory until we"ve attempted to list its contents.
+            # For some reason, it seems that sometimes docker does not fully
+            # mount the directory until we've attempted to list its contents.
             with os.popen(f"ls {self.git_path}") as f: f.read()
-            # Having performed an ls, go ahead and check git"s opinion about the
+            # Having performed an ls, go ahead and check git's opinion about the
             # origin.
             cmd  = f"cd {self.git_path}"
             cmd += f" && git config --global --add safe.directory {self.git_path}"
@@ -80,9 +134,8 @@ class AnnotationState:
             repo_user = s1 if len(s1) < len(s2) else s2
             return (repo_user, repo_name)
         except Exception as e:
-            from warnings import warn
             warn(f"error finding gitdata: {e}")
-            return ("", "")
+            return ( "", "" )
     
     
     def target_path(self, target):
@@ -91,68 +144,79 @@ class AnnotationState:
             path = target
         else:
             path = [target[k] for k in self.config.targets.concrete_keys]
-        return os.path.join(*path)
+        return op.join(*path)
     
     
-    def target_figure_path(self, target, figure=None, ensure=True):
-        """Returns the cache path for a target"s figures."""
+    def target_figure_path(self, target, figure = None, ensure = True):
+        """Returns the cache path for a target's figures."""
         path = self.target_path(target)
-        path = os.path.join(self.cache_path, "figures", path)
-        if ensure and not os.path.isdir(path):
-            os.makedirs(path, mode=0o755)
+        path = op.join(self.cache_path, "figures", path)
+        if ensure and not op.isdir(path):
+            os.makedirs(path, mode = 0o755)
         if figure is not None:
-            path = os.path.join(path, f"{figure}.png")
+            path = op.join(path, f"{figure}.png")
         return path
     
     
     def target_grid_path(self, target, annotation = None, ensure = True):
-        """Returns the cache path for a target"s grids."""
-        path = os.path.join(self.cache_path, "grids", self.target_path(target))
-        if ensure and not os.path.isdir(path):
-            os.makedirs(path, mode=0o755)
+        """Returns the cache path for a target's grids."""
+        path = self.target_path(target)
+        path = op.join(self.cache_path, "grids", path)
+        if ensure and not op.isdir(path):
+            os.makedirs(path, mode = 0o755)
         if annotation is not None:
-            path = os.path.join(path, f"{annotation}.png")
+            path = op.join(path, f"{annotation}.png")
         return path
     
     
     def target_save_path(self, target, annotation = None, ensure = True):
-        """Returns the save path for a target"s annotation data."""
-        path = os.path.join(self.save_path, self.target_path(target))
-        if ensure and not os.path.isdir(path):
-            os.makedirs(path, mode=0o755)
+        """Returns the save path for a target's annotation data."""
+        path = self.target_path(target)
+        path = op.join(self.save_path, path)
+        if ensure and not op.isdir(path):
+            os.makedirs(path, mode = 0o755)
         if annotation is not None:
-            path = os.path.join(path, f"{annotation}.tsv")
+            path = op.join(path, f"{annotation}.tsv")
         return path
     
     
     def generate_figure(self, target_id, figure_name):
         """Generates a single figure for the given target and figure name."""
+        # Get the current target.
         target = self.config.targets[target_id]
-        # Make a figure and axes for the plots.
+        
+        # Prepare the image and meta data file paths.
+        impath = self.target_figure_path(target, figure_name)
+        mdpath = re.sub(".png$", ".json", impath)
+        
+        # Get the display settings and figure function.
         figsize = self.config.display.figsize
         dpi = self.config.display.dpi
-        (fig, ax) = plt.subplots(1,1, figsize = figsize, dpi = dpi)
+        figure_fn = self.config.figures[figure_name]
+
         # Run the function from the config that draws the figure.
-        fn = self.config.figures[figure_name]
-        meta_data = {}
-        fn(target, figure_name, fig, ax, figsize, dpi, meta_data)
-        # Tidy things up for image plotting.
-        ax.axis("off")
+        (fig, ax) = plt.subplots(1, 1, figsize = figsize, dpi = dpi)
+        meta_data = {} # TODO: make sure that this can get filled in the figure config!!!
+        figure_fn(target, figure_name, fig, ax, figsize, dpi, meta_data)
         fig.subplots_adjust(0, 0, 1, 1, 0, 0)
-        path = self.target_figure_path(target, figure_name)
-        plt.savefig(path, bbox_inches = None)
+        ax.axis("off")
+
+        # Save the figure out as a png file.
+        plt.savefig(impath, bbox_inches = None)
+        
         # We also need a companion meta-data file.
         if "xlim" not in meta_data: meta_data["xlim"] = ax.get_xlim()
         if "ylim" not in meta_data: meta_data["ylim"] = ax.get_ylim()
         jscode = json.dumps(meta_data)
-        path = os.path.join(self.target_figure_path(target), 
-                            f"{figure_name}.json")
-        with open(path, "wt") as f:
+
+        # Save the meta data as a json file.
+        with open(mdpath, "wt") as f:
             f.write(jscode)
+
         # We can close the figure now as well.
         plt.close(fig)
     
-    
+
     def figure(self, target_id, figure_name):
         """Returns the image and metadata for the given target and figure name.
         
@@ -161,33 +225,45 @@ class AnnotationState:
         """
         if figure_name is None:
             # This is a request for an empty image.
-            return (np.zeros(self.config.display.imsize + (4,), dtype=np.uint8),
-                    {"xlim":(0,1), "ylim":(0,1)})
+            image_size = self.config.display.image_size
+            return ( np.zeros(image_size + (4,), dtype = np.uint8),
+                     { "xlim" : (0, 1), "ylim" : (0, 1) } )
+        
+        # Prepare the image and meta data file paths.
         impath = self.target_figure_path(target_id, figure_name)
-        mdpath = os.path.join(self.target_figure_path(target_id),
-                              f"{figure_name}.json")
-        # If the files aren"t here already, we generate them first.
-        if not os.path.isfile(impath) or not os.path.isfile(mdpath):
+        mdpath = re.sub(".png$", ".json", impath)   
+        
+        # If the files does not already exist, we generate them first.
+        if not op.isfile(impath) or not op.isfile(mdpath):
             with self.loading_context:
                 self.generate_figure(target_id, figure_name)
-        # Now read them both in.
+        
+        # Now read the figure image data and meta data.
         image_data = iio.imread(impath)
         with open(mdpath, "rt") as f:
             meta_data = json.load(f)
+
         # And return them.
-        return (image_data, meta_data)
-    
-    
+        return ( image_data, meta_data )
+
+
+
     def generate_grid(self, target_id, annotation):
         """Generates a single figure grid for an annotation."""
+        # Prepare the image and meta data file paths.
         impath = self.target_grid_path(target_id, annotation)
-        mdpath = os.path.join(self.target_grid_path(target_id),
-                              f"{annotation}.json")
+        mdpath = re.sub(".png$", ".json", impath)
+
+        # Get the annotation data for this annotation.
         anndata = self.config.annotations[annotation]
         # grid_shape = np.shape(anndata.grid)
+        
         # We join up the component arrays.
-        figure_data = [[self.figure(target_id, figname) for figname in row]
-                   for row in anndata.grid]
+        figure_data = [
+            [ self.figure(target_id, figname) for figname in row ]
+            for row in anndata.grid
+        ]
+        
         # Make sure the figure meta-data all match!
         md0 = figure_data[0][0][1]
         for row in figure_data:
@@ -198,17 +274,20 @@ class AnnotationState:
                 if md0["ylim"] != md["ylim"]:
                     raise RuntimeError(f"not all figures have the same ylim for"
                                        f" annotation {annotation}")
+                
         grid = np.concatenate([np.concatenate(
             [fig for (fig, md) in row], axis = 1)
             for row in figure_data], axis = 0)
+        
         # Save it out as a png file.
         iio.imwrite(impath, grid)
+
         # And save out the meta-data.
         jscode = json.dumps(md0)
         with open(mdpath, "wt") as f:
             f.write(jscode)
-    
-    
+
+
     def grid(self, target_id, annotation):
         """Returns the grid of figures for the given target and annotation.
 
@@ -217,48 +296,58 @@ class AnnotationState:
         the `(row_count, column_count)` of the grid, and the `meta_data` is a
         `dict`.
         """
+        # Prepare the image and meta data file paths.
         impath = self.target_grid_path(target_id, annotation)
-        mdpath = os.path.join(self.target_grid_path(target_id),
-                              f"{annotation}.json")
+        mdpath = re.sub(".png$", ".json", impath)
+
+        # Get the annotation data for this annotation.
         anndata = self.config.annotations[annotation]
         grid_shape = np.shape(anndata.grid)
+
         # If the files aren't here already, we generate them first.
-        if not os.path.isfile(impath) or not os.path.isfile(mdpath):
+        if not op.isfile(impath) or not op.isfile(mdpath):
             with self.loading_context:
                 self.generate_grid(target_id, annotation)
-        # Now read them both in.
+        
+        # Read in image data and meta data.
         with open(impath, "rb") as f:
             image_data = f.read()
         with open(mdpath, "rt") as f:
             meta_data = json.load(f)
+        
         # And return them.
-        return (image_data, grid_shape, meta_data)
+        return ( image_data, grid_shape, meta_data )
     
-    
+    # TODO: still working on before functions (generate = makes, <name> = smart loading)
+    # ------------------------------------------------------------------------
+    # Preferences management ---------------------------------------------------
+
     def load_preferences(self):
         """Loads the preferences from the save directory and returns them.
 
         If no preferences file is found, an empty dictionary is returned.
         """
-        path = os.path.join(self.save_path, ".annot-prefs.yaml")
-        if not os.path.isfile(path):
+        preferences_yaml = op.join(self.save_path, ".annot-prefs.yaml")
+        if not op.isfile(preferences_yaml):
             return { "style": {}, "image_size": 256 }
-        with open(path, "rt") as f:
+        with open(preferences_yaml, "rt") as f:
             return yaml.safe_load(f)
     
     
     def save_preferences(self):
         """Saves the preferences to the save directory."""
-        path = os.path.join(self.save_path, ".annot-prefs.yaml")
-        with open(path, "wt") as f:
+        preferences_yaml = op.join(self.save_path, ".annot-prefs.yaml")
+        with open(preferences_yaml, "wt") as f:
             yaml.dump(self.preferences, f)
     
+
+    # Style management ---------------------------------------------------------
     
     @classmethod
     def fix_style(cls, style_dict):
         """Ensures that the given dictionary is valid as a style dictionary."""
         for (k,v) in style_dict.items():
-            if k not in AnnotationState.style_keys:
+            if k not in AnnotationState.STYLE_KEYS:
                 raise RuntimeError(f"Invalid key: {k}")
         # Make sure the values are also valid.
         if "linewidth" in style_dict:
@@ -325,7 +414,7 @@ class AnnotationState:
             prefs.update(update)
         # Now that we have performed the update, we just need to merge with
         # default options in order to reify the styledict.
-        rval = AnnotationState.default_style.copy()
+        rval = AnnotationState.DEFAULT_STYLE.copy()
         rval.update(self.config.display.plot_options)
         if annotation is None:
             rval.update(self.config.display.fg_options)
@@ -340,8 +429,8 @@ class AnnotationState:
         return rval
     
     
-    def image_size(self, new_image_size=None):
-        """Returns the image size from the user"s preferences.
+    def image_size(self, new_image_size = None):
+        """Returns the image size from the user's preferences.
 
         `state.image_size()` returns the current image size.
 
@@ -357,7 +446,7 @@ class AnnotationState:
     def load_target_annotation(self, tid, annot_name):
         "Loads a single annotation from the save path for a given target."
         path = self.target_save_path(tid, annot_name)
-        if not os.path.isfile(path):
+        if not op.isfile(path):
             # If there"s no file, we return an empty matrix of points.
             return np.zeros((0,2), dtype=float)
         df = pd.read_csv(path, sep="\t", header=None)
@@ -396,7 +485,7 @@ class AnnotationState:
         return ldict({tid: delay(self._fix_targets, tid)
                       for tid in self.config.targets.keys()})
     
-    
+
     def save_target_annotations(self, tid):
         "Saves the annotations for the current tool user for a single target"
         # Get the taget"s annotations.
@@ -420,7 +509,7 @@ class AnnotationState:
             # exists instead.
             path = self.target_save_path(tid, k)
             if len(coords) == 0:
-                if os.path.isfile(path):
+                if op.isfile(path):
                     os.remove(path)
                 continue
             # Save them using pandas.
@@ -442,56 +531,7 @@ class AnnotationState:
         self.save_preferences()
         self.save_annotations()
     
-
-    __slots__ = (
-        "config", "cache_path", "save_path", "git_path", "username",
-        "annotations", "builtin_annotations", "preferences",
-        "loading_context", "save_hooks"
-    )
-    
-    def __init__(
-            self,
-            config_path       = "/config/config.yaml",
-            cache_path        = "/cache",
-            save_path         = "/save",
-            git_path          = "/git",
-            username          = None,
-            loading_context   = None,
-        ):
-
-        # Store the configuration and paths.
-        self.config     = Config(config_path)
-        self.cache_path = cache_path
-        self.git_path   = git_path
-        self.save_path  = save_path
-        self.save_hooks = None
-
-        # We add the git username to the save path if needed here.
-        if username is None:
-            (git_account, git_reponame) = self.gitdata
-            username = git_account
-        if not isinstance(username, str):
-            raise RuntimeError("username must be a string or None")
-
-        # Build up the save path.
-        self.username = username
-        if username == "": self.save_path = save_path
-        else:              self.save_path = os.path.join(save_path, username)
-        if not os.path.isdir(self.save_path):
-            os.makedirs(self.save_path, mode=0o755)
-
-        # Use our loading control if we have one.
-        if loading_context is None:
-            loading_context = NoOpContext()
-        self.loading_context = loading_context
-
-        # (Lazily) load the annotations.
-        self.annotations = self.load_annotations()
-        self.builtin_annotations = self.load_builtin_annotations()
-
-        # And (lazily) load the preferences.
-        self.preferences = self.load_preferences()
-        
+    # Canvas nonsense -------------------------------------------------------------
 
     def apply_style(self, ann_name, canvas, style = None):
         """Applies the style associated with an annotation name to a canvas.
@@ -645,7 +685,7 @@ class AnnotationState:
 
 # The Annotation Tool ##########################################################
 
-class AnnotationTool(ipw.HBox):
+# class AnnotationTool(ipw.HBox):
     """The core annotation tool for the `cortex-annotate` project.
 
     The `AnnotationTool` type handles the annotation of the cortical surface
@@ -823,4 +863,3 @@ class AnnotationTool(ipw.HBox):
         """This method runs when the control panel's save button is clicked."""
         self.state.save_annotations()
         self.state.save_preferences()
-    

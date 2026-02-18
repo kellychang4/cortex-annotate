@@ -19,8 +19,8 @@ noahbenson/cortex-annotate.
 # Imports ######################################################################
 
 from ._util import (delay, ldict, watershed_contours)
-from ._core import AnnotationTool
-from ._viewer import CortexViewer
+# from ._core import AnnotationTool
+# from ._viewer import CortexViewer
 
 # Meta-Data ####################################################################
 

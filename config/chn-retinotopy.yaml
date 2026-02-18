@@ -307,6 +307,9 @@ annotations:
 
 
 figures:
+  term: |
+    meta_data["test"] = "This is a test value for the meta data dictionary. It will be saved as part of the figure's meta data, and can be used to store any information that may be relevant to the figure or its annotations."
+    
   angle: |
     # prepare (formatted) target information for figure code below
     hemisphere = target["Hemisphere"]  # string
