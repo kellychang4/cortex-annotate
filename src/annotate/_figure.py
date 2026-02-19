@@ -685,6 +685,7 @@ class FigurePanel(ipw.HBox):
             self.redraw_annotations(background = hasdeps)
             self._increment_annotation_change()
 
+
     def on_key_press(self, key, shift_down, ctrl_down, meta_down):
         """This method a key is pressed."""
         # If we're ignoring input, just ignore it.

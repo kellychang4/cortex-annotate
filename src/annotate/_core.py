@@ -56,7 +56,7 @@ class AnnotationState:
 
     STYLE_KEYS = tuple(DEFAULT_STYLE.keys())
 
-    #TODO: what are save_hooks
+    #TODO: what are save_hooks....also remove builtin_annotations for now.
     __slots__ = (
         "config", "cache_path", "save_path", "git_path", "username",
         "annotations", "builtin_annotations", "preferences",
@@ -105,10 +105,8 @@ class AnnotationState:
         # # And (lazily) load the preferences.
         self.preferences = self.load_preferences()
         
-
     # Git Methods --------------------------------------------------------------
 
-    #TODO: need to edit this
     @property
     def gitdata(self):
         """Reads and returns the repo username and the repo name."""
@@ -120,7 +118,7 @@ class AnnotationState:
             # mount the directory until we've attempted to list its contents.
             with os.popen(f"ls {self.git_path}") as f: f.read()
             # Having performed an ls, go ahead and check git's opinion about the
-            # origin.
+            # origin with git config command line calls.
             cmd  = f"cd {self.git_path}"
             cmd += f" && git config --global --add safe.directory {self.git_path}"
             cmd +=  " && git config --get remote.origin.url"
@@ -134,9 +132,10 @@ class AnnotationState:
             s1 = repo_user.split("/")[-1]
             s2 = repo_user.split(":")[-1]
             repo_user = s1 if len(s1) < len(s2) else s2
-            return (repo_user, repo_name)
+            return ( repo_user, repo_name )
         except Exception as e:
-            warn(f"error finding gitdata: {e}")
+            # If there was an error, we just warn and return nothings.
+            warn(f"Error finding gitdata: {e}")
             return ( "", "" )
     
     # Pathing Methods ----------------------------------------------------------
@@ -733,7 +732,7 @@ class AnnotationTool(ipw.HBox):
             username    = None,
             control_panel_background_color = "#f0f0f0",
             save_button_color = "#e0e0e0",
-            allow_fixed_edit  = True
+            # allow_fixed_edit  = True
         ):        
         """Initializes the annotation tool."""
         
@@ -745,7 +744,7 @@ class AnnotationTool(ipw.HBox):
             git_path    = git_path,
             username    = username
         )
-        self.allow_fixed_edit = allow_fixed_edit
+        # self.allow_fixed_edit = allow_fixed_edit
 
         # Make the control panel.
         self.control_panel = ControlPanel(
@@ -779,17 +778,7 @@ class AnnotationTool(ipw.HBox):
         # And a listener for the save button.
         self.control_panel.observe_save(self.on_save)
 
-
-    # def _calc_fixed_ends(self, annotation, target_id = None, error = False):
-    #     target_id = self.control_panel.target if target_id is None else target_id
-    #     return self.state._calc_fixed_ends(annotation, target_id, error = error)
-
-    # def _prep_image(self, target_id, annotation):
-    #     # Get the grid image and meta data for this target and annotation.
-    #     (image_data, grid_shape, meta_data) = self.state.grid(target_id, annotation)
-
-    #     # And return them.
-    #     return (image_data, grid_shape, meta_data)
+    # Figure Refresh Methods ---------------------------------------------------
 
     def refresh_figure(self):
         # Get the target and annotation.
@@ -860,6 +849,18 @@ class AnnotationTool(ipw.HBox):
         # else:
         #     self.figure_panel.clear_message()
 
+    # def _calc_fixed_ends(self, annotation, target_id = None, error = False):
+    #     target_id = self.control_panel.target if target_id is None else target_id
+    #     return self.state._calc_fixed_ends(annotation, target_id, error = error)
+
+    # def _prep_image(self, target_id, annotation):
+    #     # Get the grid image and meta data for this target and annotation.
+    #     (image_data, grid_shape, meta_data) = self.state.grid(target_id, annotation)
+
+    #     # And return them.
+    #     return (image_data, grid_shape, meta_data)
+
+    # Event Handler Methods ----------------------------------------------------
 
     def on_selection_change(self, key, change):
         """This method runs when the control panel's selection changes."""
