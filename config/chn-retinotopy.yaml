@@ -30,7 +30,8 @@ init: |
   # Define directories
   dataset  = "chn-retinotopy"
   # data_dir = op.join("/home", "jovyan", "datasets", dataset)
-  data_dir = op.join("/Users", "kellychang", "Desktop", "cortex-annotate", "datasets", dataset)
+  # data_dir = op.join("/Users", "kellychang", "Desktop", "cortex-annotate", "datasets", dataset)
+  data_dir = op.join("/Volumes", "Leviathan", "CRCNS", "cortex-annotate", "datasets", dataset)
 
   # define flatmap kwargs
   FLATMAP_KWARGS = {

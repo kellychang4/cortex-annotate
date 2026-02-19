@@ -105,7 +105,9 @@ class AnnotationState:
         # # And (lazily) load the preferences.
         self.preferences = self.load_preferences()
         
-    
+
+    # Git Methods --------------------------------------------------------------
+
     #TODO: need to edit this
     @property
     def gitdata(self):
@@ -413,7 +415,7 @@ class AnnotationState:
         """
         preferences_yaml = op.join(self.save_path, ".annot-prefs.yaml")
         if not op.isfile(preferences_yaml):
-            return { "style": {}, "image_size" : 256 }
+            return { "style": {}, "image_scale" : 0.5 }
         with open(preferences_yaml, "rt") as f:
             return yaml.safe_load(f)
     
@@ -424,14 +426,24 @@ class AnnotationState:
         with open(preferences_yaml, "wt") as f:
             yaml.dump(self.preferences, f)
     
-    # Save Method --------------------------------------------------------------
-    
-    def save(self):
-        """Saves both the user preferences and the user annotations."""
-        self.save_preferences()
-        self.save_annotations()
-    
-    # Style Methods ------------------------------------------------------------\
+    # Image Scale Methods ------------------------------------------------------
+
+    def image_scale(self, new_image_scale = None):
+        """Returns the image size from the user's preferences.
+
+        `state.image_size()` returns the current image size.
+
+        `state.image_scale(new_image_scale)` updates the current image scale.
+        """
+        if new_image_scale is None:
+            # Just return the current image scale, or the default if it is not set.
+            return self.preferences.get("image_scale", 1.0)
+        else:
+            # Update the image scale in the preferences, and return the new value.
+            self.preferences["image_scale"] = new_image_scale
+            return new_image_scale
+
+    # Style Methods ------------------------------------------------------------
 
     @classmethod
     def fix_style(cls, style_dict):
@@ -476,7 +488,7 @@ class AnnotationState:
         # Return the style dictionary, if valid.
         return style_dict
     
-    
+    # TODO: remove builtinannotations for now, we are not currently loading them.
     def style(self, annotation, *args):
         """Returns the style dict of the given annotation.
 
@@ -493,49 +505,48 @@ class AnnotationState:
         The styledict contains the keys `"linewidth"`, `"linestyle"`,
         `"markersize"`, `"color"`, and `"visible"`.
         """
-        # Check the number of argumments and 
+        # Check the annotation name is valid.
+        if annotation is not None and annotation not in self.config.annotations:
+            raise RuntimeError(f"Invalid annotation name: {annotation}")
+
+        # Check the number of argumments 
         nargs = len(args)
         if nargs > 1 and nargs % 2 != 0:
-            raise RuntimeError("Invalid number of arguments given to styledict")
-        
+            raise RuntimeError("Invalid number of arguments given to styledict.")
+            
         # In all cases, we start by calculating our own styledict.
-        # See if there is a dict in the preferences already.
+        # See if there is a dictionary in the preferences already.
         styles = self.preferences["style"]
         if nargs == 0:
             # We're just returning the current reified dict.
-            preferences = styles.get(annotation, {})
+            new_styledict = styles.get(annotation, {})
         elif nargs == 1:
-            # We"re updating the dict to have exactly these values.
-            preferences = args[0]
-            styles[annotation] = self.fix_style(preferences)
+            # We're updating the dict to have the provided dictionary values.
+            new_styledict = self.fix_style(args[0])
         else:
-            update = {k:v for (k,v) in zip(args[0::2], args[1::2])}
-            self.fix_style(update)
-            if annotation not in styles:
-                styles[annotation] = {}
-            prefs = styles[annotation]
-            prefs.update(update)
+            # We're updating the dict to have the provided key/value pairs.
+            new_styledict = self.fix_style(
+                { key: value for (key, value) in zip(args[0::2], args[1::2])})
 
-        # Now that we have performed the update, we just need to merge with
+        # Now that we have determined the update, we just need to merge with
         # default options in order to reify the styledict.
-        rval = AnnotationState.DEFAULT_STYLE.copy()
-        rval.update(self.config.display.active_style)
+        update_prefs = AnnotationState.DEFAULT_STYLE.copy()
+        if annotation is None: # reference to active style
+            update_prefs.update(self.config.display.active_style)
+        else: # else, update a background annotation
+            update_prefs.update(self.config.display.background_style)
+        update_prefs.update(new_styledict)
 
-        if annotation is None:
-            rval.update(self.config.display.active_style)
-        elif annotation in self.config.annotations:
-            rval.update(self.config.annotations[annotation].plot_options)
-        # else:
-            # d = self.config.builtin_annotations[annotation].plot_options
-            # rval.update(d)
+        # Finally, update user's preferences.
+        styles.setdefault(annotation, {})
+        styles[annotation].update(update_prefs)
+        self.preferences["style"] = styles
 
-        # Finally, merge in the user's preferences.
-        rval.update(preferences)
-
-        # And return.
-        return rval  
+        # And return the updated styledict for the queried annotation.
+        return update_prefs
     
-
+    
+    # TODO: this probably should move to figure...
     def apply_style(self, annotation, canvas, style = None):
         """Applies the style associated with an annotation name to a canvas.
 
@@ -553,6 +564,7 @@ class AnnotationState:
         # Get the appropriate style first.
         if style is None:
             style = self.style(annotation)
+
         # And walk through the key/values applying them.
         lw = style["linewidth"]
         ls = style["linestyle"]
@@ -647,13 +659,14 @@ class AnnotationState:
         # That's all!
 
 
-    def _calc_fixed_ends(self, annot, targ, error = False):
+    def _calc_fixed_ends(self, annotation, target_id, error = False):
         """Given an annotation name and a dict of annotations for a target, 
         calculates the fixed head/tail and returns them as a tuple.
         """
-        target      = self.config.targets[targ]
-        targ_annots = self.annotations[targ]
-        annot_data  = self.config.annotations[annot]
+        target      = self.config.targets[target_id]
+        targ_annots = self.annotations[target_id]
+        annot_data  = self.config.annotations[annotation]
+
         fs = []
         for fixed in (annot_data.fixed_head, annot_data.fixed_tail):
             if fixed is None:
@@ -687,21 +700,6 @@ class AnnotationState:
         return fs
 
 
-    def image_size(self, new_image_size = None):
-        """Returns the image size from the user's preferences.
-
-        `state.image_size()` returns the current image size.
-
-        `state.image_size(new_image_size)` updates the current image size.
-        """
-        if new_image_size is None:
-            return self.preferences.get("image_size", 256)
-        else:
-            self.preferences["image_size"] = new_image_size
-            return new_image_size
-    
-
-
     # TODO: we are not current loading the builtin annotations, skip for now.
     # def _fix_targets(self, target_id):
     #     targ = self.config.targets[target_id]
@@ -719,181 +717,191 @@ class AnnotationState:
 
 # The Annotation Tool ##########################################################
 
-# class AnnotationTool(ipw.HBox):
-#     """The core annotation tool for the `cortex-annotate` project.
+class AnnotationTool(ipw.HBox):
+    """The core annotation tool for the `cortex-annotate` project.
 
-#     The `AnnotationTool` type handles the annotation of the cortical surface
-#     images for the `cortex-annotate` project.
-#     """
+    The `AnnotationTool` type handles the annotation of the cortical surface
+    images for the `cortex-annotate` project.
+    """
 
-#     def __init__(
-#             self,
-#             config_path = "/config/config.yaml",
-#             cache_path  = "/cache",
-#             save_path   = "/save",
-#             git_path    = "/git",
-#             username    = None,
-#             control_panel_background_color = "#f0f0f0",
-#             save_button_color = "#e0e0e0",
-#             allow_fixed_edit  = True
-#         ):        
-#         """Initializes the annotation tool."""
+    def __init__(
+            self,
+            config_path = "/config/config.yaml",
+            cache_path  = "/cache",
+            save_path   = "/save",
+            git_path    = "/git",
+            username    = None,
+            control_panel_background_color = "#f0f0f0",
+            save_button_color = "#e0e0e0",
+            allow_fixed_edit  = True
+        ):        
+        """Initializes the annotation tool."""
         
-#         # Store the state.
-#         self.state = AnnotationState(
-#             config_path = config_path,
-#             cache_path  = cache_path,
-#             save_path   = save_path,
-#             git_path    = git_path,
-#             username    = username
-#         )
-#         self.allow_fixed_edit = allow_fixed_edit
+        # Store the state.
+        self.state = AnnotationState(
+            config_path = config_path,
+            cache_path  = cache_path,
+            save_path   = save_path,
+            git_path    = git_path,
+            username    = username
+        )
+        self.allow_fixed_edit = allow_fixed_edit
 
-#         # Store the cache path.
-#         self.cache_path = cache_path
-
-#         # Make the control panel.
-#         image_size = self.state.image_size()
-#         self.control_panel = ControlPanel(
-#             self.state,
-#             background_color  = control_panel_background_color,
-#             save_button_color = save_button_color,
-#             image_size        = image_size
-#         )
+        # Make the control panel.
+        self.control_panel = ControlPanel(
+            state             = self.state,
+            background_color  = control_panel_background_color,
+            save_button_color = save_button_color,
+        )
         
-#         # Make the figure panel.
-#         self.figure_panel = FigurePanel(self.state, image_size = image_size)
+        # Make the figure panel.
+        self.figure_panel = FigurePanel(self.state)
         
-#         # Pass the loading context over to the state.
-#         self.state.loading_context = self.figure_panel.loading_context
+        # Pass the loading context over to the state.
+        self.state.loading_context = self.figure_panel.loading_context
 
-#         # Go ahead and initialize the HBox component.
-#         super().__init__((self.control_panel, self.figure_panel))
+        # Go ahead and initialize the HBox component.
+        super().__init__([self.control_panel, self.figure_panel])
 
-#         # Give the figure the initial image to plot.
-#         with self.state.loading_context:
-#             self.refresh_figure()
+        # Give the figure the initial image to plot.
+        with self.state.loading_context:
+            self.refresh_figure()
 
-#         # Add a listener for the image size change.
-#         self.control_panel.observe_image_size(self.on_image_size_change)
+        # And a listener for the selection change.
+        self.control_panel.observe_selection(self.on_selection_change)
 
-#         # And a listener for the selection change.
-#         self.control_panel.observe_selection(self.on_selection_change)
+        # Add a listener for the image scale change.
+        self.control_panel.observe_image_scale(self.on_image_scale_change)
 
-#         # And a listener for the style change.
-#         self.control_panel.observe_style(self.on_style_change)
+        # And a listener for the style change.
+        self.control_panel.observe_style(self.on_style_change)
 
-#         # And a listener for the save button.
-#         self.control_panel.observe_save(self.on_save)
-
-
-#     def on_image_size_change(self, change):
-#         """This method runs when the control panel's image size slider changes."""
-#         if change.name != "value": return
-#         self.state.image_size(change.new)
-#         # Resize the figure panel.
-#         self.figure_panel.resize_canvas(change.new)
+        # And a listener for the save button.
+        self.control_panel.observe_save(self.on_save)
 
 
-#     def _calc_fixed_ends(self, annot, targ = None, error = False):
-#         targ = self.control_panel.target if targ is None else targ
-#         return self.state._calc_fixed_ends(annot, targ = targ, error = error)
+    # def _calc_fixed_ends(self, annotation, target_id = None, error = False):
+    #     target_id = self.control_panel.target if target_id is None else target_id
+    #     return self.state._calc_fixed_ends(annotation, target_id, error = error)
+
+    # def _prep_image(self, target_id, annotation):
+    #     # Get the grid image and meta data for this target and annotation.
+    #     (image_data, grid_shape, meta_data) = self.state.grid(target_id, annotation)
+
+    #     # And return them.
+    #     return (image_data, grid_shape, meta_data)
+
+    def refresh_figure(self):
+        # Get the target and annotation.
+        target_id     = self.control_panel.target
+        annotation    = self.control_panel.annotation
+        target_annots = self.state.annotations[target_id]
+
+        # Draw the grid image.
+        (image_data, grid_shape, meta_data) = self.state.grid(target_id, annotation)
+        self.figure_panel.redraw_canvas(
+            image      = ipw.Image(value = image_data, format = "png"), 
+            grid_shape = grid_shape, 
+            xlim       = meta_data["xlim"], 
+            ylim       = meta_data["ylim"]
+        )
+
+        # builtin annotations update if we had them
 
 
-#     def refresh_figure(self):
-#         # Get the target and annotation.
-#         target_key = self.control_panel.target
-#         annot = self.control_panel.annotation
-#         target_annots = self.state.annotations[target_key]
+        # First of all, if there is any nonempty annotation that requires the
+        # current annotation, we need to print an error about it.
+        # deps = []
+        # for (annot_name, annot_data) in self.state.config.annotations.items():
+        #     # If the annotation is empty, it doesn't matter if it a dependant.
+        #     xy = target_annots.get(annot_name)
+        #     if xy is None or len(xy) == 0:
+        #         continue
+        #     for fixed in (annot_data.fixed_head, annot_data.fixed_tail):
+        #         if fixed is not None and annotation in fixed["requires"]:
+        #             deps.append(annot_name)
+        #             break
+        # if not self.allow_fixed_edit and len(deps) > 0:
+        #     fs = None
+        #     annlist = ", ".join(deps)
+        #     error = (
+        #         f"The following annotations are dependant on the annotation"
+        #         f" {annotation}: {annlist}. Please select an annotation that does"
+        #         f" not depend on other existing annotations.")
+        # else:
+        #     # Figure out the fixed heads and tails
+        #     try:
+        #         fs = self._calc_fixed_ends(annotation, target_id, error = True)
+        #         error = None
+        #     except ValueError as e:
+        #         fs = None
+        #         error = e.args[0]
+        # (fh, ft) = (None, None) if fs is None else fs
+        # self.figure_panel.change_annotations(
+        #     target_annots,
+        #     builtin_annots = {},
+        #     # self.state.builtin_annotations[target_id],
+        #     redraw = False,
+        #     annotation_types = self.state.config.annotations.types,
+        #     allow = (fs is not None),
+        #     fixed_heads = {annotation: fh},
+        #     fixed_tails = {annotation: ft},
+        #     target = target_id
+        # )
 
-#         # First of all, if there is any nonempty annotation that requires the
-#         # current annotation, we need to print an error about it.
-#         deps = []
-#         for (annot_name, annot_data) in self.state.config.annotations.items():
-#             # If the annotation is empty, it doesn't matter if it a dependant.
-#             xy = target_annots.get(annot_name)
-#             if xy is None or len(xy) == 0:
-#                 continue
-#             for fixed in (annot_data.fixed_head, annot_data.fixed_tail):
-#                 if fixed is not None and annot in fixed["requires"]:
-#                     deps.append(annot_name)
-#                     break
-#         if not self.allow_fixed_edit and len(deps) > 0:
-#             fs = None
-#             annlist = ", ".join(deps)
-#             error = (
-#                 f"The following annotations are dependant on the annotation"
-#                 f" {annot}: {annlist}. Please select an annotation that does"
-#                 f" not depend on other existing annotations.")
-#         else:
-#             # Figure out the fixed heads and tails
-#             try:
-#                 fs = self._calc_fixed_ends(annot, targ = target_key, error = True)
-#                 error = None
-#             except ValueError as e:
-#                 fs = None
-#                 error = e.args[0]
-#         (fh,ft) = (None, None) if fs is None else fs
-#         self.figure_panel.change_annotations(
-#             target_annots,
-#             self.state.builtin_annotations[target_key],
-#             redraw = False,
-#             annotation_types = self.state.config.annotation_types,
-#             allow = (fs is not None),
-#             fixed_heads = {annot: fh},
-#             fixed_tails = {annot: ft},
-#             target = target_key
-#         )
+        # Update the foreground style.
+        # self.figure_panel.change_foreground(annotation, redraw = False)
 
-#         # Update the foreground style.
-#         self.figure_panel.change_foreground(annot, redraw = False)
+        # If the annotation requires something that is missing, or if a fixed
+        # head or tail can't yet be calculated, we need to put an appropriate
+        # message up.
+        # if error is not None:
+        #     self.figure_panel.write_message(error)
+        # else:
+        #     self.figure_panel.clear_message()
 
-#         # Draw the grid image.
-#         (imdata, grid_shape, meta) = self.state.grid(target_key, annot)
-#         im = ipw.Image(value = imdata, format = "png")
-#         meta = { k: meta[k] for k in ("xlim", "ylim") if k in meta }
-#         self.figure_panel.redraw_canvas(
-#             image = im, grid_shape = grid_shape, **meta)
+
+    def on_selection_change(self, key, change):
+        """This method runs when the control panel's selection changes."""
+        if change.name != "value": return
+        # First, things first: save the annotations.
+        self.state.save_annotations()
         
-#         # If the annotation requires something that is missing, or if a fixed
-#         # head or tail can"t yet be calculated, we need to put an appropriate
-#         # message up.
-#         if error is not None:
-#             self.figure_panel.write_message(error)
-#         else:
-#             self.figure_panel.clear_message()
-    
-    
-#     def on_selection_change(self, key, change):
-#         """This method runs when the control panel's selection changes."""
-#         if change.name != "value": return
-#         # First, things first: save the annotations.
-#         self.state.save_annotations()
+        # Clear the save hooks if there are any.
+        self.state.save_hooks = None
+
+        # Update the control panel legend. 
+        self.control_panel.legend_panel.update_legend(
+            target_id  = self.control_panel.target,
+            annotation = self.control_panel.annotation, 
+        )
+
+        # The selection has changed; we need to redraw the image and update the
+        # annotations.
+        self.refresh_figure()
+
+
+    def on_image_scale_change(self, change):
+        """This method runs when the control panel's image scale slider changes."""
+        if change.name != "value": return
+        # Update the state.
+        self.state.image_scale(change.new)
+
+        # Resize the figure panel. 
+        self.figure_panel.resize_canvas()
+
+
+    def on_style_change(self, annotation, key, change):
+        """This method runs when the control panel's style elements change."""
+        if change.name != "value": return
+        # Update the state.
+        self.state.style(annotation, key, change.new)
         
-#         # Clear the save hooks if there are any.
-#         self.state.save_hooks = None
+        # Then redraw the annotation.
+        self.figure_panel.redraw_canvas(redraw_image = False)
 
-#         # Update the control panel legend.
-#         self.control_panel.legend.update_legend(
-#             hemisphere = self.control_panel.target[-1],
-#             annotation = self.control_panel.annotation, 
-#         )
 
-#         # The selection has changed; we need to redraw the image and update the
-#         # annotations.
-#         self.refresh_figure()
-    
-    
-#     def on_style_change(self, annotation, key, change):
-#         """This method runs when the control panel's style elements change."""
-#         # Update the state.
-#         if change.name != "value": return
-#         self.state.style(annotation, key, change.new)
-#         # Then redraw the annotation.
-#         self.figure_panel.redraw_canvas(redraw_image = False)
-    
-    
-#     def on_save(self, button):
-        # """This method runs when the control panel's save button is clicked."""
-        # self.state.save_annotations()
-        # self.state.save_preferences()
+    def on_save(self, button):
+        """This method runs when the control panel's save button is clicked."""
+        self.state.save_annotations()
+        self.state.save_preferences()

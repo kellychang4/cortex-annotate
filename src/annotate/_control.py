@@ -24,7 +24,7 @@ class SelectionPanel(ipw.VBox):
     """The subpanel of the control panel for target selection."""
     
     __slots__ = (
-        "state", "dropdowns", "annotations_dropdown", 
+        "state", "target_dropdowns", "annotations_dropdown", 
         "target_observers", "annotation_observers"
     )
     
@@ -33,24 +33,33 @@ class SelectionPanel(ipw.VBox):
         self.state = state
 
         # Initialize the dropdowns.
-        self.dropdowns = {}
+        self.target_dropdowns = {}
         
         # Create the dropdown widgets as children (excluding annotation).
-        ch = [ ipw.HTML("<b style=\"margin: 0% 3% 0% 3%;\">Selection:</b>") ]
+        children = [ 
+            ipw.HTML("<b style=\"margin: 0% 3% 0% 3%;\">Selection:</b>") 
+        ]
         dd_layout = { "width": "94%", "margin": "1% 3% 1% 3%" }
         for key in state.config.targets.concrete_keys:
-            els = state.config.targets.items[key]
-            dd = ipw.Dropdown(options = els, value = els[0], 
-                              layout = dd_layout, description = (key + ":"))
-            ch.append(dd)
-            self.dropdowns[key] = dd
+            dropdown_values = state.config.targets.items[key]
+            dropdown_widget = ipw.Dropdown(
+                options     = dropdown_values, 
+                value       = dropdown_values[0], 
+                layout      = dd_layout, 
+                description = (key + ":")
+            )
+            children.append(dropdown_widget)
+            self.target_dropdowns[key] = dropdown_widget
             
-        # We need the annotation bit also.
+        # We also need the annotation dropdown.
         self.annotations_dropdown = ipw.Dropdown(
-            options = [], layout = dd_layout, description = "Annotation:")
-        ch.append(self.annotations_dropdown)
+            options     = [], 
+            layout      = dd_layout, 
+            description = "Annotation:"
+        )
+        children.append(self.annotations_dropdown)
 
-        super().__init__(ch)
+        super().__init__(children)
         
         # Because we want to control the order of a few things, we actually
         # listen to our selection items ourselves, then update them and pass
@@ -59,7 +68,7 @@ class SelectionPanel(ipw.VBox):
         # selection dropbox is changed when the user changes the target
         # selection.
         for key in state.config.targets.concrete_keys:
-            self.dropdowns[key].observe(
+            self.target_dropdowns[key].observe(
                 partial(self.on_target_change, key), names = "value")
         self.annotations_dropdown.observe(
             self.on_annotation_change, names = "value")
@@ -75,7 +84,7 @@ class SelectionPanel(ipw.VBox):
     @property
     def target(self):
         """Compute the current target selection."""
-        return tuple(dd.value for dd in self.dropdowns.values())
+        return tuple( dd.value for dd in self.target_dropdowns.values() )
     
 
     @property
@@ -86,22 +95,27 @@ class SelectionPanel(ipw.VBox):
 
     @property
     def selection(self):
-        """Compute the current selection."""
-        return self.target + (self.selection,)
+        """Compute the current selection (targets + annotation)."""
+        return self.target + (self.annotation, )
     
 
     def refresh_annotations(self):
+        """Refreshes the annotations dropdown menu based on the current target selection."""
+
         # Get the new target selection entirely.
-        selected_target = self.target
+        target_id = self.target
     
         # Look up the target for this selection.
-        target = self.state.config.targets[selected_target]
+        target = self.state.config.targets[target_id]
     
         # Recalculate the annotations for this target and update the menu.
-        anns = [ key for (key, ann) in self.state.config.annotations.items()
-                if ann.filter is None or ann.filter(target) ]
-        self.annotations_dropdown.options = anns
-        self.annotations_dropdown.value   = anns[0]
+        annotion_options = [ 
+            annotation for (annotation, annotation_data) 
+            in self.state.config.annotations.items()
+            if annotation_data.filter is None or annotation_data.filter(target) 
+        ]
+        self.annotations_dropdown.options = annotion_options
+        self.annotations_dropdown.value   = annotion_options[0]
 
 
     def on_target_change(self, key, change):
@@ -170,45 +184,68 @@ class SelectionPanel(ipw.VBox):
 
 class StylePanel(ipw.VBox):
     """The subpanel of the control panel containing the style controls."""
+
+    __slots__ = (
+        "state", "user_preferences", "style_dropdown", "visible_checkbox",
+        "color_picker", "pointsize_slider", "linewidth_slider", "linestyle_dropdown",
+        "style_observers", "style_names"
+    )
     
     def __init__(self, state):
+        # Store the state
         self.state = state
+
         # We use the config to populate the collection of style preferences, but
         # we keep track of these separately so that we can remember them.
         self.user_preferences = {}
-        entries  = ["Selected Annotation"]
+        entries  = [ "Active Annotation" ]
         entries += list(state.config.annotations.keys())
-        entries += list(state.config.builtin_annotations.keys())
-        layout = dict(width="94%", margin="0% 3% 0% 3%")
+        # entries += list(state.config.builtin_annotations.keys())
+        layout = { "width": "94%", "margin": "0% 3% 0% 3%"}   
         self.style_dropdown = ipw.Dropdown(
-            options = entries, value = entries[0], description = "Annotation:",
-            layout = dict(layout, margin = "3% 3% 3% 3%"))
+            options     = entries, 
+            value       = entries[0],
+            description = "Annotation:",
+            layout      = { **layout, "margin": "3% 3% 3% 3%" }
+        )
         self.visible_checkbox = ipw.Checkbox(
             description = "Visible",
             value = True,
-            layout = layout)
+            layout = layout
+        )
         self.color_picker = ipw.ColorPicker(
             concise = False,
             description = "Color:",
             value = "blue",
-            layout = layout)
+            layout = layout
+        )
         self.pointsize_slider = ipw.IntSlider(
             value = 1, min = 0, max = 12, step = 1,
             description = "Point Size:",
             readout = True,
             continuous_update = False,
-            layout = layout)
+            layout = layout
+        )
         self.linewidth_slider = ipw.IntSlider(
             value = 1, min = 1, max = 8, step = 1,
             description = "Line Width:",
             readout = True,
             continuous_update = False,
-            layout = layout)
+            layout = layout
+        )
+        self.linewidth_slider = ipw.IntSlider(
+            value = 1, min = 1, max = 8, step = 1,
+            description = "Line Width:",
+            readout = True,
+            continuous_update = False,
+            layout = layout
+        )
         self.linestyle_dropdown = ipw.Dropdown(
-            options = [ "solid", "dashed", "dot-dashed", "dotted" ],
+            options     = [ "solid", "dashed", "dot-dashed", "dotted" ],
             description = "Line Style:",
-            layout = layout)
-        ch = [
+            layout      = layout
+        )
+        children = [
             ipw.HTML("<b style=\"margin: 0% 3% 0% 3%;\">Style Options:</b>"),
             self.style_dropdown,
             self._make_hline(),
@@ -218,7 +255,7 @@ class StylePanel(ipw.VBox):
             self.linewidth_slider,
             self.linestyle_dropdown
         ]
-        super().__init__(ch, layout= { "margin": "0% 0% 3% 0%" })
+        super().__init__(children, layout = { "margin": "0% 0% 3% 0%" })
         
         # Set up our observer pattern. We track these manually so that we can
         # call the functions using a parameter order that makes sense.
@@ -230,8 +267,9 @@ class StylePanel(ipw.VBox):
             "linewidth" : self.linewidth_slider,
             "linestyle" : self.linestyle_dropdown
         }
-        for (k, v) in self.style_names.items():
-            v.observe(partial(self.on_style_change, k), names = "value")
+        for (key, value) in self.style_names.items():
+            value.observe(partial(self.on_style_change, key), names = "value")
+        
         # We need to make sure that we update things when the style dropdown
         # changes also.
         self.style_dropdown.observe(self.refresh_style, names = "index")
@@ -254,7 +292,6 @@ class StylePanel(ipw.VBox):
             <div class="cortex-annotate-StylePanel-hline"></div>
         """)
     
-
     @property
     def annotation(self):
         dd = self.style_dropdown
@@ -277,8 +314,8 @@ class StylePanel(ipw.VBox):
         ann = self.style_dropdown.index if change is None else change.new
         ann = self.style_dropdown.options[ann] if ann > 0 else None
         prefs = self.state.style(ann)
-        for (k,v) in self.style_names.items():
-            v.value = prefs[k]
+        for (key, value) in self.style_names.items():
+            value.value = prefs[key]
 
 
     def on_style_change(self, key, change):
@@ -314,25 +351,26 @@ class StylePanel(ipw.VBox):
         """
         self.style_observers.append(fn)
 
+
 # The Legend Subpanel Widget ---------------------------------------------------
 
 class LegendPanel(ipw.VBox):
     """The subpanel of the control panel containing the legend controls."""
 
+    slots = ( "state", "hemisphere_index", "image_dir", "image_widget" )
+
     def __init__(self, state):
         # Store the state
         self.state = state
 
-        # Read the initial image
+        # Store the hemisphere index for later use in legend updates.
+        self.hemisphere_index = state.config.targets.concrete_keys.index("Hemisphere")
+
+        # Set up the path to the annotation legend images.
         self.image_dir = op.join(op.dirname(__file__), "annotation-legends")
-        hemisphere = list(state.config.targets.keys())[0][-1]
-        annotation = list(state.config.annotations.keys())[0]
-        image_path = op.join(self.image_dir, hemisphere, f"{annotation}.png")
-        self.image = self._read_image(image_path)
 
         # Create the image widget
         self.image_widget = ipw.Image(
-            value  = self.image,
             format = "png",
             layout = { "margin": "0% 3% 0% 3%", "width": "94%" }
         )
@@ -349,6 +387,11 @@ class LegendPanel(ipw.VBox):
             layout   = { "margin": "0% 0% 3% 0%" }
         )
 
+        # Update the legend with the initial image
+        target_id  = list(state.config.targets.keys())[0]
+        annotation = list(state.config.annotations.keys())[0]
+        self.update_legend(target_id, annotation)
+
 
     def _read_image(self, image_path):
         """Reads the image data from the given path."""
@@ -358,8 +401,9 @@ class LegendPanel(ipw.VBox):
         return image_data
     
 
-    def update_legend(self, hemisphere, annotation):
+    def update_legend(self, target_id, annotation):
         """Updates the legend image to the given legend name."""
+        hemisphere = target_id[self.hemisphere_index]
         image_path = op.join(self.image_dir, hemisphere, f"{annotation}.png")
         if not op.isfile(image_path): # if the image does not exist, use empty
             image_path = op.join(self.image_dir, "empty.png")
@@ -374,37 +418,49 @@ class ControlPanel(ipw.VBox):
     def __init__(
             self, 
             state,
-            image_size = 256,
             background_color  = "#f0f0f0", 
             save_button_color = "#e0e0e0"
         ):
 
-        # Create the subcomponents.
-        self.html_header = self._make_html_header(
-            background_color, save_button_color)
-        self.image_size_slider = self._make_image_size_slider(image_size)
+        # Create the selection panel.
         self.selection_panel = SelectionPanel(state)
-        self.style_panel     = StylePanel(state)
-        self.legend_panel    = LegendPanel(state)
+
+        # Create the image scale slider.
+        self.image_scale_slider = ipw.FloatSlider(
+            value             = state.preferences["image_scale"],
+            min               = 0.50,
+            max               = 1.25, 
+            step              = 0.01,
+            description       = "Image Size: ",
+            readout           = False,
+            continuous_update = False,
+            layout            = { "width": "90%", "padding": "0px" }
+        )
+
+        # Create the legend panel. 
+        self.legend_panel = LegendPanel(state)
+
+        # Create the style panel.
+        self.style_panel = StylePanel(state)
 
         # Create the save button.
         self.save_button = ipw.Button(
             description  = "Save",
-            button_style = "",
             tooltip      = "Save all annotations and preferences."
         )
+        self.save_button.style.button_color = save_button_color
         
         # Create the wrapper for the buttons.
         self.button_box = ipw.HBox(
-            children = [self.save_button], 
+            children = [ self.save_button ], 
             layout   = { "margin" : "3% 33% 3% 33%", "width" : "34%" }
         )
-        self.info_message = self._make_info_message()
         
-        self.vbox_children = [
+        # Create the VBox children; main control panel components and dividers.
+        children = [
             self.selection_panel,
             self._make_hline(),
-            self.image_size_slider,
+            self.image_scale_slider,
             self._make_hline(),
             self.legend_panel,
             self._make_hline(),
@@ -412,36 +468,30 @@ class ControlPanel(ipw.VBox):
             self._make_hline(),
             self.button_box,
             self._make_hline(),
-            self.info_message
+            self._make_info_message()
         ]
-        vbox = ipw.VBox(self.vbox_children, layout = { "width": "250px" })
+        vbox = ipw.VBox(children, layout = { "width": "250px" })
         
-        children = [
-            self.html_header,
-            ipw.Accordion((vbox,), selected_index = 0),
-        ]
+        # Wrap the whole thing in an accordion so that it can be collapsed.
+        accordion = ipw.Accordion((vbox, ), selected_index = 0)
+        accordion.add_class("annotate-control-panel") #TODO
 
-        super().__init__(children, layout = { "border": "0px", "height": "100%" })
-
-
-    @classmethod
-    def _make_image_size_slider(cls, initial_value = 256):
-        return ipw.IntSlider(
-            value = initial_value, 
-            min = 250, max = 1280, step = 1,
-            description = "Image Size: ",
-            readout = False,
-            continuous_update = False,
-            layout = { "width": "90%", "padding": "0px" }
+        # Finally, call the VBox initializer. 
+        super().__init__(
+            children = [ self._make_html_header(background_color), accordion ],  
+            layout   = { "border": "0px", "height": "100%" }
         )
     
-
+    # TODO: come back here to edit for the annotate-control-panel class nesting
     @classmethod
-    def _make_html_header(cls,
-                          background_color = "#f0f0f0",
-                          save_button_color = "#e0e0e0"):
+    def _make_html_header(cls, background_color = "#f0f0f0"):
         return ipw.HTML(f"""
             <style>
+                .jupyter-widget-Collapse-header {{
+                    background-color: white;
+                    border-width: 0px;
+                    padding: 0px;
+                }}
                 .jupyter-widget-Collapse-contents {{
                     background-color: {background_color};
                     padding: 2px;
@@ -449,56 +499,63 @@ class ControlPanel(ipw.VBox):
                     border-style: solid;
                     border-color: lightgray;
                 }}
-                .jupyter-widget-Collapse-header {{
-                    background-color: white;
-                    border-width: 0px;
-                    padding: 0px;
-                }}
                 .jupyter-widget-Collapse-open {{
                     background-color: white;
                 }}
-                .widget-button {{
-                    background-color: {save_button_color};
+                .annotate-hline {{
+                    border-color: lightgray;
+                    border-style: solid;
+                    border-width: 1px;
+                    height: 0px;
+                    width: 94%;
+                    margin: 3%;
                 }}
             </style>
-            """)
-    
+        """)
+
     
     @classmethod
     def _make_hline(cls):
-        return ipw.HTML("""
-            <style> .cortex-annotate-ControlPanel-hline {
-                border-color: lightgray;
-                border-style: solid;
-                border-width: 1px;
-                height: 0px;
-                width: 94%;
-                margin: 3%;
-            } </style>
-            <div class="cortex-annotate-ControlPanel-hline">
-            </div>
-        """)
+        return ipw.HTML("""<div class="annotate-hline"></div>""")
     
     
     @classmethod
     def _make_info_message(cls):
-        return ipw.VBox(
-            [ipw.HTML("""
+        return ipw.VBox([
+            ipw.HTML("""
                 <div style="line-height:1.2; margin: 2%;">
                 <center><b>CLICK</b> to add a point to the circled end of the
                 current annotation.</center></div>
                 """),
-             ipw.HTML("""
+            ipw.HTML("""
                 <div style="line-height:1.2; margin: 2%;">
                 <center><b>BACKSPACE</b> to delete the circled point.
                 </center></div>
                 """),
-             ipw.HTML("""
+            ipw.HTML("""
                 <div style="line-height:1.2; margin: 2%;">
                 <center><b>TAB</b> to toggle the circled end.</center></div>
-                """)],
-            layout = { "margin": "3%", "width": "88%" })
+                """)
+            ], layout = { "margin": "3%", "width": "88%" })
 
+
+    @property
+    def target(self):
+        """Compute the current target selection."""
+        return self.selection_panel.target
+    
+
+    @property
+    def annotation(self):
+        """Compute the current annotation selection."""
+        return self.selection_panel.annotation
+    
+
+    @property
+    def selection(self):
+        """Compute the current selection (targets + annotation)."""
+        return self.selection_panel.selection
+    
 
     def observe_target(self, fn):
         """Registers the given function to be called when the taget changes.
@@ -546,13 +603,13 @@ class ControlPanel(ipw.VBox):
         self.selection_panel.observe_annotation(fn)
 
 
-    def observe_image_size(self, fn):
-        """Registers the argument to be called when the image size changes.
+    def observe_image_scale(self, fn):
+        """Registers the argument to be called when the image scale changes.
 
-        `control_panel.observe_image_size(fn)` is equivalent to
-        `control_panel.image_size_slider.observe(fn, names="value")`.
+        `control_panel.observe_image_scale(fn)` is equivalent to
+        `control_panel.image_scale_slider.observe(fn, names="value")`.
         """
-        self.image_size_slider.observe(fn, names = "value")
+        self.image_scale_slider.observe(fn, names = "value")
 
 
     def observe_style(self, fn):
@@ -589,27 +646,3 @@ class ControlPanel(ipw.VBox):
         instance.
         """
         self.save_button.on_click(fn)
-
-
-    @property
-    def target(self):
-        """Compute the current target selection."""
-        return self.selection_panel.target
-    
-
-    @property
-    def annotation(self):
-        """Compute the current annotation selection."""
-        return self.selection_panel.annotation
-    
-
-    @property
-    def selection(self):
-        """Compute the current selection."""
-        return self.selection_panel.selection
-
-
-    @property
-    def legend(self):
-        """Returns the legend panel."""
-        return self.legend_panel
