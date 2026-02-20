@@ -9,6 +9,9 @@ Core implementation code for the cortex-annotate tool's figure panel.
 
 # Imports ######################################################################
 
+from operator import index
+from tracemalloc import start
+
 import numpy as np
 import ipycanvas as ipc
 import ipywidgets as ipw
@@ -105,7 +108,7 @@ class FigurePanel(ipw.HBox):
         self.multicanvas.on_mouse_down(self.on_mouse_click)
 
         # Set up our event observers for key presses (tab, delete).
-        # self.multicanvas.on_key_down(self.on_key_press)
+        self.multicanvas.on_key_down(self.on_key_press)
 
         # Initialize the image variables.
         self.image = None
@@ -116,7 +119,10 @@ class FigurePanel(ipw.HBox):
         self.target      = None
         self.active      = None
         self.annotations = {}
-        self.cursor      = 0
+        self.fixed_head  = None
+        self.fixed_tail  = None
+        self.editable    = np.array([])
+        self.cursor      = None
 
         # Initialize our parent class.
         super().__init__([ self._make_html_header(), self.multicanvas ])
@@ -159,15 +165,24 @@ class FigurePanel(ipw.HBox):
         for (annotation, points) in self.annotations.items():
             # If there are no points, we can skip.
             if points is None or len(points) == 0: continue
-
             # The active annotaion is drawn on the active canvas, and all other
             # annotations are drawn on the background canvas. 
             if self.active == annotation:
-                canvas   = self.active_canvas
-                styletag = None 
+                print("Drawing active annotation:", annotation)
+                canvas     = self.active_canvas
+                styletag   = None
+                cursor     = self.cursor
+                fixed_head = self.fixed_head is not None
+                fixed_tail = self.fixed_tail is not None
             else:
-                canvas   = self.background_canvas
-                styletag = annotation
+                # Skip background annotations if background is False.
+                if not background: continue
+                print("Drawing background annotation:", annotation)
+                canvas     = self.background_canvas
+                styletag   = annotation
+                cursor     = None
+                fixed_head = False
+                fixed_tail = False
  
             # Get the style for this annotation.
             style = self.state.style(styletag) 
@@ -177,14 +192,15 @@ class FigurePanel(ipw.HBox):
             
             # See if the boundary is closed and connected.
             atype = self.annot_cfg.types[annotation]
-            # if atype == "point":
-            #     (closed, joined) = (False, False)
-            # elif atype == "contour":
-            #     (closed, joined) = (False, True)
-            # elif atype == "boundary":
-            #     (closed, joined) = (True, True)
-            # else:
-            #     raise ValueError(f"Invalid annotation type: {atype}")
+            if atype == "point":
+                closed = False
+            elif atype == "contour":
+                closed = False
+            elif atype == "boundary":
+                closed = True
+                continue
+            else:
+                raise ValueError(f"Invalid annotation type: {atype}")
             
             # Okay, it needs to be drawn, so convert the figure points
             # into image coordinates.
@@ -194,13 +210,12 @@ class FigurePanel(ipw.HBox):
             for points in grid_points:
                 self.draw_points(
                     canvas, points, style, 
-                    cursor = 0,
-                    closed = False, 
-                    fixed_head = False, 
-                    fixed_tail = False, 
+                    cursor = cursor, 
+                    closed = closed, 
+                    fixed_head = fixed_head, 
+                    fixed_tail = fixed_tail
                 )
     
-
     
     def _apply_linestyle(self, canvas, style):
         """Applies the given line width and line style to the given canvas."""
@@ -240,17 +255,14 @@ class FigurePanel(ipw.HBox):
         If the optional argument `style` is given, then the given style dict
         is used instead of the stling for the `ann_name` annotation.
         """
-
-        # if fixed:
-        #     ms = style["markersize"]
-        #     canvas.fill_rect(x-ms, y-ms, ms*2, ms*2)
-
         # Convert the color from the style into an RGB.
-        rgb_color = mpl.colors.to_rgb(style["color"])
+        rgb_color = np.array(mpl.colors.to_rgb(style["color"]))
         rgb_color = np.array(rgb_color * 255, dtype = np.uint8)
+
+        # Apply the line width and line style to the canvas.
         self._apply_linestyle(canvas, style)
 
-        # if there is more than one point, we can draw a line segment
+        # if there is more than one point, we can draw a line segments.
         if points.shape[0] > 1: 
             # if the path is closed, we need to add the first point to the end 
             # of the point matrix to make sure the path is closed when we draw it.
@@ -264,20 +276,45 @@ class FigurePanel(ipw.HBox):
                 points = segments,
                 color  = [rgb_color],  
             )
+
+        # If fixed head, separate fixed points from the points to be drawn.
+        user_points  = points.copy()
+        fixed_points = self._empty_point_matrix()
+        if fixed_head: 
+            fixed_points = np.vstack([fixed_points, points[0:1,:]])
+            user_points  = user_points[1:, :] # remove the fixed head point 
+
+        # If fixed tail, separate fixed poins from the points to be drawn.
+        if fixed_tail:
+            fixed_points = np.vstack([fixed_points, points[-1:,:]])
+            user_points = user_points[:-1, :] # remove the fixed tail point
+      
+        # If there is at least one fixed point, we draw them in a separate call.
+        if fixed_points.shape[0] > 0:
+            canvas.fill_styled_rects(
+                x      = fixed_points[:,0] - style["markersize"], 
+                y      = fixed_points[:,1] - style["markersize"], 
+                width  = style["markersize"] * 2,
+                height = style["markersize"] * 2,
+                color  = [rgb_color],
+            )
+
+        # If there is at least one point, we can draw a circle for each point.
+        if user_points.shape[0] > 0:
+            canvas.fill_styled_circles(
+                x      = user_points[:,0], 
+                y      = user_points[:,1], 
+                radius = style["markersize"],
+                color  = [rgb_color],
+            )
         
-        # if there is at least one point, we can draw a circle for each point
-        canvas.fill_styled_circles(
-            x = points[:,0], 
-            y = points[:,1], 
-            radius = style["markersize"],
-            color  = [rgb_color],
-        )
-        
+        # If there is a cursor, we draw a larger circle around the point at the
+        # cursor position to indicate that it is active.
         if cursor is not None: 
             active_point = points[cursor, :]
             canvas.stroke_styled_circles(
-                x = [active_point[0],], 
-                y = [active_point[1],], 
+                x      = [active_point[0], ], 
+                y      = [active_point[1], ], 
                 radius = (style["markersize"] + 1) * 4/3, 
                 color  = [rgb_color],
             )
@@ -360,26 +397,92 @@ class FigurePanel(ipw.HBox):
 
     # Update State Method ------------------------------------------------------
 
+    def _calc_fixed_point(self, fixed_point):
+        """Calculates the fixed head or tail point for the active annotation."""
+        if fixed_point not in ("fixed_head", "fixed_tail"):
+            raise ValueError(f"Invalid fixed point: {fixed_point}")
+
+        # Get the fixed head or tail attribute for the active annotation.
+        fixed_point = getattr(self.annot_cfg[self.active], fixed_point)
+
+        # If there is a fixed head, we need to calculate it using the provided function.
+        if fixed_point is not None:
+            fixed_point = fixed_point["calculate"](self.annotations)
+            fixed_point = fixed_point.reshape(1, 2)
+        
+        # Return the fixed point (None or coordinates of the fixed point).
+        return fixed_point
+
+
+    def _calc_editable(self):
+        """Calculates the editable points for the given annotation."""
+        points = self.annotations[self.active]
+        fixed_head = np.all(points == self.fixed_head, axis = 1)
+        fixed_tail = np.all(points == self.fixed_tail, axis = 1)
+        fixed_index = np.logical_or(fixed_head, fixed_tail)
+        # Return the indices of the editable points (i.e., non-fixed points).
+        return np.where(~fixed_index)[0]
+
+
     def update_state(self, target_id, annotation, target_annotations):
         """Updates the state to reflect the given target and annotation."""
-        # If the target is different from current state.
-        if self.target != target_id or self.active != annotation:
-            # Update the target and active annotation.
-            self.target = target_id
-            self.active = annotation
+        # Determine the which state variables are changing.
+        new_target     = self.target != target_id
+        print("Previous annotaiton:", self.active)
+        print('New annotation:', annotation)
+        new_annotation = self.active != annotation
+    
+        # If neither the target nor the annotation is changing, we can skip the update.
+        if not (new_target or new_annotation): return
 
-            # Get the data for the given target and annotation.
-            (image_data, grid_shape, meta_data) = self.state.grid(
+        # Update the target, active annotation, and annotations.
+        self.target      = target_id
+        self.active      = annotation
+        self.annotations = target_annotations
+
+        # Calculate the fixed head and tail points for the active annotation.
+        self.fixed_head = self._calc_fixed_point(fixed_point = "fixed_head")
+        self.fixed_tail = self._calc_fixed_point(fixed_point = "fixed_tail")
+
+        # Get the points and annotation type for the active annotation.
+        points = self.annotations[self.active]
+        atype  = self.annot_cfg.types[self.active]
+
+        # Determine the editable points.
+        if atype == "point":
+            if points is None or points.shape[0] == 0:
+                points = self._empty_point_matrix()
+                self.editable = np.array([])
+            else: 
+                self.editable = np.array([0]) 
+        else: # atype in ( "contour", "boundary" )
+            # Update the annotations with the fixed points, if necessary.
+            if points is None or points.shape[0] == 0:
+                points = self._empty_point_matrix()
+                if self.fixed_head is not None:
+                    points = np.vstack([self.fixed_head, points])
+                if self.fixed_tail is not None:
+                    points = np.vstack([points, self.fixed_tail])
+                self.annotations[self.active] = points
+
+            # Calculate the editable points (non-fixed points)
+            self.editable = self._calc_editable()
+    
+        # If there are no editable points, we set the cursor to None.
+        # Otherwise, we set the cursor to the last editable point.
+        if self.editable.shape[0] == 0:
+            self.cursor = None
+        else:
+            self.cursor = self.editable[-1]
+
+        # If target change, update target relevant state (image, grid shape, xlim, ylim).
+        if new_target:
+            image_data, grid_shape, meta_data = self.state.grid(
                 self.target, self.active)
-            
-            # Update the image, grid shape, and meta data.
-            self.image      = ipw.Image(value = image_data, format = "png")
+            self.image = ipw.Image(value = image_data, format = "png")
             self.grid_shape = grid_shape
-            self.xlim       = meta_data["xlim"]
-            self.ylim       = meta_data["ylim"]
-
-            # Update the annotations for the given target and annotation.
-            self.annotations = target_annotations
+            self.xlim = meta_data["xlim"]
+            self.ylim = meta_data["ylim"]
 
     # Canvas Resizing Method ---------------------------------------------------
 
@@ -469,7 +572,6 @@ class FigurePanel(ipw.HBox):
                 self.redraw_image()
             if redraw_annotations: 
                 self.redraw_annotations()
-    
 
     # Canvas to Figure Coordinate Conversion Method ----------------------------
 
@@ -588,7 +690,7 @@ class FigurePanel(ipw.HBox):
         new_point = FigurePanel._to_point_matrix(x, y)
 
         # Get the current points for this annotation. If None, initialize empty.
-        points = self.annotations.get(self.active)
+        points = self.annotations[self.active]
         if points is None: points = self._empty_point_matrix()
         print("Current points:", points)
         print(points.shape)
@@ -602,23 +704,40 @@ class FigurePanel(ipw.HBox):
         # annotation in different ways.
         if atype == "point":
             # For a point annotation, replace the current point with the new point.
-            # There will never be a fixed head or tail for a point annotation.
-            points = new_point 
+            points = new_point
+            self.editable = np.array([0]) # the single point is editable
+            self.cursor   = self.editable[0]
         elif atype == "contour":
             # For a contour annotation, we add the point to after the current
-            # indexed position.
-            pass
+            # indexed position, ignoring any fixed points.
+
+            # If no points, before, just add a new point (also means that there
+            #  is no fixed points)
+            if points.shape[0] == 0:
+                self.cursor = 0
+            elif self.editable.shape[0] == 0:
+                # If there are points but no editable points, we cannot add a new point, so we skip.
+                if self.fixed_head is not None:
+                    self.cursor = 1
+                elif self.fixed_tail is not None:
+                    self.cursor = 0
+            else:
+                self.cursor = self.cursor + 1 
+
+            points = np.insert(points, self.cursor, new_point, axis = 0)
+            self.editable = self._calc_editable()
+
+
         elif atype == "boundary":
-            # For a boundary annotation, we add the point to the head or tail
-            # depending on the cursor position, but we also need to make sure that
-            # the boundary is closed, so we need to add the point to both ends.
+            #TODO
             pass
  
         # Update the annotation with the new points.
         self.annotations[self.active] = points
 
         # Update dependent annotations, if necessary.
-        redraw_background = self._recalculate_deps(self.active)
+        # redraw_background = self._recalculate_deps(self.active)
+        redraw_background = False
 
         # Redraw the annotations.
         if redraw:
@@ -652,69 +771,76 @@ class FigurePanel(ipw.HBox):
     # Key Press Event Handler Methods ------------------------------------------
 
     def toggle_cursor(self):
-        """Toggles the cursor position between head/tail."""
-        orig = self.cursor_position
-        if orig == "tail":
-            self.cursor_position = "head"
-        else:
-            self.cursor_position = "tail"
+        """Toggles the cursor position of the active annotation."""
+        # Extract current annotation type.
+        atype = self.annot_cfg.types[self.active]
+
+        # For a point annotation, there is only one point. Toggling the 
+        # cursor position does not do anything, so we can skip it.
+        if atype == "point": return
+
+        # For a contour annotation, we toggle the cursor position by moving it 
+        # to the next editable point in the annotation.
+        if atype == "contour":
+            if self.editable.shape[0] < 1: return # if only one editable point, skip
+            editable_index = np.where(self.cursor == self.editable)[0][0]
+            editable_index = np.mod(editable_index + 1, self.editable.shape[0])
+            self.cursor = self.editable[editable_index]
+        elif atype == "boundary":
+            #TODO
+            pass
+
+        # Redraw the annotations to show the new cursor position.
         self.redraw_annotations(background = False)
-        return self.cursor_position
 
     
     def pop_point(self, redraw = True):
-        if self.active is None:
-            # We got a backspace while not accepting edits; ignore it.
-            return None
-        # Get the current points.
-        points = self.annotations.get(self.active)
-        if points is None or len(points) == 0:
-            # No points to pop!
-            return None
-        deps = self.annotation_deps[self.active]
-        hasdeps = len(deps) > 0
-        if len(points) == 1 and hasdeps:
-            # Can't pop because something depends on this point!
-            return None
-        fh = self.fixed_head(self.active)
-        ft = self.fixed_tail(self.active)
-        if fh is None:
-            fh = np.zeros((0,2), dtype=float)
-            fhq = False
-        else:
-            fh = points[[0]]
-            points = points[1:]
-            fhq = True
-        if ft is None:
-            ft = np.zeros((0,2), dtype=float)
-            ftq = False
-        else:
-            ft = points[[-1]]
-            points = points[:-1]
-            ftq = True
-        if len(points) < 2:
-            if len(points) == 0:
-                import warnings
-                warnings.warn(
-                    "Current annotation contains only fixed points. This could"
-                    " indicate a corrupted save file. Discarding this"
-                    " annotation.")
-            self.annotations[self.active] = None
-        else:
-            if self.cursor_position == "head":
-                points = points[1:]
-            else:
-                points = points[:-1]
-            points = np.vstack([fh, points, ft])
-            self.annotations[self.active] = points
-        # Update dependant annotations.
-        for dep in deps:
-            self._recalc_ends(dep)
+        """Removes the point at the current cursor position of the active annotation."""
+        # We can only push points if there is an active annotation.
+        if self.active is None: return None
+
+        # Get the current annotation and annotation type.
+        points = self.annotations[self.active]
+        atype  = self.annot_cfg.types[self.active]
+
+        # If there are no points, we cannot delete anything. Skip.
+        if points is None or points.shape[0] == 0 or \
+            self.cursor is None or self.editable.shape[0] == 0: return
+
+        # If there are points, we delete based on annotation type.
+        if atype == "point":
+            # For a point annotation, we just delete the single point, which is 
+            # the entire annotation, and set the cursor to None.
+            points        = self._empty_point_matrix()
+            self.editable = np.array([])
+            self.cursor   = None
+        elif atype == "contour":
+            # If there are points to delete, delete at current position.
+            old_cursor = self.cursor
+            new_cursor = self.cursor - 1
+            points = np.delete(points, old_cursor, axis = 0)
+            if new_cursor not in self.editable:
+                self.editable = np.array([])
+                self.cursor   = None
+            else: 
+                self.editable = self.editable[self.editable != old_cursor]
+                self.cursor   = new_cursor
+        elif atype == "boundary":
+            #TODO 
+            pass
+
+        # Update the annotation with the new points.
+        self.annotations[self.active] = points
+
+        # Update dependent annotations, if necessary.
+        # deps = self.annotation_deps[self.active]
+        # hasdeps = len(deps) > 0
+
         # Redraw the annotations.
         if redraw:
-            self.redraw_annotations(background = hasdeps)
+            self.redraw_annotations(background = False)
             self._increment_annotation_change()
-
+   
 
     def on_key_press(self, key, shift_down, ctrl_down, meta_down):
         """This method a key is pressed."""
@@ -724,7 +850,7 @@ class FigurePanel(ipw.HBox):
             # Toggle the cursor (active) position.
             self.toggle_cursor()
         elif key == "backspace":
-            # Delete from head/tail, wherever the cursor is.
+            # Delete current cursor (active) point.
             self.pop_point()
         else:
             pass

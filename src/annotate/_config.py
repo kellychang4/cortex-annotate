@@ -453,7 +453,7 @@ class AnnotationsConfig(dict):
             raise err(f"{key} must contain 'calculate' if it is a mapping.")
             
         # Compile the calculate code string into a function. 
-        calculate = init.compile_fn("target, annotations", calculate)
+        calculate = init.compile_fn("annotations", calculate)
         
         # Return the fixed point dictionary.
         return { "calculate": calculate, "requires": requires }

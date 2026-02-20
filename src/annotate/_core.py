@@ -612,34 +612,7 @@ class AnnotationTool(ipw.HBox):
         annotation    = self.control_panel.annotation
         target_annots = self.state.annotations[target_id]
 
-        # TODO: THERE SHOULD BE ERROR CHECKING BEFORE UPDATING!!!
-        # First of all, if there is any nonempty annotation that requires the
-        # current annotation, we need to print an error about it.
-        # deps = []
-        # for (annot_name, annot_data) in self.state.config.annotations.items():
-        #     # If the annotation is empty, it doesn't matter if it a dependant.
-        #     xy = target_annots.get(annot_name)
-        #     if xy is None or len(xy) == 0:
-        #         continue
-        #     for fixed in (annot_data.fixed_head, annot_data.fixed_tail):
-        #         if fixed is not None and annotation in fixed["requires"]:
-        #             deps.append(annot_name)
-        #             break
-        # if not self.allow_fixed_edit and len(deps) > 0:
-        #     fs = None
-        #     annlist = ", ".join(deps)
-        #     error = (
-        #         f"The following annotations are dependant on the annotation"
-        #         f" {annotation}: {annlist}. Please select an annotation that does"
-        #         f" not depend on other existing annotations.")
-        # else:
-        #     # Figure out the fixed heads and tails
-        #     try:
-        #         fs = self._calc_fixed_ends(annotation, target_id, error = True)
-        #         error = None
-        #     except ValueError as e:
-        #         fs = None
-        #         error = e.args[0]
+        # TODO: error checking
 
         # Update the figure panel state variables.
         self.figure_panel.update_state(target_id, annotation, target_annots)
@@ -656,15 +629,8 @@ class AnnotationTool(ipw.HBox):
         #     self.figure_panel.clear_message()
 
 
-
-    # def _calc_fixed_ends(self, annotation, target_id = None, error = False):
-    #     target_id = self.control_panel.target if target_id is None else target_id
-    #     return self.state._calc_fixed_ends(annotation, target_id, error = error)
-
-
     # Event Handler Methods ----------------------------------------------------
 
-    # TODO: this might require an update_state!
     def on_selection_change(self, key, change):
         """This method runs when the control panel's selection changes."""
         if change.name != "value": return
