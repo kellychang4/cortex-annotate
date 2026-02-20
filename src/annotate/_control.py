@@ -200,7 +200,6 @@ class StylePanel(ipw.VBox):
         self.user_preferences = {}
         entries  = [ "Active Annotation" ]
         entries += list(state.config.annotations.keys())
-        # entries += list(state.config.builtin_annotations.keys())
         layout = { "width": "94%", "margin": "0% 3% 0% 3%"}   
         self.style_dropdown = ipw.Dropdown(
             options     = entries, 
@@ -425,12 +424,12 @@ class ControlPanel(ipw.VBox):
         # Create the selection panel.
         self.selection_panel = SelectionPanel(state)
 
-        # Create the image scale slider.
-        self.image_scale_slider = ipw.FloatSlider(
-            value             = state.preferences["image_scale"],
-            min               = 0.50,
-            max               = 1.25, 
-            step              = 0.01,
+        # Create the figure size slider.
+        self.figure_size_slider = ipw.IntSlider(
+            value             = state.preferences["figure_size"],
+            min               = 250,   
+            max               = 1280, 
+            step              = 1,
             description       = "Image Size: ",
             readout           = False,
             continuous_update = False,
@@ -460,7 +459,7 @@ class ControlPanel(ipw.VBox):
         children = [
             self.selection_panel,
             self._make_hline(),
-            self.image_scale_slider,
+            self.figure_size_slider,
             self._make_hline(),
             self.legend_panel,
             self._make_hline(),
@@ -603,13 +602,13 @@ class ControlPanel(ipw.VBox):
         self.selection_panel.observe_annotation(fn)
 
 
-    def observe_image_scale(self, fn):
-        """Registers the argument to be called when the image scale changes.
+    def observe_figure_size(self, fn):
+        """Registers the argument to be called when the figure size changes.
 
-        `control_panel.observe_image_scale(fn)` is equivalent to
-        `control_panel.image_scale_slider.observe(fn, names="value")`.
+        `control_panel.observe_figure_size(fn)` is equivalent to
+        `control_panel.figure_size_slider.observe(fn, names="value")`.
         """
-        self.image_scale_slider.observe(fn, names = "value")
+        self.figure_size_slider.observe(fn, names = "value")
 
 
     def observe_style(self, fn):

@@ -56,11 +56,9 @@ class AnnotationState:
 
     STYLE_KEYS = tuple(DEFAULT_STYLE.keys())
 
-    #TODO: what are save_hooks....also remove builtin_annotations for now.
     __slots__ = (
         "config", "cache_path", "save_path", "git_path", "username",
-        "annotations", "builtin_annotations", "preferences",
-        "loading_context", "save_hooks"
+        "annotations", "preferences", "loading_context", "save_hooks"
     )
     
     def __init__(
@@ -100,7 +98,6 @@ class AnnotationState:
 
         # (Lazily) load the annotations.
         self.annotations = self.load_annotations()
-        # self.builtin_annotations = self.load_builtin_annotations()
 
         # # And (lazily) load the preferences.
         self.preferences = self.load_preferences()
@@ -385,11 +382,11 @@ class AnnotationState:
                     f"{target_id} has invalid shape: {coords.shape}"
                 )
             
-            # If they're empty, no need to save them; delete the file if it
-            # exists instead.
+            # If they're empty, no need to save them.
             tsv_file = self.target_save_path(target_id, annotation_name)
-            if len(coords) == 0 and op.isfile(tsv_file):
-                os.remove(tsv_file)
+            if coords.shape[0] == 0: 
+                # delete the file if it exists instead.
+                if op.isfile(tsv_file): os.remove(tsv_file)
                 continue
 
             # Save them using pandas.
@@ -414,7 +411,7 @@ class AnnotationState:
         """
         preferences_yaml = op.join(self.save_path, ".annot-prefs.yaml")
         if not op.isfile(preferences_yaml):
-            return { "style": {}, "image_scale" : 0.5 }
+            return { "style": {}, "figure_size" : 256 }
         with open(preferences_yaml, "rt") as f:
             return yaml.safe_load(f)
     
@@ -425,22 +422,22 @@ class AnnotationState:
         with open(preferences_yaml, "wt") as f:
             yaml.dump(self.preferences, f)
     
-    # Image Scale Methods ------------------------------------------------------
+    # Figure Size Methods ------------------------------------------------------
 
-    def image_scale(self, new_image_scale = None):
-        """Returns the image size from the user's preferences.
+    def figure_size(self, new_figure_size = None):
+        """Returns the figure size from the user's preferences.
 
-        `state.image_size()` returns the current image size.
+        `state.figure_size()` returns the current figure size.
 
-        `state.image_scale(new_image_scale)` updates the current image scale.
+        `state.figure_size(new_figure_size)` updates the current figure size.
         """
-        if new_image_scale is None:
-            # Just return the current image scale, or the default if it is not set.
-            return self.preferences.get("image_scale", 1.0)
+        if new_figure_size is None:
+            # Just return the current figure size, or the default if it is not set.
+            return self.preferences.get("figure_size", 256)
         else:
-            # Update the image scale in the preferences, and return the new value.
-            self.preferences["image_scale"] = new_image_scale
-            return new_image_scale
+            # Update the figure size in the preferences, and return the new value.
+            self.preferences["figure_size"] = new_figure_size
+            return new_figure_size
 
     # Style Methods ------------------------------------------------------------
 
@@ -487,7 +484,7 @@ class AnnotationState:
         # Return the style dictionary, if valid.
         return style_dict
     
-    # TODO: remove builtinannotations for now, we are not currently loading them.
+
     def style(self, annotation, *args):
         """Returns the style dict of the given annotation.
 
@@ -543,176 +540,7 @@ class AnnotationState:
 
         # And return the updated styledict for the queried annotation.
         return update_prefs
-    
-    
-    # TODO: this probably should move to figure...
-    def apply_style(self, annotation, canvas, style = None):
-        """Applies the style associated with an annotation name to a canvas.
 
-        `state.apply_style(name, canvas)` applies the annotation preferences
-        associated with the given annotation name to the given canvas.
-
-        Note that the annotation name `None` refers to the foreground style.
-
-        If the requested annotation style is not visible, this function still
-        applies the style but returns `False`. Otherwise, it returns `True`.
-
-        If the optional argument `style` is given, then that style dictionary is
-        used in place of the style dictionary associated with `annotation`.
-        """
-        # Get the appropriate style first.
-        if style is None:
-            style = self.style(annotation)
-
-        # And walk through the key/values applying them.
-        lw = style["linewidth"]
-        ls = style["linestyle"]
-        c  = style["color"]
-        v  = style["visible"]
-        canvas.line_width = lw
-        if ls == "solid":
-            canvas.set_line_dash([])
-        elif ls == "dashed":
-            canvas.set_line_dash([lw*3, lw*3])
-        elif ls == "dot-dashed":
-            canvas.set_line_dash([lw*1, lw*2, lw*4, lw*2])
-        elif ls == "dotted":
-            canvas.set_line_dash([lw, lw])
-        else:
-            raise RuntimeError(
-                f"Invalid linestyle for annotation '{annotation}': {ls}")
-        c = mpl.colors.to_hex(c)
-        canvas.stroke_style = c
-        canvas.fill_style = c
-        return v
-
-    # Canvas Drawing Methods ---------------------------------------------------
-
-    def draw_path(
-            self, annotation, points, canvas, path = True, closed = False,
-            style = None, cursor = None, fixed_head = False, fixed_tail = False
-        ):
-        """Draws the given path on the given canvas using the named style.
-
-        `state.draw_path(name, path, canvas)` applies the style for the named
-        annotation then draws the given `path` on the given `canvas`. Note that
-        the `path` coordinate must be in canvas pixel coordinates, not figure
-        coordinates.
-
-        If the optional argument `path` is `False`, then only the points are
-        drawn.
-
-        If the optional argument `style` is given, then the given style dict
-        is used instead of the stling for the `ann_name` annotation.
-        """
-        self.apply_style(annotation, canvas, style = None)
-        # First, draw stroke the path.
-        if path and len(points) > 1:
-            canvas.begin_path()
-            (x0,y0) = points[0]
-            canvas.move_to(x0, y0)
-            for (x,y) in points[1:]:
-                canvas.line_to(x, y)
-            if closed:
-                canvas.line_to(x0, y0)
-            canvas.stroke()
-        # Next, draw the points.
-        sty = self.style(annotation)
-        ms = sty["markersize"]
-        if ms <= 0 and cursor is None: return
-        if fixed_head and len(points) > 0:
-            (x,y) = points[0]
-            canvas.fill_rect(x-ms, y-ms, ms*2, ms*2)
-            rest = points[1:]
-        else:
-            rest = points
-        if fixed_tail and len(rest) > 0:
-            (x,y) = points[-1]
-            canvas.fill_rect(x-ms, y-ms, ms*2, ms*2)
-            rest = points[:-1]
-        else:
-            rest = points
-        if ms > 0:
-            for (x,y) in rest:
-                canvas.fill_circle(x, y, ms)
-        if cursor is not None:
-            ms = (ms + 1) * 4/3
-            canvas.set_line_dash([])
-            canvas.line_width = sty["linewidth"] * 3/4
-            if len(rest) == 1:
-                # We plot the circle if the cursor is head otherwise we
-                # don"t plot the circle.
-                if cursor == "head":
-                    (x,y) = rest[0]
-                else:
-                    ms = 0
-            elif len(rest) > 1:
-                if cursor == "head":
-                    (x,y) = rest[0]
-                else:
-                    (x,y) = rest[-1]
-            else:
-                ms = 0
-            if ms > 0:
-                canvas.stroke_circle(x, y, ms)
-        # That's all!
-
-
-    def _calc_fixed_ends(self, annotation, target_id, error = False):
-        """Given an annotation name and a dict of annotations for a target, 
-        calculates the fixed head/tail and returns them as a tuple.
-        """
-        target      = self.config.targets[target_id]
-        targ_annots = self.annotations[target_id]
-        annot_data  = self.config.annotations[annotation]
-
-        fs = []
-        for fixed in (annot_data.fixed_head, annot_data.fixed_tail):
-            if fixed is None:
-                fs.append(None)
-                continue
-            missing = []
-            found = {}
-            for r in fixed["requires"]:
-                xy = targ_annots.get(r, ())
-                if len(xy) == 0:
-                    missing.append(r)
-                else:
-                    found[r] = xy
-            if len(missing) == 0:
-                try:
-                    f = fixed["calculate"](target, found)
-                    fs.append(f)
-                except Exception as e:
-                    if error:
-                        error = f"Error generating fixed points:\n  {e}"
-                        raise ValueError(error) from None
-                    else:
-                        fs.append(None)
-                        continue
-            elif error:
-                annlist = ", ".join(missing)
-                raise ValueError(
-                    f"The following annotations are required:\n  {annlist}")
-            else:
-                fs.append(None)
-        return fs
-
-
-    # TODO: we are not current loading the builtin annotations, skip for now.
-    # def _fix_targets(self, target_id):
-    #     targ = self.config.targets[target_id]
-    #     return {k: annot.with_target(targ)
-    #             for (k,annot) in self.config.builtin_annotations.items()}
-    
-    
-    # TODO: we are not current loading the builtin annotations, skip for now.
-    # def load_builtin_annotations(self):
-    #     "Preps the builtin annotations for the tool."
-    #     # We really just need to prep individual BuiltinAnnotation objects.
-    #     return ldict({tid: delay(self._fix_targets, tid)
-                    #   for tid in self.config.targets.keys()})
-    
 
 # The Annotation Tool ##########################################################
 
@@ -732,7 +560,6 @@ class AnnotationTool(ipw.HBox):
             username    = None,
             control_panel_background_color = "#f0f0f0",
             save_button_color = "#e0e0e0",
-            # allow_fixed_edit  = True
         ):        
         """Initializes the annotation tool."""
         
@@ -744,7 +571,6 @@ class AnnotationTool(ipw.HBox):
             git_path    = git_path,
             username    = username
         )
-        # self.allow_fixed_edit = allow_fixed_edit
 
         # Make the control panel.
         self.control_panel = ControlPanel(
@@ -769,8 +595,8 @@ class AnnotationTool(ipw.HBox):
         # And a listener for the selection change.
         self.control_panel.observe_selection(self.on_selection_change)
 
-        # Add a listener for the image scale change.
-        self.control_panel.observe_image_scale(self.on_image_scale_change)
+        # Add a listener for the figure size change.
+        self.control_panel.observe_figure_size(self.on_figure_size_change)
 
         # And a listener for the style change.
         self.control_panel.observe_style(self.on_style_change)
@@ -786,18 +612,7 @@ class AnnotationTool(ipw.HBox):
         annotation    = self.control_panel.annotation
         target_annots = self.state.annotations[target_id]
 
-        # Draw the grid image.
-        (image_data, grid_shape, meta_data) = self.state.grid(target_id, annotation)
-        self.figure_panel.redraw_canvas(
-            image      = ipw.Image(value = image_data, format = "png"), 
-            grid_shape = grid_shape, 
-            xlim       = meta_data["xlim"], 
-            ylim       = meta_data["ylim"]
-        )
-
-        # builtin annotations update if we had them
-
-
+        # TODO: THERE SHOULD BE ERROR CHECKING BEFORE UPDATING!!!
         # First of all, if there is any nonempty annotation that requires the
         # current annotation, we need to print an error about it.
         # deps = []
@@ -825,21 +640,12 @@ class AnnotationTool(ipw.HBox):
         #     except ValueError as e:
         #         fs = None
         #         error = e.args[0]
-        # (fh, ft) = (None, None) if fs is None else fs
-        # self.figure_panel.change_annotations(
-        #     target_annots,
-        #     builtin_annots = {},
-        #     # self.state.builtin_annotations[target_id],
-        #     redraw = False,
-        #     annotation_types = self.state.config.annotations.types,
-        #     allow = (fs is not None),
-        #     fixed_heads = {annotation: fh},
-        #     fixed_tails = {annotation: ft},
-        #     target = target_id
-        # )
 
-        # Update the foreground style.
-        # self.figure_panel.change_foreground(annotation, redraw = False)
+        # Update the figure panel state variables.
+        self.figure_panel.update_state(target_id, annotation, target_annots)
+
+        # Redraw the figure. 
+        self.figure_panel.redraw_canvas()
 
         # If the annotation requires something that is missing, or if a fixed
         # head or tail can't yet be calculated, we need to put an appropriate
@@ -849,19 +655,16 @@ class AnnotationTool(ipw.HBox):
         # else:
         #     self.figure_panel.clear_message()
 
+
+
     # def _calc_fixed_ends(self, annotation, target_id = None, error = False):
     #     target_id = self.control_panel.target if target_id is None else target_id
     #     return self.state._calc_fixed_ends(annotation, target_id, error = error)
 
-    # def _prep_image(self, target_id, annotation):
-    #     # Get the grid image and meta data for this target and annotation.
-    #     (image_data, grid_shape, meta_data) = self.state.grid(target_id, annotation)
-
-    #     # And return them.
-    #     return (image_data, grid_shape, meta_data)
 
     # Event Handler Methods ----------------------------------------------------
 
+    # TODO: this might require an update_state!
     def on_selection_change(self, key, change):
         """This method runs when the control panel's selection changes."""
         if change.name != "value": return
@@ -882,14 +685,14 @@ class AnnotationTool(ipw.HBox):
         self.refresh_figure()
 
 
-    def on_image_scale_change(self, change):
-        """This method runs when the control panel's image scale slider changes."""
+    def on_figure_size_change(self, change):
+        """This method runs when the control panel's figure size slider changes."""
         if change.name != "value": return
         # Update the state.
-        self.state.image_scale(change.new)
+        self.state.figure_size(change.new)
 
         # Resize the figure panel. 
-        self.figure_panel.resize_canvas()
+        self.figure_panel.resize_canvas(change.new)
 
 
     def on_style_change(self, annotation, key, change):

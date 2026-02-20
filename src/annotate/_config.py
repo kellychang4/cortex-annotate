@@ -336,8 +336,10 @@ class AnnotationsConfig(dict):
     be drawn on the annotation targets for the `cortex-annotate` project.
     """
     
-    #TODO: make sure that the annotation types dictionary is actually required.
-    __slots__ = ( "types", "fixed_deps", "figure_names", )
+    __slots__ = ( 
+        "types", "figure_grid", "grid_shape", "fixed_head", "fixed_tail", 
+        "figure_names", 
+    )
     
     def __init__(self, annotations_yaml, init):
         # The annotations section is required as a mapping (dictionary)
@@ -365,11 +367,13 @@ class AnnotationsConfig(dict):
         # And now all the annotations are processed, update the dictionary.
         self.update(annotations_dict)
 
-        # Make the annotations types dictionary.
-        self.types = { k: v.type for (k, v) in self.items() }
+        # Extract annotation information into separate dictionaries for easy access.
+        self.types       = { k: v.type for (k, v) in self.items() }
+        self.figure_grid = { k: v.figure_grid for (k, v) in self.items() }
+        self.grid_shape  = { k: np.shape(v.figure_grid) for (k, v) in self.items() }
 
         # Calculate the annotation dependency tree
-        self.fixed_deps = self._calc_fixed_deps()
+        self.fixed_head, self.fixed_tail = self._calc_fixed_deps()
 
         # Finally, we get all the unique figure names.
         self.figure_names = set([
@@ -473,7 +477,7 @@ class AnnotationsConfig(dict):
         fixed_head    = annotation_spec.get("fixed_head", None)
         fixed_tail    = annotation_spec.get("fixed_tail", None)
         figure_grid   = annotation_spec.get("figure_grid", None)
-        style_options = annotation_spec.get("style_options", {})
+        style_options = annotation_spec.get("style_options", {}) #TODO: I think this is unused
         filter        = annotation_spec.get("filter", None)
         
         # Check that the annotation type is valid.
@@ -516,165 +520,14 @@ class AnnotationsConfig(dict):
 
     def _calc_fixed_deps(self):
         """Calculates the fixed dependencies for each annotation."""
-        fixed_deps = {} # initalize fixed dependencies dictionary
-        for annot_name, annot_data in self.items(): # for each annotation
-            curr_deps = [] # intialize empty list for dependencies 
-            for key in ( "fixed_head", "fixed_tail" ):
-                value = getattr(annot_data, key)
-                if value is not None:
-                    curr_deps.extend(value["requires"])
-            fixed_deps[annot_name] = tuple(curr_deps)
-        return fixed_deps
-
-
-# Builtin Annotation Configuration ---------------------------------------------
-
-# TODO: This entire section is current not called on, will edit later
-# _BuiltinAnnotationBase = namedtuple(
-#     "_BuiltinAnnotationBase",
-#     ("type", "filter", "data", "plot_options", "target", "cache"),
-#     defaults = (None, [])
-# )
-
-# class BuiltinAnnotation(_BuiltinAnnotationBase):
-
-#     __slots__ = ()
-    
-#     def __new__(cls, *args, **kw):
-#         return _BuiltinAnnotationBase.__new__(cls, *args, **kw)
-    
-    
-#     def __init__(self, *args, **kw):
-#         if self.cache is None:
-#             pass
-#         elif not isinstance(self.cache, list):
-#             raise ValueError("cache must be a list")
-#         elif len(self.cache) > 1:
-#             raise ValueError("cache must be an empty or 1-element list")
-    
-    
-#     def get_data(self, target=None):
-#         if target is None:
-#             target = self.target
-#             if target is None:
-#                 raise ValueError("no target given to get_data")
-#         elif target != self.target:
-#             raise ValueError(f"builtin annotation target mismatch:"
-#                              f" {target} / {self.target}")
-#         if self.cache is not None:
-#             if len(self.cache) == 0:
-#                 dat = self.data(target)
-#                 self.cache.append(dat)
-#             else:
-#                 dat = self.cache[0]
-#         else:
-#             dat = self.data(target)
-#         tmp = np.asarray(dat)
-#         if np.issubdtype(tmp.dtype, np.number):
-#             if len(tmp.shape) == 2:
-#                 if tmp.shape[1] == 2:
-#                     return [tmp]
-#                 else:
-#                     raise ValueError(
-#                         f"bad shape for builtin annotation: {tmp.shape}")
-#             elif len(tmp.shape) == 3:
-#                 if tmp.shape[2] == 2:
-#                     return tmp
-#                 else:
-#                     raise ValueError(
-#                         f"bad shape for builtin annotation: {tmp.shape}")
-#             else:
-#                 raise ValueError(
-#                     f"bad shape for builtin annotation: {tmp.shape}")
-#         tmp = []
-#         for el in dat:
-#             el = np.asarray(el)
-#             if not np.issubdtype(el.dtype, np.number):
-#                 raise ValueError("bad dtype for builtin annotation: {el.dtype}")
-#             elif len(el.shape) != 2 or el.shape[1] != 2:
-#                 raise ValueError("bad shape for builtin annotation: {el.shape}")
-#             else:
-#                 tmp.append(el)
-#         return tmp
-#     def with_target(self, targ):
-#         cache = self.cache if self.cache is None else []
-#         return BuiltinAnnotation(self.type, self.filter, self.data,
-#                                  self.plot_options, targ, cache)
-    
-
-# class BuiltinAnnotationsConfig(dict):
-#     """An object that stores the configuration of the builtin annotations.
-
-#     The `BuiltinAnnotationsConfig` type tracks the contours and boundaries that
-#     are optionally drawn on the annotation targets for the `cortex-annotate`
-#     project.
-#     """
-    
-#     __slots__ = ( "types" )
-    
-#     def __init__(self, yaml, init):
-#         from ._core import AnnotationState
-#         # The yaml should just contain entries for the annotations.
-#         if yaml is None:
-#             yaml = {}
-#         if not isinstance(yaml, dict):
-#             raise ConfigError("builtin_annotations",
-#                               "builtin_annotations must contain a mapping",
-#                               yaml)
-#         # Go through and build up the lists of builtin annotation data.
-#         annots = {}
-#         for (k,v) in yaml.items():
-#             if not isinstance(v, dict):
-#                 raise ConfigError(f"builtin_annotations.{k}",
-#                                   f"builtin annotation {k} must be a mapping",
-#                                   yaml)
-#             # Now just go through and parse the options.
-#             plot_opts = v.get("plot_options", {})
-#             if not isinstance(plot_opts, dict):
-#                 raise ConfigError(
-#                     f"builtin_annotations.{k}", 
-#                     "builtin annotation plot_options must be mappings",
-#                     yaml)
-#             try: AnnotationState.fix_style(plot_opts)
-#             except Exception: raise#plot_opts = None
-#             if plot_opts is None:
-#                 raise ConfigError(f"builtin_annotations.{k}",
-#                                   "invalid plot_options",
-#                                   yaml)
-#             ctype = v.get("type", "points")
-#             if ctype not in ("lines", "points"):
-#                 raise ConfigError(
-#                     f"builtin_annotations.{k}", 
-#                     "type must be one of 'lines' or 'points'",
-#                     yaml)
-#             filter = v.get("filter", None)
-#             if filter is not None:
-#                 if not isinstance(filter, str):
-#                     raise ConfigError(
-#                         f"builtin_annotations.{k}",
-#                         "filter must be null or a Python code string",
-#                         yaml)
-#                 lines = [('    ' + ln) for ln in filter.split('\n')]
-#                 code = "\n".join(lines)
-#                 fnname = f"__fn_{os.urandom(8).hex()}"
-#                 loc = init.exec(f"def {fnname}(target):\n{code}")
-#                 filter = loc[fnname]
-#             data = v.get("data", None)
-#             if isinstance(data, str):
-#                 # A code-block.
-#                 data = init.compile_fn("target", data)
-#             else:
-#                 raise ConfigError(
-#                     f"builtin_annotations.{k}",
-#                     "data is required and must be a code-block string",
-#                     yaml)
-#             # Everything for this annotation is now processed; just set up its
-#             # Annotation object.
-#             annots[k] = BuiltinAnnotation(ctype, filter, data, plot_opts)
-#         # And now all the annotations are processed.
-#         self.update(annots)
-#         # Finally make the types dictionary.
-#         self.types = {k: v.type for (k,v) in self.items()}
+        fixed_head = { k: [] for k in self.keys() } 
+        fixed_tail = { k: [] for k in self.keys() } 
+        for annotation, annot_data in self.items(): # for each annotation
+            if annot_data.fixed_head is not None:
+                fixed_head[annotation] = annot_data.fixed_head["requires"]
+            if annot_data.fixed_tail is not None:
+                fixed_tail[annotation] = annot_data.fixed_tail["requires"]
+        return fixed_head, fixed_tail
 
 
 # Figure Configuration ---------------------------------------------------------
@@ -787,7 +640,7 @@ class Config:
     
     __slots__ = (
         "config_path", "yaml", "display", "init", "targets", "figures",
-        "annotations", "builtin_annotations",
+        "annotations", 
     )
     
     def __init__(self, config_path = "/config/config.yaml"):
@@ -808,10 +661,6 @@ class Config:
         # Parse the annotations section.
         self.annotations = AnnotationsConfig(
             self.yaml.get("annotations", None), self.init)
-
-        # Parse the builtin_annotations section.
-        # self.builtin_annotations = BuiltinAnnotationsConfig(
-        #     self.yaml.get("builtin_annotations", None), self.init)
 
         # Parse the figures section.
         self.figures = FiguresConfig(
