@@ -326,6 +326,13 @@ class StylePanel(ipw.VBox):
         return { key: widget.value for (key, widget) in self.style_widgets.items() }
     
 
+    def on_style_change(self, key, change):
+        """Handles a change in one of the style controls and alerts our observers."""
+        # Alert our observers.
+        for fn in self.style_observers:
+            fn(self.annotation, key, change)
+
+
     def refresh_style(self, change = None):
         """Refreshes the style controls based on the currently selected annotation."""
         index = self.style_dropdown.index if change is None else change.new
@@ -333,13 +340,6 @@ class StylePanel(ipw.VBox):
         preferences = self.state.style(annot)
         for (key, widget) in self.style_widgets.items():
             widget.value = preferences[key]
-
-
-    def on_style_change(self, key, change):
-        """Handles a change in one of the style controls and alerts our observers."""
-        # Alert our observers.
-        for fn in self.style_observers:
-            fn(self.annotation, key, change)
 
 
     def observe_style(self, fn):
@@ -654,11 +654,11 @@ class ControlPanel(ipw.VBox):
         selected contour is edited, then the `annotation` value will be `None`.
 
         The possible values for `element` are as follows:
-         * `"visible"`: the visibility has changed.
-         * `"color"`: the draw color has changed.
-         * `"linewidth"`: the line width has changed.
-         * `"linestyle"`: the line style has changed.
-         * `"markersize"`: the marker size has changed.
+         * `'visible'`: the visibility has changed.
+         * `'color'`: the draw color has changed.
+         * `'linewidth'`: the line width has changed.
+         * `'linestyle'`: the line style has changed.
+         * `'markersize'`: the marker size has changed.
         """
         self.style_panel.observe_style(fn)
 

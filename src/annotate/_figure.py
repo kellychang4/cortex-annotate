@@ -92,11 +92,11 @@ class FigurePanel(ipw.HBox):
         self.multicanvas.layout.height = f"{canvas_height}px"
 
         # Separate out the canvas layers.
-        self.image_canvas       = self.multicanvas[0] # grid image layer
-        self.background_canvas  = self.multicanvas[1] # background annotation layer 
-        self.active_canvas      = self.multicanvas[2] # active annotation layer
-        self.loading_canvas     = self.multicanvas[3] # loading screen layer
-        self.message_canvas     = self.multicanvas[4] # message layer (for errors, etc.)
+        self.image_canvas      = self.multicanvas[0] # grid image layer
+        self.background_canvas = self.multicanvas[1] # background annotation layer 
+        self.active_canvas     = self.multicanvas[2] # active annotation layer
+        self.loading_canvas    = self.multicanvas[3] # loading screen layer
+        self.message_canvas    = self.multicanvas[4] # message layer (for errors, etc.)
 
         # Draw the loading screen on the loading canvas and save it as the loading context.
         self._draw_loading(self.loading_canvas)
@@ -196,7 +196,7 @@ class FigurePanel(ipw.HBox):
             atype  = self.annot_cfg.types[annotation]
             closed = atype == "boundary" 
             
-            # Okay, it needs to be drawn, so convert the figure points
+            # Okay, points needs to be drawn, so convert the figure points
             # into canvas coordinates (repeated across panels).
             grid_points = self.figure_to_canvas(points)
 
@@ -272,16 +272,16 @@ class FigurePanel(ipw.HBox):
                 color  = [rgb_color],  
             )
 
-        # If fixed head, separate fixed points from the points to be drawn.
+        # If fixed head, separate fixed points from the user points drawn.
         user_points  = points.copy()
         fixed_points = self.empty_point_matrix()
         if fixed_head: 
-            fixed_points = np.vstack([fixed_points, points[0:1,:]])
+            fixed_points = np.vstack([fixed_points, points[0, :]])
             user_points  = user_points[1:, :] # remove the fixed head point 
 
         # If fixed tail, separate fixed poins from the points to be drawn.
         if fixed_tail:
-            fixed_points = np.vstack([fixed_points, points[-1:,:]])
+            fixed_points = np.vstack([fixed_points, points[-1, :]])
             user_points  = user_points[:-1, :] # remove the fixed tail point
       
         # If there is at least one fixed point, we draw them in a separate call.
@@ -391,6 +391,18 @@ class FigurePanel(ipw.HBox):
         self.message_canvas.clear()
 
     # Update State Methods -----------------------------------------------------
+
+    @staticmethod
+    def empty_point_matrix():
+        return np.zeros((0, 2), dtype = float)
+
+
+    @staticmethod
+    def _init_editable(x = None):
+        """Initializes the editable points for the given annotation."""
+        if x is None: return np.zeros((0,), dtype = int)
+        return np.array([x], dtype = int)
+    
 
     def calc_fixed_point(self, annotation, target_annotations, fixed_point):
         """Calculates the fixed head or tail point for the given annotation."""
@@ -649,6 +661,7 @@ class FigurePanel(ipw.HBox):
             if self.grid[jj][ii] is not None
         ]
 
+
     # Mouse Event Handler Methods ----------------------------------------------
 
     @staticmethod
@@ -660,18 +673,6 @@ class FigurePanel(ipw.HBox):
             raise ValueError(f"Bad point shape: {x.shape}")
         return x
 
-
-    @staticmethod
-    def empty_point_matrix():
-        return np.zeros((0, 2), dtype = float)
-
-
-    @staticmethod
-    def _init_editable(x = None):
-        """Initializes the editable points for the given annotation."""
-        if x is None: return np.zeros((0,), dtype = int)
-        return np.array([x], dtype = int)
-    
 
     def _recalculate_deps(self, annotation):
         """Recalculates the dependent annotations for the given annotation."""

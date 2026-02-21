@@ -537,17 +537,17 @@ class AnnotationState:
         # See if there is a dictionary in the preferences already.
         preferences = self.preferences["style"]
         if nargs == 0:
-            # We're just returning the current reified dict.
+            # We're just returning the current annotation styledict.
             new_styledict = preferences.get(annotation, {})
         elif nargs == 1:
-            # We're updating the dict to have the provided dictionary values.
+            # We're creating a new styledict based on the provided dict.
             new_styledict = self.fix_style(args[0])
         else:
-            # We're updating the dict to have the provided key/value pairs.
+            # We're creating a new styledict based on the provided key-value pairs.
             new_styledict = self.fix_style(
                 { key: value for (key, value) in zip(args[0::2], args[1::2])})
             
-        # Finally, update user's preferences.
+        # Update user's preferences with the new styledict for this annotation.
         preferences[annotation] = { **preferences[annotation], **new_styledict }
         self.preferences["style"] = preferences
 
@@ -756,6 +756,7 @@ class AnnotationTool(ipw.HBox):
             # Update the button to the confirmation state.
             button.description  = "Confirm Clear"
             button.button_style = "danger"
+            
         elif button.description == "Confirm Clear":
             # Update the button back to the original state.
             button.description  = "Clear All"
@@ -772,7 +773,7 @@ class AnnotationTool(ipw.HBox):
         else:
             # If the button is in some unexpected state, we just reset it to the
             # original state.
-            button.description = "Clear All"
+            button.description  = "Clear All"
             button.button_style = "warning"
 
         
