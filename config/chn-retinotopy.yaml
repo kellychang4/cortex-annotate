@@ -7,15 +7,15 @@
 display:
   figsize: [4, 4]
   dpi: 128
+  active_style:
+    color: [0.97, 0.97, 0.97]
+    markersize: 4
   background_style:
     color: [0.55, 0.55, 0.9]
     markersize: 0
     linewidth: 2
     linestyle: "solid"
-  active_style:
-    color: [0.97, 0.97, 0.97]
-    markersize: 4
-
+    
 
 init: |
   # Load libraries that will be used throughout the configuration file.
@@ -245,27 +245,27 @@ annotations:
       - ["angle", "eccen"]
       - ["curvature", "vexpl"]
   # Isoecentricity contours:
-  0.5 degrees Eccentricity:
+  0.5 Degrees Eccentricity:
     type: contour
     figure_grid:
       - ["eccen_0.5", "angle"]
       - ["eccen", "vexpl"]
-  1.0 degrees Eccentricity:
+  1.0 Degrees Eccentricity:
     type: contour
     figure_grid:
       - ["eccen_1.0", "angle"]
       - ["eccen", "vexpl"]
-  2.0 degrees Eccentricity:
+  2.0 Degrees Eccentricity:
     type: contour
     figure_grid:
       - ["eccen_2.0", "angle"]
       - ["eccen", "vexpl"]
-  4.0 degrees Eccentricity:
+  4.0 Degrees Eccentricity:
     type: contour
     figure_grid:
       - ["eccen_4.0", "angle"]
       - ["eccen", "vexpl"]
-  7.0 degrees Eccentricity:
+  7.0 Degrees Eccentricity:
     type: contour
     figure_grid:
       - ["eccen_7.0", "angle"]

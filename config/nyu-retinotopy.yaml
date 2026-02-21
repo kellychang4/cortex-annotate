@@ -7,14 +7,14 @@
 display:
   figsize: [4, 4]
   dpi: 128
+  active_style:
+    color: [0.97, 0.97, 0.97]
+    markersize: 4
   background_style:
     color: [0.55, 0.55, 0.9]
     markersize: 0
     linewidth: 2
     linestyle: "solid"
-  active_style:
-    color: [0.97, 0.97, 0.97]
-    markersize: 4
 
     
 init: |
@@ -148,197 +148,161 @@ annotations:
   # V1 contours:
   V1 Foveal Point:
     type: point
-    grid:
+    figure_grid:
       - ["angle", "eccen"]
       - ["curvature", "vexpl"]
   V1 UVM (ventral):
     fixed_head: V1 Foveal Point
-    grid:
+    figure_grid:
       - ["angle", "eccen"]
       - ["curvature", "vexpl"]
   V1 LVM (dorsal):
     fixed_head: V1 Foveal Point
-    grid:
+    figure_grid:
       - ["angle", "eccen"]
       - ["curvature", "vexpl"]
   V1 Periphery:
-    fixed_head:
-      requires: V1 UVM (ventral)
-      calculate: |
-        return annotations["V1 UVM (ventral)"][-1,:]
-    fixed_tail:
-      requires: V1 LVM (dorsal)
-      calculate: |
-        return annotations["V1 LVM (dorsal)"][-1,:]
-    grid:
+    fixed_head: V1 UVM (ventral)
+    fixed_tail: V1 LVM (dorsal)
+    figure_grid:
       - ["angle", "eccen"]
       - ["curvature", "vexpl"]
   # V2 contours:
   V2 Foveal Point:
     type: point
-    grid:
+    figure_grid:
       - ["angle", "eccen"]
       - ["curvature", "vexpl"]
   V2 UVM (ventral):
     fixed_head: V2 Foveal Point
-    grid:
+    figure_grid:
       - ["angle", "eccen"]
       - ["curvature", "vexpl"]
   V2 LVM (dorsal):
     fixed_head: V2 Foveal Point
-    grid:
+    figure_grid:
       - ["angle", "eccen"]
       - ["curvature", "vexpl"]
   V2 Ventral Periphery:
-    fixed_head:
-      requires: V2 UVM (ventral)
-      calculate: |
-        return annotations["V2 UVM (ventral)"][-1,:]
-    fixed_tail:
-      requires: V1 UVM (ventral)
-      calculate: |
-        return annotations["V1 UVM (ventral)"][-1,:]
-    grid:
+    fixed_head: V2 UVM (ventral)
+    fixed_tail: V1 UVM (ventral)
+    figure_grid:
       - ["angle", "eccen"]
       - ["curvature", "vexpl"]
   V2 Dorsal Periphery:
-    fixed_head:
-      requires: V2 LVM (dorsal)
-      calculate: |
-        return annotations["V2 LVM (dorsal)"][-1,:]
-    fixed_tail:
-      requires: V1 LVM (dorsal)
-      calculate: |
-        return annotations["V1 LVM (dorsal)"][-1,:]
-    grid:
+    fixed_head: V2 LVM (dorsal)
+    fixed_tail: V1 LVM (dorsal)
+    figure_grid:
       - ["angle", "eccen"]
       - ["curvature", "vexpl"]
   # V3 contours:
   V3 Foveal Point:
     type: point
-    grid:
+    figure_grid:
       - ["angle", "eccen"]
       - ["curvature", "vexpl"]
   V3 UVM (ventral):
     fixed_head: V3 Foveal Point
-    grid:
+    figure_grid:
       - ["angle", "eccen"]
       - ["curvature", "vexpl"]
   V3 LVM (dorsal):
     fixed_head: V3 Foveal Point
-    grid:
+    figure_grid:
       - ["angle", "eccen"]
       - ["curvature", "vexpl"]
   V3 Ventral Periphery:
-    fixed_head:
-      requires: V3 UVM (ventral)
-      calculate: |
-        return annotations["V3 UVM (ventral)"][-1,:]
-    fixed_tail:
-      requires: V2 UVM (ventral)
-      calculate: |
-        return annotations["V2 UVM (ventral)"][-1,:]
-    grid:
+    fixed_head: V3 UVM (ventral)
+    fixed_tail: V2 UVM (ventral)
+    figure_grid:
       - ["angle", "eccen"]
       - ["curvature", "vexpl"]
   V3 Dorsal Periphery:
-    fixed_head:
-      requires: V3 LVM (dorsal)
-      calculate: |
-        return annotations["V3 LVM (dorsal)"][-1,:]
-    fixed_tail:
-      requires: V2 LVM (dorsal)
-      calculate: |
-        return annotations["V2 LVM (dorsal)"][-1,:]
-    grid:
+    fixed_head: V3 LVM (dorsal)
+    fixed_tail: V2 LVM (dorsal)
+    figure_grid:
       - ["angle", "eccen"]
       - ["curvature", "vexpl"]
   # hV4 contour:
   hV4 Outer:
     type: contour
     fixed_head: V3 Foveal Point
-    grid:
+    figure_grid:
       - ["angle", "eccen"]
       - ["curvature", "vexpl"]
   # VO contour:
   VO Outer:
     type: contour
-    fixed_head:
-      requires: V3 UVM (ventral)
-      calculate: |
-        return annotations["V3 UVM (ventral)"][-1,:]
-    grid:
+    fixed_head: V3 UVM (ventral)
+    figure_grid:
       - ["angle", "eccen"]
       - ["curvature", "vexpl"]
   # hV4|VO boundary:
   hV4|VO Boundary:
     type: contour
-    grid:
+    figure_grid:
       - ["angle", "eccen"]
       - ["curvature", "vexpl"]
   # VO1|2 boundary:
   VO1|2 Boundary: 
     type: contour
-    grid:
+    figure_grid:
       - ["angle", "eccen"]
       - ["curvature", "vexpl"]
   # V3a|b contours:
   V3a|b Outer:
     type: contour
-    fixed_head:
-      requires: V3 LVM (dorsal)
-      calculate: |
-        return annotations["V3 LVM (dorsal)"][-1,:]
-    grid:
+    fixed_head: V3 LVM (dorsal)
+    figure_grid:
       - ["angle", "eccen"]
       - ["curvature", "vexpl"]
   V3a|b Inner Boundary:
     type: contour
-    grid:
+    figure_grid:
       - ["angle", "eccen"]
       - ["curvature", "vexpl"]
   # IPS0 Outer:
   IPS0 Outer:
     type: contour
-    grid:
+    figure_grid:
       - ["angle", "eccen"]
       - ["curvature", "vexpl"]
   # LO1 Outer:
   LO1 Outer:
     type: contour
     fixed_head: V3 Foveal Point
-    grid:
+    figure_grid:
       - ["angle", "eccen"]
       - ["curvature", "vexpl"]
   # Isoecentricity contours:
-  0.5 degrees Eccentricity:
+  0.5 Degrees Eccentricity:
     type: contour
-    grid:
+    figure_grid:
       - ["eccen_0.5", "angle"]
       - ["eccen", "vexpl"]
-  1.0 degrees Eccentricity:
+  1.0 Degrees Eccentricity:
     type: contour
-    grid:
+    figure_grid:
       - ["eccen_1.0", "angle"]
       - ["eccen", "vexpl"]
-  2.0 degrees Eccentricity:
+  2.0 Degrees Eccentricity:
     type: contour
-    grid:
+    figure_grid:
       - ["eccen_2.0", "angle"]
       - ["eccen", "vexpl"]
-  4.0 degrees Eccentricity:
+  4.0 Degrees Eccentricity:
     type: contour
-    grid:
+    figure_grid:
       - ["eccen_4.0", "angle"]
       - ["eccen", "vexpl"]
-  7.0 degrees Eccentricity:
+  7.0 Degrees Eccentricity:
     type: contour
-    grid:
+    figure_grid:
       - ["eccen_7.0", "angle"]
       - ["eccen", "vexpl"]
-  11.0 degrees Eccentricity:
+  11.0 Degrees Eccentricity:
     type: contour
-    grid:
+    figure_grid:
       - ["eccen_11.0", "angle"]
       - ["eccen", "vexpl"]
       
