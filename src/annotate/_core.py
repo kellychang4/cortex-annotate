@@ -541,7 +541,6 @@ class AnnotationState:
         # And return the updated styledict for the queried annotation.
         return update_prefs
 
-
 # The Annotation Tool ##########################################################
 
 class AnnotationTool(ipw.HBox):
@@ -572,6 +571,9 @@ class AnnotationTool(ipw.HBox):
             username    = username
         )
 
+        # Pull out the annotation config for easy access.
+        self.annot_cfg = self.state.config.annotations
+
         # Make the control panel.
         self.control_panel = ControlPanel(
             state             = self.state,
@@ -581,6 +583,12 @@ class AnnotationTool(ipw.HBox):
         
         # Make the figure panel.
         self.figure_panel = FigurePanel(self.state)
+
+        # Declare the locked state of the annotation tool. When locked, the user
+        # cannot interact with the figure panel and some control panel options 
+        # are disabled. This is used when there is an error with the current
+        # selection that prevents the figure from being properly displayed.
+        self.locked = False
         
         # Pass the loading context over to the state.
         self.state.loading_context = self.figure_panel.loading_context
@@ -604,6 +612,20 @@ class AnnotationTool(ipw.HBox):
         # And a listener for the save button.
         self.control_panel.observe_save(self.on_save)
 
+    # Tool Locking Methods -----------------------------------------------------
+
+    def _lock_tool(self):   
+        """Locks the annotation tool, preventing user interaction with the figure."""
+        self.lock = True
+        self.control_panel.figure_size_slider.disabled = True
+
+
+    def _unlock_tool(self):
+        """Unlocks the annotation tool, allowing user interaction with the figure."""
+        self.lock = False
+        self.control_panel.figure_size_slider.disabled = False
+
+
     # Figure Refresh Methods ---------------------------------------------------
 
     def refresh_figure(self):
@@ -612,21 +634,55 @@ class AnnotationTool(ipw.HBox):
         annotation    = self.control_panel.annotation
         target_annots = self.state.annotations[target_id]
 
-        # TODO: error checking
+        # Check that the selected annotation has valid fixed points (exist or
+        # can be calculated with the current data). If not, we have an error.
+        error = None
+        fixed_points = self.annot_cfg.fixed_points[annotation]
+        for fp in fixed_points: # for the name of the fixed point
+            # Determine if the fixed point is a fixed head or tail. 
+            fp_type = ( "fixed_head" if fp in 
+                self.annot_cfg.fixed_head[annotation] else "fixed_tail" )
 
-        # Update the figure panel state variables.
-        self.figure_panel.update_state(target_id, annotation, target_annots)
+            # If there is no data for this fixed point, then we have an error.
+            if target_annots.is_lazy(fp) or target_annots[fp].shape[0] == 0:
+                error = f"Annotation '{annotation}' requires fixed point '{fp}' " \
+                        f"which is not yet calculated for target '{target_id}'."
+                break
 
-        # Redraw the figure. 
-        self.figure_panel.redraw_canvas()
+            # Else, there is data for this fixed point. Check if the fixed point
+            # can be calculated with the current data. If not, we have an error.
+            try:
+                self.figure_panel.calc_fixed_point(
+                    annotation, target_annots, fp_type)
+            except Exception as e:
+                error = f"Annotation '{annotation}' requires fixed point '{fp}' " \
+                        f"which cannot be calculated for target '{target_id}' " \
+                        f"with the current data: {e}"
+                break
+    
+        # If there was an error, we need to put an appropriate message up. 
+        # Otherwise, we can clear any messages and just show the figure.
+        if error is not None:
+            # Lock the annotation tool, so user cannot interact with the figure.
+            print("Locking tool due to error:", error)
+            self._lock_tool()
 
-        # If the annotation requires something that is missing, or if a fixed
-        # head or tail can't yet be calculated, we need to put an appropriate
-        # message up.
-        # if error is not None:
-        #     self.figure_panel.write_message(error)
-        # else:
-        #     self.figure_panel.clear_message()
+            # Write the error message. 
+            self.figure_panel.write_message(error)
+        else:
+            print("No errors found. Unlocking tool and refreshing figure.")
+
+            # Unlock the annotation tool, so user can interact with the figure.
+            self._unlock_tool()
+            
+            # Clear any messages that might be up from before.
+            self.figure_panel.clear_message()
+
+            # Update the figure panel state variables.
+            self.figure_panel.update_state(target_id, annotation, target_annots)
+
+            # Redraw the figure. 
+            self.figure_panel.redraw_canvas()
 
 
     # Event Handler Methods ----------------------------------------------------
@@ -653,7 +709,9 @@ class AnnotationTool(ipw.HBox):
 
     def on_figure_size_change(self, change):
         """This method runs when the control panel's figure size slider changes."""
+        # Only respond to changes in the value of the style elements, 
         if change.name != "value": return
+
         # Update the state.
         self.state.figure_size(change.new)
 
@@ -663,7 +721,9 @@ class AnnotationTool(ipw.HBox):
 
     def on_style_change(self, annotation, key, change):
         """This method runs when the control panel's style elements change."""
+        # Only respond to changes in the value of the style elements, 
         if change.name != "value": return
+
         # Update the state.
         self.state.style(annotation, key, change.new)
         

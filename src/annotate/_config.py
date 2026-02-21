@@ -338,7 +338,7 @@ class AnnotationsConfig(dict):
     
     __slots__ = ( 
         "types", "figure_grid", "grid_shape", "fixed_head", "fixed_tail", 
-        "figure_names", 
+        "fixed_points", "fixed_dependencies", "figure_names", 
     )
     
     def __init__(self, annotations_yaml, init):
@@ -374,6 +374,20 @@ class AnnotationsConfig(dict):
 
         # Calculate the annotation dependency tree
         self.fixed_head, self.fixed_tail = self._calc_fixed_deps()
+
+        # Combine the fixed head and tails into one dictionary for ease.
+        # <key> : [ <fixed_head>, <fixed_tail> ] needed to have valid points.
+        self.fixed_points = {
+            k: [ *self.fixed_head[k], *self.fixed_tail[k] ] for k in self.keys()
+        }
+
+        # Create the fixed dependencies dictionary, which is the reverse of the 
+        # fixed points dictionary.
+        # <key> : [ <annotations that have downstream dependencies> ]
+        self.fixed_dependencies = {k: [] for k in self.keys()}
+        for key in self.fixed_dependencies.keys():
+            for src, value in self.fixed_points.items():
+                if key in value: self.fixed_dependencies[key].append(src)
 
         # Finally, we get all the unique figure names.
         self.figure_names = set([

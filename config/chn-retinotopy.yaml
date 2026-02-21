@@ -30,8 +30,8 @@ init: |
   # Define directories
   dataset  = "chn-retinotopy"
   # data_dir = op.join("/home", "jovyan", "datasets", dataset)
-  data_dir = op.join("/Users", "kellychang", "Desktop", "cortex-annotate", "datasets", dataset)
-  # data_dir = op.join("/Volumes", "Leviathan", "CRCNS", "cortex-annotate", "datasets", dataset)
+  # data_dir = op.join("/Users", "kellychang", "Desktop", "cortex-annotate", "datasets", dataset)
+  data_dir = op.join("/Volumes", "Leviathan", "CRCNS", "cortex-annotate", "datasets", dataset)
 
   # define flatmap kwargs
   FLATMAP_KWARGS = {
@@ -249,12 +249,12 @@ annotations:
     type: contour
     figure_grid:
       - ["eccen_0.5", "angle"]
-      - ["eccen", null]
+      - ["eccen", "vexpl"]
   1.0 degrees Eccentricity:
     type: contour
     figure_grid:
-      - ["eccen_1.0", null]
-      - ["eccen", null]
+      - ["eccen_1.0", "angle"]
+      - ["eccen", "vexpl"]
   2.0 degrees Eccentricity:
     type: contour
     figure_grid:
