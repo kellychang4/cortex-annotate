@@ -216,8 +216,7 @@ class FigurePanel(ipw.HBox):
     def _apply_linestyle(self, canvas, style):
         """Applies the given line width and line style to the given canvas."""
         # Get the line width and line style from the style dict, with defaults.
-        linewidth = style.get("linewidth", 1)
-        linestyle = style.get("linestyle", "solid")
+        linewidth, linestyle = style["linewidth"], style["linestyle"]
         
         # Apply the line width and line style to the canvas.
         canvas.line_width = linewidth if linewidth is not None else 1
@@ -283,7 +282,7 @@ class FigurePanel(ipw.HBox):
         # If fixed tail, separate fixed poins from the points to be drawn.
         if fixed_tail:
             fixed_points = np.vstack([fixed_points, points[-1:,:]])
-            user_points = user_points[:-1, :] # remove the fixed tail point
+            user_points  = user_points[:-1, :] # remove the fixed tail point
       
         # If there is at least one fixed point, we draw them in a separate call.
         if fixed_points.shape[0] > 0:

@@ -46,7 +46,7 @@ class DisplayConfig:
     """
     
     __slots__ = ( 
-        "figsize", "dpi", "image_size", "background_style", "active_style" 
+        "figsize", "dpi", "image_size", "active_style", "default_style",
     )
     
     def __init__(self, display_yaml):
@@ -64,17 +64,13 @@ class DisplayConfig:
         # Calculate the image size in pixels from the figure size and DPI.
         self.image_size = tuple([round(self.dpi * x) for x in self.figsize])
         
-        # Initialize the background style.
-        self.background_style = self._init_style(
-            display_yaml, parameter = "background_style", default = {})
-
         # Initialize the active style.
         self.active_style = self._init_style(
             display_yaml, parameter = "active_style", default = {})
 
-        # We need to merge the background and active styles together since
-        # the background style is the defaults for the active style.
-        self.active_style = { **self.background_style, **self.active_style } 
+        # Initialize the default style.
+        self.default_style = self._init_style(
+            display_yaml, parameter = "default_style", default = {})
 
 
     def _init_figsize(self, display_yaml, default = [4, 4]):
@@ -138,18 +134,18 @@ class DisplayConfig:
         # Prepare ConfigError arguments for any errors that may arise in this function.
         err = partial(ConfigError, f"display.{parameter}")
 
-        # Extract the background style from the yaml.
-        background_style = display_yaml.get(parameter, default)
+        # Extract the style from the yaml.
+        style = display_yaml.get(parameter, default)
 
-        # Check that the background style is a yaml mapping (dictionary)
-        if not isinstance(background_style, dict):
+        # Check that the style is a yaml mapping (dictionary)
+        if not isinstance(style, dict):
             raise err(f"{parameter} must be a mapping")
         
-        # Try to make sure the background style keys are valid
-        try: AnnotationState.fix_style(background_style)
+        # Try to make sure the style keys are valid
+        try: AnnotationState.fix_style(style)
         except RuntimeError as e: raise err(e) from e
 
-        return background_style
+        return style
 
 
 # Init Configuration -----------------------------------------------------------

@@ -167,7 +167,7 @@ class CortexViewerState:
 
     def get_style_annotation(self):
         """Get the current style annotation selection widget."""
-        return self.style_panel.style_dropdown.value
+        return self.style_panel.annotation
     
     
     #TODO: there is a really nice way tok get this inforamtion
@@ -185,18 +185,23 @@ class CortexViewerState:
         self.flatmap_annotations = figure_panel.annotations    
 
 
-    def update_annotation_styles(self, annotation = None):
+    def update_annotation_styles(self, annotation = Ellipsis):
         """Get the annotation tool's flatmap style dictionary"""
         # Initialize annotation styles dictionary if not present
         self.annotation_styles = self.get("annotation_styles", {})
         
-        # Define annotations to update
-        annotation_list = [annotation] if annotation is not None \
-            else list(self.flatmap_annotations.keys())
-        
-        # Convert each flatmap annotation to surface paths
-        for key in annotation_list: # for each annotation
-            self.annotation_styles[key] = self.styler(key)
+        # If annotation is not Ellipsis, update the style for the current annotation.
+        if annotation is not Ellipsis: 
+            self.annotation_styles[annotation] = self.styler(annotation)
+
+        # If annotation is Ellipsis, update the styles for all annotations.
+        else:
+            # Get the active style from the annotation tool (coded as None)
+            self.annotation_styles[None] = self.styler(None)
+            
+            # Get the styles from the annotation tool for the remaining annotations
+            for key in self.flatmap_annotations.keys(): # for each annotation
+                self.annotation_styles[key] = self.styler(key)
 
 
     def _read_coordinates(self, filename):
@@ -499,12 +504,16 @@ class CortexViewer(ipw.GridBox):
         """Handle changes to the flatmap style option changes."""
         # Get the annotation style annotation name
         annotation_name = self.state.get_style_annotation()
-        if annotation_name != "Selected Annotation":
-            # Update the annotation styles for the current annotation
-            self.state.update_annotation_styles(annotation_name) 
-            
-            # Refresh the figure with updated state
-            self.figure_panel.refresh_figure(self.state)
+        
+        # If the active style annotative is the active annotation, coded as None.
+        if annotation_name == "Active Annotation":
+            annotation_name = None
+
+        # Update the annotation styles for the current annotation
+        self.state.update_annotation_styles(annotation_name)
+    
+        # Refresh the figure with updated state
+        self.figure_panel.refresh_figure(self.state)
         
             
     def on_annotation_change(self, _):

@@ -10,7 +10,7 @@ display:
   active_style:
     color: [0.97, 0.97, 0.97]
     markersize: 4
-  background_style:
+  default_style:
     color: [0.55, 0.55, 0.9]
     markersize: 0
     linewidth: 2

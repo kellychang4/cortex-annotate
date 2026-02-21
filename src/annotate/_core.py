@@ -418,7 +418,23 @@ class AnnotationState:
         """
         preferences_yaml = op.join(self.save_path, ".annot-prefs.yaml")
         if not op.isfile(preferences_yaml):
-            return { "style": {}, "figure_size" : 256 }
+            # If there is no preferences file, initailize the preferences
+            preferences = { "style": {}, "figure_size": 256 } 
+
+            # For each annotation, set the default style dictionary.
+            # DEFAULT_STYLE << config.display.default_style
+            styledict = AnnotationState.DEFAULT_STYLE.copy()
+            styledict = { **styledict, **self.config.display.default_style }
+            for annotation in self.config.annotations.keys():
+                preferences["style"][annotation] = styledict.copy()
+            
+            # Set the annotation for the active style as None.
+            # DEFAULT_STYLE << config.display.default_style << config.display.active_style
+            styledict = { **styledict, **self.config.display.active_style }
+            preferences["style"][None] = styledict.copy()
+
+            # Return the preferences.
+            return preferences
         with open(preferences_yaml, "rt") as f:
             return yaml.safe_load(f)
     
@@ -519,10 +535,10 @@ class AnnotationState:
             
         # In all cases, we start by calculating our own styledict.
         # See if there is a dictionary in the preferences already.
-        styles = self.preferences["style"]
+        preferences = self.preferences["style"]
         if nargs == 0:
             # We're just returning the current reified dict.
-            new_styledict = styles.get(annotation, {})
+            new_styledict = preferences.get(annotation, {})
         elif nargs == 1:
             # We're updating the dict to have the provided dictionary values.
             new_styledict = self.fix_style(args[0])
@@ -530,23 +546,13 @@ class AnnotationState:
             # We're updating the dict to have the provided key/value pairs.
             new_styledict = self.fix_style(
                 { key: value for (key, value) in zip(args[0::2], args[1::2])})
-
-        # Now that we have determined the update, we just need to merge with
-        # default options in order to reify the styledict.
-        update_prefs = AnnotationState.DEFAULT_STYLE.copy()
-        if annotation is None: # reference to active style
-            update_prefs.update(self.config.display.active_style)
-        else: # else, update a background annotation
-            update_prefs.update(self.config.display.background_style)
-        update_prefs.update(new_styledict)
-
+            
         # Finally, update user's preferences.
-        styles.setdefault(annotation, {})
-        styles[annotation].update(update_prefs)
-        self.preferences["style"] = styles
+        preferences[annotation] = { **preferences[annotation], **new_styledict }
+        self.preferences["style"] = preferences
 
         # And return the updated styledict for the queried annotation.
-        return update_prefs
+        return preferences[annotation]
 
 # The Annotation Tool ##########################################################
 
@@ -622,25 +628,23 @@ class AnnotationTool(ipw.HBox):
         """Locks the annotation tool, preventing user interaction with the figure."""
         self.state.locked = True
         self.control_panel.figure_size_slider.disabled = True
-        self.control_panel.style_panel.style_dropdown.disabled     = True
-        self.control_panel.style_panel.visible_checkbox.disabled   = True
-        self.control_panel.style_panel.color_picker.disabled       = True
-        self.control_panel.style_panel.markersize_slider.disabled   = True
-        self.control_panel.style_panel.linewidth_slider.disabled   = True
-        self.control_panel.style_panel.linestyle_dropdown.disabled = True
+
+        style_panel = self.control_panel.style_panel
+        style_panel.style_dropdown.disabled = True
+        for widget in style_panel.style_widgets.values():
+            widget.disabled = True
 
 
     def _unlock_tool(self):
         """Unlocks the annotation tool, allowing user interaction with the figure."""
         self.state.locked = False
         self.control_panel.figure_size_slider.disabled = False
-        self.control_panel.style_panel.style_dropdown.disabled     = False
-        self.control_panel.style_panel.visible_checkbox.disabled   = False
-        self.control_panel.style_panel.color_picker.disabled       = False
-        self.control_panel.style_panel.markersize_slider.disabled   = False
-        self.control_panel.style_panel.linewidth_slider.disabled  = False
-        self.control_panel.style_panel.linestyle_dropdown.disabled = False
 
+        style_panel = self.control_panel.style_panel
+        style_panel.style_dropdown.disabled = False
+        for widget in style_panel.style_widgets.values():
+            widget.disabled = False
+            
     # Figure Refresh Methods ---------------------------------------------------
 
     def refresh_figure(self):
@@ -734,9 +738,9 @@ class AnnotationTool(ipw.HBox):
         """This method runs when the control panel's style elements change."""
         # Only respond to changes in the value of the style elements, 
         if change.name != "value": return
-
+        
         # Update the state.
-        self.state.style(annotation, key, change.new)
+        self.state.style(annotation, { key: change.new })
         
         # Then redraw the annotation.
         self.figure_panel.redraw_canvas(redraw_image = False)

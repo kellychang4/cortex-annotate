@@ -188,9 +188,9 @@ class StylePanel(ipw.VBox):
     """The subpanel of the control panel containing the style controls."""
 
     __slots__ = (
-        "state", "user_preferences", "style_dropdown", "visible_checkbox",
+        "state", "style_dropdown", "visible_checkbox",
         "color_picker", "markersize_slider", "linewidth_slider", 
-        "linestyle_dropdown", "style_observers", "style_names"
+        "linestyle_dropdown", "style_observers", "style_widgets"
     )
     
     def __init__(self, state):
@@ -204,10 +204,6 @@ class StylePanel(ipw.VBox):
             "readout": True, "continuous_update": False,
             "layout": layout
         }
-
-        # We use the config to populate the collection of style preferences, but
-        # we keep track of these separately so that we can remember them.
-        self.user_preferences = {}
 
         # The style dropdown menu will have an "Active Annotation" option 
         # followed by an option for each annotation in the configuration.
@@ -275,14 +271,14 @@ class StylePanel(ipw.VBox):
         # Set up our observer pattern. We track these manually so that we can
         # call the functions using a parameter order that makes sense.
         self.style_observers = []
-        self.style_names = {
+        self.style_widgets = {
             "visible"   : self.visible_checkbox,
             "color"     : self.color_picker,
             "markersize": self.markersize_slider,
             "linewidth" : self.linewidth_slider,
             "linestyle" : self.linestyle_dropdown
         }
-        for (key, value) in self.style_names.items():
+        for (key, value) in self.style_widgets.items():
             value.observe(partial(self.on_style_change, key), names = "value")
         
         # We need to make sure that we update things when the style dropdown
@@ -326,25 +322,17 @@ class StylePanel(ipw.VBox):
     
     @property
     def preferences(self):
-        """Compute the current style preferences for the currently selected annotation."""
-        return { k: v.value for (k, v) in self.style_names.items() }
-    
-    
-    @property
-    def style(self):
-        """Compute the style preferences for the currently selected annotation."""
-        prefs = self.user_preferences
-        prefs["annotation"] = self.annotation
-        return prefs
+        """Compute the current style preferences based on the current style controls."""
+        return { key: widget.value for (key, widget) in self.style_widgets.items() }
     
 
     def refresh_style(self, change = None):
         """Refreshes the style controls based on the currently selected annotation."""
-        annotation = self.style_dropdown.index if change is None else change.new
-        annotation = self.style_dropdown.options[annotation] if annotation > 0 else None
-        prefs = self.state.style(annotation)
-        for (key, value) in self.style_names.items():
-            value.value = prefs[key]
+        index = self.style_dropdown.index if change is None else change.new
+        annot = self.style_dropdown.options[index] if index > 0 else None
+        preferences = self.state.style(annot)
+        for (key, widget) in self.style_widgets.items():
+            widget.value = preferences[key]
 
 
     def on_style_change(self, key, change):
