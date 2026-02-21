@@ -58,9 +58,8 @@ class CortexViewerState:
         # Prepare initial values from annotation widget
         self.dataset_index = self.get_selected_dataset_index()
         self.dataset       = self.get_selected_dataset()
-        self.participant   = self.get_selected_participant()
-        self.hemisphere    = self.get_selected_hemisphere() 
-        self.selected_annotation = self.get_selected_annotation() 
+        self.targets       = self.get_targets()
+        self.annotation    = self.get_annotation()
 
         # Prepare initial annotation style from annotation widget
         self.update_style_options() 
@@ -112,14 +111,14 @@ class CortexViewerState:
 
     def _get_active_selection_panel(self):
         """Get the active selection panel widget."""
-        active_widget = self._get_active_annotation_tool()
-        return active_widget.control_panel.selection_panel
+        active_tool = self._get_active_annotation_tool()
+        return active_tool.control_panel.selection_panel
     
 
     def _get_active_figure_panel(self):
         """Get the active figure panel widget."""
-        active_widget = self._get_active_annotation_tool()
-        return active_widget.figure_panel
+        active_tool = self._get_active_annotation_tool()
+        return active_tool.figure_panel
     
 
     def get_selected_dataset_index(self):
@@ -131,13 +130,22 @@ class CortexViewerState:
         """Get the current dataset selection widget."""
         return self.annotation_widgets.titles[self.dataset_index]
     
+
+    def get_targets(self):
+        """Get the active targets from the active annotation tool."""
+        selection_panel = self._get_active_selection_panel()
+        return { 
+            key.lower(): value.value for key, value 
+            in selection_panel.target_dropdowns.items() 
+        }
     
-    def get_selected_participant(self):
-        """Get the current participant selection widget."""
-        active_selection = self._get_active_selection_panel()
-        return active_selection.children[1].value
-    
-    
+
+    def get_annotation(self):
+        """Get the active annotation from the active annotation tool."""
+        selection_panel = self._get_active_selection_panel()
+        return selection_panel.annotation
+
+
     @staticmethod
     def convert_hemisphere(hemisphere):
         """Convert hemisphere string to code or vice versa."""
@@ -149,32 +157,26 @@ class CortexViewerState:
             return code_to_str[hemisphere]
         else: 
             raise ValueError(f"Invalid hemisphere value: {hemisphere}")
+
+
+    @property
+    def hemisphere(self):
+        """Get the current hemisphere selection."""
+        return self.convert_hemisphere(self.targets["hemisphere"])
     
-
-    def get_selected_hemisphere(self):
-        """Get the current hemisphere selection widget."""
-        active_selection = self._get_active_selection_panel()
-        hemisphere = active_selection.children[2].value
-        return self.convert_hemisphere(hemisphere)
-    
-
-    def get_selected_annotation(self):
-        """Get the current annotation selection widget."""
-        active_selection = self._get_active_selection_panel()
-        return active_selection.children[3].value
-
 
     def get_style_annotation(self):
         """Get the current style annotation selection widget."""
         return self.style_panel.style_dropdown.value
     
     
+    #TODO: there is a really nice way tok get this inforamtion
     def update_style_options(self):
         """Update the style panel options based on current state."""
-        active_widget     = self._get_active_annotation_tool()
-        self.style_panel  = active_widget.control_panel.style_panel
-        self.styler       = active_widget.state.style
-        self.style_active = active_widget.state.config.display.active_style
+        active_tool       = self._get_active_annotation_tool()
+        self.style_panel  = active_tool.control_panel.style_panel
+        self.styler       = active_tool.state.style
+        self.style_active = active_tool.state.config.display.active_style
 
 
     def update_flatmap_annotations(self):
@@ -218,8 +220,8 @@ class CortexViewerState:
     def update_participant(self): 
         """Load participant dataset based on current state."""
         # Locate participant directory and files
-        participant_dir = op.join(
-            self.dataset_directory, self.dataset.lower(), self.participant)
+        participant_dir = op.join(self.dataset_directory, self.dataset.lower(), 
+            self.selection["participant"], self.hemisphere)
         filenames = glob.glob(op.join(participant_dir, f"{self.hemisphere}.3d.*"))
 
         # Load participant midgray coordinates
@@ -353,26 +355,21 @@ class CortexViewerState:
         self.annotation_widgets.observe(callback, names = "selected_index")
 
 
-    def observe_participant(self, callback):
-        """Assign a callback function to participant value changes."""
+    def observe_targets(self, callback):
+        """Assign a callback function to target value changes."""
         for annotation_widget in self.annotation_widgets.children:
-            participant_dropdown = annotation_widget.control_panel.selection_panel.children[1]
-            participant_dropdown.observe(callback, names = "value")
+            selection_panel = annotation_widget.control_panel.selection_panel
+            for target_dropdown in selection_panel.target_dropdowns.values():
+                target_dropdown.observe(callback, names = "value")
 
 
-    def observe_hemisphere(self, callback):
-        """Assign a callback function to hemisphere value changes."""
-        for annotation_widget in self.annotation_widgets.children:
-            hemisphere_dropdown = annotation_widget.control_panel.selection_panel.children[2]
-            hemisphere_dropdown.observe(callback, names = "value")
-
-    
     def observe_annotation(self, callback):
-        """Assign a callback function to annotation value changes."""
+        """Assign a callback function to annotation data changes."""
         for annotation_widget in self.annotation_widgets.children:
-            annotation_dropdown = annotation_widget.control_panel.selection_panel.children[3]
-            annotation_dropdown.observe(callback, names = "value")
-    
+            selection_panel = annotation_widget.control_panel.selection_panel
+            annotations_dropdown = selection_panel.annotations_dropdown
+            annotations_dropdown.observe(callback, names = "value")
+
 
     def observe_annotation_styles(self, callback):
         """Assign a callback function to style option changes."""
@@ -388,6 +385,7 @@ class CortexViewerState:
             annotation_figure = annotation_widget.figure_panel
             annotation_figure.observe(callback, names = "_annotation_change")
 
+
 # The Cortex Viewer Widget -----------------------------------------------------
 
 class CortexViewer(ipw.GridBox):
@@ -397,7 +395,8 @@ class CortexViewer(ipw.GridBox):
     cortical mesh that assists the flatmap viewer.
     """
 
-    def __init__(self, annotation_widgets, dataset_directory, panel_width = 270):
+    def __init__(self, annotation_widgets, dataset_directory, 
+                 panel_width = 270):
         # Initialize the Cortex Viewer state
         self.state = CortexViewerState(
             annotation_widgets = annotation_widgets,
@@ -412,7 +411,7 @@ class CortexViewer(ipw.GridBox):
 
         # Initialize the GridBox with the control panel and figure panel
         super().__init__(
-            children = [self.control_panel, self.figure_panel], 
+            children = [ self.control_panel, self.figure_panel ], 
             layout   = ipw.Layout(
                 border  = "1px solid rgb(158, 158, 158)", 
                 padding = "15px",
@@ -426,7 +425,7 @@ class CortexViewer(ipw.GridBox):
             self._infobox_observers[k](partial(self.on_selection_change, k))
 
         # Assign user annotation input observers
-        self.state.observe_annotation_change(self.on_annotation_change)
+        self.state.observe_annotation(self.on_annotation_change)
 
         # Assign flatmap annotation style observers
         self.state.observe_annotation_styles(self.on_annotation_style_change)
@@ -440,10 +439,9 @@ class CortexViewer(ipw.GridBox):
     def _infobox_observers(self):
         """Return a list of observer functions for the Cortex Viewer state."""
         return {
-            "dataset"     : self.state.observe_dataset_index,
-            "participant" : self.state.observe_participant,
-            "hemisphere"  : self.state.observe_hemisphere,
-            "annotation"  : self.state.observe_annotation,
+            "dataset"    : self.state.observe_dataset_index,
+            "targets"    : self.state.observe_targets,
+            "annotation" : self.state.observe_annotation,
         }   
 
 
@@ -466,22 +464,21 @@ class CortexViewer(ipw.GridBox):
         if key == "dataset":
             self.state.dataset_index = change.new
             self.state.dataset       = self.state.get_selected_dataset()
-            self.state.participant   = self.state.get_selected_participant()
-            self.state.hemisphere    = self.state.get_selected_hemisphere() 
-            self.state.selected_annotation = self.state.get_selected_annotation()
-        elif key == "participant":
-            self.state.participant = change.new 
-        elif key == "hemisphere":
-            self.state.hemisphere = self.state.get_selected_hemisphere()
-        elif key == "annotation": 
-            self.state.selected_annotation = change.new
+            self.state.targets       = self.state.get_targets()
+            self.state.annotation    = self.state.get_annotation()
+        else: # key == "targets"  
+            # TODO: I do not think the key is being changed
+            # key is always "targets" but the value is changing, so we need to 
+            # update the targets based on the new value
+            self.state.targets[key] = change.new
+            self.state.annotation   = self.state.get_annotation()
         
         # Update style options based on new dataset
         if key == "dataset":
             self.state.update_style_options()
 
         # Update the cortex viewer state based on selection change
-        if key in ( "dataset", "participant", "hemisphere" ):
+        if key in ( "dataset", "target" ):
             self.state.update_participant()
             self.state.update_coordinates()
             self.state.update_mesh()

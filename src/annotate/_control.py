@@ -95,9 +95,9 @@ class SelectionPanel(ipw.VBox):
 
     @property
     def selection(self):
-        """Compute the current selection (targets + annotation)."""
+        """Compute the current selection (target + annotation)."""
         return self.target + (self.annotation, )
-    
+
 
     def refresh_annotations(self):
         """Refreshes the annotations dropdown menu based on the current target selection."""
@@ -119,6 +119,7 @@ class SelectionPanel(ipw.VBox):
 
 
     def on_target_change(self, key, change):
+        """Alert our observers that the target selection has changed."""
         # Refresh the annotations menu.
         self.refresh_annotations()
 
@@ -128,6 +129,7 @@ class SelectionPanel(ipw.VBox):
 
 
     def on_annotation_change(self, change):
+        """Alert our observers that the annotation selection has changed."""
         # Alert our observers.
         for fn in self.annotation_observers:
             fn(change)
@@ -187,70 +189,84 @@ class StylePanel(ipw.VBox):
 
     __slots__ = (
         "state", "user_preferences", "style_dropdown", "visible_checkbox",
-        "color_picker", "pointsize_slider", "linewidth_slider", "linestyle_dropdown",
-        "style_observers", "style_names"
+        "color_picker", "markersize_slider", "linewidth_slider", 
+        "linestyle_dropdown", "style_observers", "style_names"
     )
     
     def __init__(self, state):
         # Store the state
         self.state = state
 
+        # Declare default layout and kwargs options for the style controls.
+        layout = { "width": "94%", "margin": "0% 3% 0% 3%" }   
+        slider_kwargs = {
+            "value": 1, "min": 1, "max": 8, "step": 1,
+            "readout": True, "continuous_update": False,
+            "layout": layout
+        }
+
         # We use the config to populate the collection of style preferences, but
         # we keep track of these separately so that we can remember them.
         self.user_preferences = {}
+
+        # The style dropdown menu will have an "Active Annotation" option 
+        # followed by an option for each annotation in the configuration.
         entries  = [ "Active Annotation" ]
         entries += list(state.config.annotations.keys())
-        layout = { "width": "94%", "margin": "0% 3% 0% 3%"}   
+
+        # Define the style dropdown menu.
         self.style_dropdown = ipw.Dropdown(
             options     = entries, 
             value       = entries[0],
             description = "Annotation:",
             layout      = { **layout, "margin": "3% 3% 3% 3%" }
         )
+
+        # Define the visible checkbox.
         self.visible_checkbox = ipw.Checkbox(
             description = "Visible",
-            value = True,
-            layout = layout
+            value       = True,
+            layout      = layout
         )
+
+        # Define the color picker.
         self.color_picker = ipw.ColorPicker(
-            concise = False,
+            concise     = False,
             description = "Color:",
-            value = "blue",
-            layout = layout
+            value       = "blue",
+            layout      = layout
         )
-        self.pointsize_slider = ipw.IntSlider(
-            value = 1, min = 0, max = 12, step = 1,
+
+        # Define the marker size slider.
+        self.markersize_slider = ipw.IntSlider(
+            **{ **slider_kwargs, "max": 12 },
             description = "Point Size:",
-            readout = True,
-            continuous_update = False,
-            layout = layout
         )
+        self.markersize_slider.add_class("annotate-style-widget")
+
+        # Define the line width slider.
         self.linewidth_slider = ipw.IntSlider(
-            value = 1, min = 1, max = 8, step = 1,
+            **slider_kwargs,
             description = "Line Width:",
-            readout = True,
-            continuous_update = False,
-            layout = layout
         )
-        self.linewidth_slider = ipw.IntSlider(
-            value = 1, min = 1, max = 8, step = 1,
-            description = "Line Width:",
-            readout = True,
-            continuous_update = False,
-            layout = layout
-        )
+        self.linewidth_slider.add_class("annotate-style-widget")
+
+        # Define the line style dropdown.
         self.linestyle_dropdown = ipw.Dropdown(
             options     = [ "solid", "dashed", "dot-dashed", "dotted" ],
             description = "Line Style:",
             layout      = layout
         )
+
+        # Create the VBox children of style options.
         children = [
+            self._make_html_header(),
             ipw.HTML("<b style=\"margin: 0% 3% 0% 3%;\">Style Options:</b>"),
             self.style_dropdown,
             self._make_hline(),
             self.visible_checkbox,
             self.color_picker,
-            self.pointsize_slider,
+            self.markersize_slider,
             self.linewidth_slider,
             self.linestyle_dropdown
         ]
@@ -262,7 +278,7 @@ class StylePanel(ipw.VBox):
         self.style_names = {
             "visible"   : self.visible_checkbox,
             "color"     : self.color_picker,
-            "markersize": self.pointsize_slider,
+            "markersize": self.markersize_slider,
             "linewidth" : self.linewidth_slider,
             "linestyle" : self.linestyle_dropdown
         }
@@ -273,55 +289,69 @@ class StylePanel(ipw.VBox):
         # changes also.
         self.style_dropdown.observe(self.refresh_style, names = "index")
         self.refresh_style()
-    
+
 
     @classmethod
-    def _make_hline(cls, width = 85):
+    def _make_html_header(cls, hline_width = 85):
+        hline_right = (100 - hline_width) // 2
+        hline_left  = 100 - hline_width - hline_right
         return ipw.HTML(f"""
-            <style> 
-                .cortex-annotate-StylePanel-hline {{
+            <style>
+                .annotate-style-hline {{
                     border-color: lightgray;
                     border-style: dotted;
                     border-width: 1px;
                     height: 0px;
-                    width: {width}%;
-                    margin: 0% {(100-width)//2}% 0% {100 - width - (100-width)//2}%;
-                }} 
+                    width: {hline_width}%;
+                    margin: 0% {hline_right}% 0% {hline_left}%;               
+                }}
+                .annotate-style-widget .widget-readout {{
+                    min-width: 50px;
+                }}
             </style>
-            <div class="cortex-annotate-StylePanel-hline"></div>
         """)
+
     
+    @classmethod
+    def _make_hline(cls):
+        return ipw.HTML("""<div class="annotate-style-hline"></div>""")
+    
+
     @property
     def annotation(self):
+        """Compute the currently selected annotation for styling."""
         dd = self.style_dropdown
         return dd.value if dd.index > 0 else None
     
     
     @property
     def preferences(self):
+        """Compute the current style preferences for the currently selected annotation."""
         return { k: v.value for (k, v) in self.style_names.items() }
     
     
     @property
     def style(self):
+        """Compute the style preferences for the currently selected annotation."""
         prefs = self.user_preferences
         prefs["annotation"] = self.annotation
         return prefs
     
 
     def refresh_style(self, change = None):
-        ann = self.style_dropdown.index if change is None else change.new
-        ann = self.style_dropdown.options[ann] if ann > 0 else None
-        prefs = self.state.style(ann)
+        """Refreshes the style controls based on the currently selected annotation."""
+        annotation = self.style_dropdown.index if change is None else change.new
+        annotation = self.style_dropdown.options[annotation] if annotation > 0 else None
+        prefs = self.state.style(annotation)
         for (key, value) in self.style_names.items():
             value.value = prefs[key]
 
 
     def on_style_change(self, key, change):
-        ann = self.annotation
+        """Handles a change in one of the style controls and alerts our observers."""
         # Alert our observers.
         for fn in self.style_observers:
-            fn(ann, key, change)
+            fn(self.annotation, key, change)
 
 
     def observe_style(self, fn):
@@ -417,8 +447,8 @@ class ControlPanel(ipw.VBox):
     def __init__(
             self, 
             state,
-            background_color  = "#f0f0f0", 
-            save_button_color = "#e0e0e0"
+            background_color = "#f0f0f0", 
+            button_color     = "#e0e0e0"
         ):
 
         # Create the selection panel.
@@ -442,19 +472,26 @@ class ControlPanel(ipw.VBox):
         # Create the style panel.
         self.style_panel = StylePanel(state)
 
+        # Create the clear all button.
+        self.clear_button = ipw.Button(
+            description  = "Clear All",
+            tooltip      = "Clear all annotations from the figure.",
+            button_style = "warning"
+        )
+
         # Create the save button.
         self.save_button = ipw.Button(
             description  = "Save",
             tooltip      = "Save all annotations and preferences."
         )
-        self.save_button.style.button_color = save_button_color
+        self.save_button.style.button_color = button_color
         
         # Create the wrapper for the buttons.
         self.button_box = ipw.HBox(
-            children = [ self.save_button ], 
-            layout   = { "margin" : "3% 33% 3% 33%", "width" : "34%" }
-        )
-        
+            children = [  self.clear_button, self.save_button ], 
+            layout   = { "margin" : "3% 3% 3% 3%", "width" : "94%" }
+        )            
+
         # Create the VBox children; main control panel components and dividers.
         children = [
             self.selection_panel,
@@ -645,3 +682,12 @@ class ControlPanel(ipw.VBox):
         instance.
         """
         self.save_button.on_click(fn)
+
+
+    def observe_clear(self, fn):
+        """Registers the argument to be called when the clear all button is clicked.
+        
+        The function is called with a single argument, which is the clear all
+        button instance.
+        """
+        self.clear_button.on_click(fn)

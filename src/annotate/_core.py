@@ -58,7 +58,8 @@ class AnnotationState:
 
     __slots__ = (
         "config", "cache_path", "save_path", "git_path", "username",
-        "annotations", "preferences", "loading_context", "save_hooks"
+        "annotations", "preferences", "loading_context", "save_hooks", 
+        "locked"
     )
     
     def __init__(
@@ -99,8 +100,14 @@ class AnnotationState:
         # (Lazily) load the annotations.
         self.annotations = self.load_annotations()
 
-        # # And (lazily) load the preferences.
+        # And (lazily) load the preferences.
         self.preferences = self.load_preferences()
+
+        # Declare the locked state of the annotation tool. When locked, the user
+        # cannot interact with the figure panel and some control panel options 
+        # are disabled. This is used when there is an error with the current
+        # selection that prevents the figure from being properly displayed.
+        self.locked = False
         
     # Git Methods --------------------------------------------------------------
 
@@ -558,7 +565,7 @@ class AnnotationTool(ipw.HBox):
             git_path    = "/git",
             username    = None,
             control_panel_background_color = "#f0f0f0",
-            save_button_color = "#e0e0e0",
+            button_color = "#e0e0e0",
         ):        
         """Initializes the annotation tool."""
         
@@ -578,17 +585,11 @@ class AnnotationTool(ipw.HBox):
         self.control_panel = ControlPanel(
             state             = self.state,
             background_color  = control_panel_background_color,
-            save_button_color = save_button_color,
+            button_color      = button_color,
         )
         
         # Make the figure panel.
         self.figure_panel = FigurePanel(self.state)
-
-        # Declare the locked state of the annotation tool. When locked, the user
-        # cannot interact with the figure panel and some control panel options 
-        # are disabled. This is used when there is an error with the current
-        # selection that prevents the figure from being properly displayed.
-        self.locked = False
         
         # Pass the loading context over to the state.
         self.state.loading_context = self.figure_panel.loading_context
@@ -609,6 +610,9 @@ class AnnotationTool(ipw.HBox):
         # And a listener for the style change.
         self.control_panel.observe_style(self.on_style_change)
 
+        # Add a listener for the clear all button.
+        self.control_panel.observe_clear(self.on_clear)
+
         # And a listener for the save button.
         self.control_panel.observe_save(self.on_save)
 
@@ -616,15 +620,26 @@ class AnnotationTool(ipw.HBox):
 
     def _lock_tool(self):   
         """Locks the annotation tool, preventing user interaction with the figure."""
-        self.lock = True
+        self.state.locked = True
         self.control_panel.figure_size_slider.disabled = True
+        self.control_panel.style_panel.style_dropdown.disabled     = True
+        self.control_panel.style_panel.visible_checkbox.disabled   = True
+        self.control_panel.style_panel.color_picker.disabled       = True
+        self.control_panel.style_panel.markersize_slider.disabled   = True
+        self.control_panel.style_panel.linewidth_slider.disabled   = True
+        self.control_panel.style_panel.linestyle_dropdown.disabled = True
 
 
     def _unlock_tool(self):
         """Unlocks the annotation tool, allowing user interaction with the figure."""
-        self.lock = False
+        self.state.locked = False
         self.control_panel.figure_size_slider.disabled = False
-
+        self.control_panel.style_panel.style_dropdown.disabled     = False
+        self.control_panel.style_panel.visible_checkbox.disabled   = False
+        self.control_panel.style_panel.color_picker.disabled       = False
+        self.control_panel.style_panel.markersize_slider.disabled   = False
+        self.control_panel.style_panel.linewidth_slider.disabled  = False
+        self.control_panel.style_panel.linestyle_dropdown.disabled = False
 
     # Figure Refresh Methods ---------------------------------------------------
 
@@ -646,7 +661,7 @@ class AnnotationTool(ipw.HBox):
             # If there is no data for this fixed point, then we have an error.
             if target_annots.is_lazy(fp) or target_annots[fp].shape[0] == 0:
                 error = f"Annotation '{annotation}' requires fixed point '{fp}' " \
-                        f"which is not yet calculated for target '{target_id}'."
+                        f"which is not yet available for target: {target_id}."
                 break
 
             # Else, there is data for this fixed point. Check if the fixed point
@@ -656,7 +671,7 @@ class AnnotationTool(ipw.HBox):
                     annotation, target_annots, fp_type)
             except Exception as e:
                 error = f"Annotation '{annotation}' requires fixed point '{fp}' " \
-                        f"which cannot be calculated for target '{target_id}' " \
+                        f"which cannot be calculated for target: {target_id} " \
                         f"with the current data: {e}"
                 break
     
@@ -664,14 +679,11 @@ class AnnotationTool(ipw.HBox):
         # Otherwise, we can clear any messages and just show the figure.
         if error is not None:
             # Lock the annotation tool, so user cannot interact with the figure.
-            print("Locking tool due to error:", error)
             self._lock_tool()
 
             # Write the error message. 
             self.figure_panel.write_message(error)
         else:
-            print("No errors found. Unlocking tool and refreshing figure.")
-
             # Unlock the annotation tool, so user can interact with the figure.
             self._unlock_tool()
             
@@ -683,7 +695,6 @@ class AnnotationTool(ipw.HBox):
 
             # Redraw the figure. 
             self.figure_panel.redraw_canvas()
-
 
     # Event Handler Methods ----------------------------------------------------
 
@@ -731,6 +742,36 @@ class AnnotationTool(ipw.HBox):
         self.figure_panel.redraw_canvas(redraw_image = False)
 
 
+    def on_clear(self, button):
+        """This method runs when the control panel's clear all button is clicked."""
+        # The clear all button has a confirmation process. When the user first 
+        # clicks it, it changes to a "Confirm Clear" button. If they click it
+        # again, then the annotations are cleared. The button then resets to the
+        # original "Clear All" state.
+        if button.description == "Clear All":
+            # Update the button to the confirmation state.
+            button.description  = "Confirm Clear"
+            button.button_style = "danger"
+        elif button.description == "Confirm Clear":
+            # Update the button back to the original state.
+            button.description  = "Clear All"
+            button.button_style = "warning"
+
+            # Clear the annotations for the current target.
+            target_id = self.control_panel.target
+            for annotation in self.state.annotations[target_id].keys():
+                self.state.annotations[target_id][annotation] = (
+                    self.figure_panel.empty_point_matrix())
+
+            # Refresh the figure to show the cleared annotations.
+            self.refresh_figure()
+        else:
+            # If the button is in some unexpected state, we just reset it to the
+            # original state.
+            button.description = "Clear All"
+            button.button_style = "warning"
+
+        
     def on_save(self, button):
         """This method runs when the control panel's save button is clicked."""
         self.state.save_annotations()

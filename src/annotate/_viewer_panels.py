@@ -7,7 +7,7 @@ Core implementation code for the CortexViewer's subpanels.
 
 CortexViewer is implemented in terms of two main subpanels:
 1) CortexControlPanel: The control panel that contains viewer information about 
-    the dataset, participant, and hemisphere, as well as user controls for 
+    the dataset, target keys, and annotations, as well as user controls for 
     adjusting the inflation level of the cortex plot.
 2) CortexFigurePanel: The figure panel that contains the 3D cortex plot.
 
@@ -38,7 +38,8 @@ class CortexControlPanel(ipw.VBox):
 
         # Create information boxes
         self.infobox = {} # initialize infobox dictionary
-        for key in ( "dataset", "participant", "hemisphere", "annotation" ):
+        infobox_keys = ( "dataset", *list(state.targets.keys()), "annotation" ) 
+        for key in infobox_keys: # for each key in dataset and selection
             self.infobox[key] = self._init_infobox(state, key)
         
         # Create the inflation slider widget
@@ -65,13 +66,11 @@ class CortexControlPanel(ipw.VBox):
             self._make_html_header(),
             # Cortex Viewer title
             self._make_section_title("Selection:"),
-            # Dataset label
+            # Dataset infoboxes
             self.infobox["dataset"],
-            # Participant label
-            self.infobox["participant"],
-            # Hemisphere label
-            self.infobox["hemisphere"],
-            # Annotation label
+            # Targets infoboxes
+            *[ self.infobox[key] for key in state.targets.keys() ],
+            # Annotation infobox
             self.infobox["annotation"],
             # Horizontal line
             self._make_hline(), 
@@ -147,14 +146,13 @@ class CortexControlPanel(ipw.VBox):
 
 
     def _prep_infobox_value(self, state, key):
+        """Prepare the infobox value for display."""
         if key == "dataset":
             return state.dataset
-        elif key == "participant":
-            return state.participant
-        elif key == "hemisphere":
-            return state.convert_hemisphere(state.hemisphere)
-        else: # key == "annotation"
-            return state.selected_annotation
+        elif key == "annotation":
+            return state.annotation
+        else: # key in state.targets
+            return state.targets[key]
 
 
     def _make_infobox_value(self, value):

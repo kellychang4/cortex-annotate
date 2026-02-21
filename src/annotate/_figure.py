@@ -9,6 +9,7 @@ Core implementation code for the cortex-annotate tool's figure panel.
 
 # Imports ######################################################################
 
+import threading
 import numpy as np
 import ipycanvas as ipc
 import ipywidgets as ipw
@@ -70,8 +71,9 @@ class FigurePanel(ipw.HBox):
         # Store the annotation configuation information.
         self.annot_cfg = state.config.annotations
 
-        # Store the figure size (in pixels, cell in grid).  
-        self.figure_size = np.array([256, 256]) # default value
+        # Store the figure size (in pixels, cell in grid). 
+        sz = state.preferences["figure_size"] 
+        self.figure_size = np.array([sz, sz]) 
 
         # Get first grid shape from first annotation in state
         annot0 = list(self.annot_cfg.types.keys())[0]
@@ -153,24 +155,6 @@ class FigurePanel(ipw.HBox):
 
     # Annotation Canvas Methods ------------------------------------------------
 
-    def _redraw_active(self):
-        """Redraws the active annotation on the active canvas."""
-        # Clear the active canvas. 
-        self.active_canvas.clear()
-
-        # this information tells me about the points
-        points = self.annotations[self.active]
-        canvas = self.active_canvas
-        styletag = None
-        cursor = self.cursor
-        fixed_head = self.fixed_head is not None
-        fixed_tail = self.fixed_tail is not None
-
-        # determine if there are annotations dependent ON THIS active annotation
-
-
-
-
     def redraw_annotations(self, active = True, background = True):
         """Clears the annotation canvas and redraws all annotations."""
         # First, we clear the annotation canvases, depending on updates.
@@ -182,10 +166,11 @@ class FigurePanel(ipw.HBox):
             # If there are no points, we can skip.
             if points is None or len(points) == 0: continue
             
-            # The active annotaion is drawn on the active canvas, and all other
-            # annotations are drawn on the background canvas. 
+            # Determine annotation specific properties based on if the current
+            # annotation is the active annotation or a background annotation.
             if self.active == annotation:
-                print("Drawing active annotation:", annotation)
+                # Skip active annotation if active is False.
+                if not active: continue
                 canvas     = self.active_canvas
                 styletag   = None
                 cursor     = self.cursor
@@ -194,7 +179,6 @@ class FigurePanel(ipw.HBox):
             else:
                 # Skip background annotations if background is False.
                 if not background: continue
-                print("Drawing background annotation:", annotation)
                 canvas     = self.background_canvas
                 styletag   = annotation
                 cursor     = None
@@ -207,17 +191,10 @@ class FigurePanel(ipw.HBox):
             # If this annotation isn't visible, we can skip it also.
             if not style["visible"]: continue
             
-            # See if the boundary is closed and connected.
-            atype = self.annot_cfg.types[annotation]
-            if atype == "point":
-                closed = False
-            elif atype == "contour":
-                closed = False
-            elif atype == "boundary":
-                closed = True
-                continue
-            else:
-                raise ValueError(f"Invalid annotation type: {atype}")
+            # Check annotation type to see if the path is closed. Only the 
+            # boundary type is closed.
+            atype  = self.annot_cfg.types[annotation]
+            closed = atype == "boundary" 
             
             # Okay, it needs to be drawn, so convert the figure points
             # into canvas coordinates (repeated across panels).
@@ -226,9 +203,11 @@ class FigurePanel(ipw.HBox):
             # For all the point-matrices here, we need to draw them.
             for points in grid_points:
                 self.draw_points(
-                    canvas, points, style, 
-                    cursor = cursor, 
-                    closed = closed, 
+                    canvas     = canvas, 
+                    points     = points, 
+                    style      = style,
+                    cursor     = cursor, 
+                    closed     = closed, 
                     fixed_head = fixed_head, 
                     fixed_tail = fixed_tail
                 )
@@ -280,7 +259,7 @@ class FigurePanel(ipw.HBox):
         self._apply_linestyle(canvas, style)
 
         # if there is more than one point, we can draw a line segments.
-        if points.shape[0] > 1: 
+        if points.shape[0] > 1:
             # if the path is closed, we need to add the first point to the end 
             # of the point matrix to make sure the path is closed when we draw it.
             if closed: points = np.vstack([points, points[0:1, :]])
@@ -296,7 +275,7 @@ class FigurePanel(ipw.HBox):
 
         # If fixed head, separate fixed points from the points to be drawn.
         user_points  = points.copy()
-        fixed_points = self._empty_point_matrix()
+        fixed_points = self.empty_point_matrix()
         if fixed_head: 
             fixed_points = np.vstack([fixed_points, points[0:1,:]])
             user_points  = user_points[1:, :] # remove the fixed head point 
@@ -488,14 +467,14 @@ class FigurePanel(ipw.HBox):
         # Determine the editable points.
         if atype == "point":
             if points is None or points.shape[0] == 0:
-                points = self._empty_point_matrix()
-                self.editable = np.array([])
+                points = self.empty_point_matrix()
+                self.editable = self._init_editable()
             else:                                                                                                                                                                                                  
-                self.editable = np.array([0]) 
+                self.editable = np.array([0], dtype = int) 
         else: # atype in ( "contour", "boundary" )
             # Update the annotations with the fixed points, if necessary.
             if points is None or points.shape[0] == 0:
-                points = self._empty_point_matrix()
+                points = self.empty_point_matrix()
                 if self.fixed_head is not None:
                     points = np.vstack([self.fixed_head, points])
                 if self.fixed_tail is not None:
@@ -522,8 +501,7 @@ class FigurePanel(ipw.HBox):
         print("Fixed head:", self.fixed_head)
         print("Fixed tail:", self.fixed_tail)
         print("Editable:", self.editable)
-        print("Cursor:", self.cursor)
-        
+        print("Cursor:", self.cursor)      
 
     # Canvas Resizing Method ---------------------------------------------------
 
@@ -685,33 +663,50 @@ class FigurePanel(ipw.HBox):
 
 
     @staticmethod
-    def _empty_point_matrix():
+    def empty_point_matrix():
         return np.zeros((0, 2), dtype = float)
 
 
+    @staticmethod
+    def _init_editable(x = None):
+        """Initializes the editable points for the given annotation."""
+        if x is None: return np.zeros((0,), dtype = int)
+        return np.array([x], dtype = int)
+    
+
     def _recalculate_deps(self, annotation):
         """Recalculates the dependent annotations for the given annotation."""
-        # Get the dependent annotations for this annotation.
-        dependent_annotations = [
-            key for fixed in (self.annot_cfg.fixed_head, self.annot_cfg.fixed_tail)
-            for key, value in fixed.items() if annotation == value
-        ]
+        # Get the dependent annotations for the given annotation.
+        fixed_deps = self.annot_cfg.fixed_dependencies[annotation]
 
-        # If there are no dependent annotations, we can skip.
-        if len(dependent_annotations) == 0: return False
-    
-        # Otherwise, we need to recalculate the dependent annotations.
-        print("Recalculating dependent annotations for:", annotation)
-        for annot in dependent_annotations:
-            print("  -> Dependent annotation:", annot)
-            current_points = self.annotations.get(annot)
+        # If there are no dependencies, we can skip.
+        if len(fixed_deps) == 0: return 
 
-            # if current_points is None or len(current_points) == 0:
-                # fixed = self.annot_cfg.fixed_head.get(annot) or self.annot_cfg.fixed_tail.get(annot)
+        # We need to recalculate each of the dependent annotations using their
+        # provided functions and update them in the state.
+        for fd in fixed_deps: 
+            # Get the current points for the dependent annotation. If None, initialize empty.
+            points = self.annotations[fd]
 
+            # If there are no points, we can skip the recalculation.
+            if points is None or points.shape[0] == 0: continue
 
-        # Return True to indicate that the background needs to be redrawn.
-        return True
+            # Recalculate and update the fixed head for the dependent annotation.        
+            fixed_head = self.calc_fixed_point(fd, self.annotations, "fixed_head")
+            if fixed_head is not None:
+                points[0,:] = fixed_head
+
+            # Recalculate and update the fixed tail for the dependent annotation.        
+            fixed_tail = self.calc_fixed_point(fd, self.annotations, "fixed_tail")
+            if fixed_tail is not None:
+                points[-1,:] = fixed_tail
+
+            # Update the annotation with the new points.
+            self.annotations[fd] = points
+
+            # Recursively recalculate the dependencies for the dependent 
+            # annotation, if necessary.
+            self._recalculate_deps(fd)
     
     
     def _increment_annotation_change(self):
@@ -735,7 +730,7 @@ class FigurePanel(ipw.HBox):
         print("Active annotation:", self.active)
         # Get the current points for this annotation. If None, initialize empty.
         points = self.annotations[self.active]
-        if points is None: points = self._empty_point_matrix()
+        if points is None: points = self.empty_point_matrix()
         print("Previous points:\n", points)
         print("Shape:", points.shape)
 
@@ -748,21 +743,21 @@ class FigurePanel(ipw.HBox):
         if atype == "point":
             # For a point annotation, replace the current point with the new point.
             points        = new_point
-            self.editable = np.array([0]) 
+            self.editable = self._init_editable(0)
             self.cursor   = 0
         elif atype == "contour":
             # If there are no points, we just add the new point.
-            if points is None or points.shape[0] == 0:
-                self.editable = np.array([0])
+            if points.shape[0] == 0:
+                self.editable = self._init_editable(0)
                 self.cursor   = 0
 
             # If there are no editable points, we add the new point to the head
             # or tail depending on which one is fixed.                
             elif self.editable.shape[0] == 0:
                 if self.fixed_head is not None:
-                    self.editable = np.array([1])
+                    self.editable = self._init_editable(1)
                 elif self.fixed_tail is not None:
-                    self.editable = np.array([0])
+                    self.editable = self._init_editable(0)
                 self.cursor = self.editable[0]   
 
             # If there are editable points, we add the new point after the 
@@ -792,13 +787,14 @@ class FigurePanel(ipw.HBox):
         print("Editable:", self.editable)
         print("Cursor:", self.cursor)
 
-        # Update dependent annotations, if necessary.
-        # redraw_background = self._recalculate_deps(self.active)
-        redraw_background = False
+        # Update dependent annotations, if this active annotation has them.
+        fixed_deps = self.annot_cfg.fixed_dependencies[self.active]
+        has_deps   = len(fixed_deps) > 0
+        if has_deps: self._recalculate_deps(self.active)
 
         # Redraw the annotations.
         if redraw:
-            self.redraw_annotations(background = redraw_background)
+            self.redraw_annotations(background = has_deps)
             self._increment_annotation_change()
 
 
@@ -893,15 +889,41 @@ class FigurePanel(ipw.HBox):
         if points is None or points.shape[0] == 0 or \
             self.editable.shape[0] == 0: return
         
+        # Check if there are any LIVE dependencies on this annotation. If so, 
+        # we cannot delete the last point of this annotation because the 
+        # dependent annotations rely on it. 
+        fixed_deps = self.annot_cfg.fixed_dependencies[self.active]
+        has_deps   = len(fixed_deps) > 0
+        if has_deps and self.editable.shape[0] == 1:
+            # Determine the number of fixed points for each dependent 
+            # annotation. This number is the minimum number of points that the 
+            # annotation must have be considered LIVE.
+            n_fixed = [ 
+                len(self.annot_cfg.fixed_points[fd]) for fd in fixed_deps 
+            ]
+
+            live_deps = [
+                fd for fd, n in zip(fixed_deps, n_fixed) 
+                if self.annotations[fd] is not None
+                and self.annotations[fd].shape[0] > n
+            ]
+        
+            if live_deps:
+                # Write a warning message to the user about live dependencies. 
+                self.write_message(
+                    f"Cannot delete: '{self.active}'. It is required by "
+                    f"{', '.join(live_deps)}. Clear those annotations first."
+                )
+                # Clear the message after 3 seconds. 
+                threading.Timer(3.0, self.clear_message).start()
+                return
+        
         print("Deleting point at cursor position:", self.cursor)
 
         # If there are points, we delete based on annotation type.
         if atype == "point":
-            # For a point annotation, we just delete the single point, which is 
-            # the entire annotation, and set the cursor to None.
-            points        = self._empty_point_matrix()
-            self.editable = np.array([])
-            self.cursor   = None
+            # For a point annotation, we cannot delete the single point.
+            return
         elif atype == "contour":
             # If there are points to delete, delete at current position.
             points = np.delete(points, self.cursor, axis = 0)
@@ -934,13 +956,12 @@ class FigurePanel(ipw.HBox):
         print("Editable:", self.editable)
         print("Cursor:", self.cursor)
 
-        # Update dependent annotations, if necessary.
-        # deps = self.annotation_deps[self.active]
-        # hasdeps = len(deps) > 0
+        # Update dependent annotations, if this active annotation has them.
+        if has_deps: self._recalculate_deps(self.active)
 
         # Redraw the annotations.
         if redraw:
-            self.redraw_annotations(background = False)
+            self.redraw_annotations(background = has_deps)
             self._increment_annotation_change()
    
 
