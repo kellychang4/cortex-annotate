@@ -33,43 +33,46 @@ class CortexControlPanel(ipw.VBox):
     Viewer tool.
     """
 
-    def __init__(self, state):
+    def __init__(self, state, background_color = "#f0f0f0"):
         """Initialize the Cortex Control Panel with the given state."""
+        # Store the state.
+        self.state = state
+
+        # Extract the target keys
+        self.target_keys = list(state.targets.keys())
 
         # Create information boxes
         self.infobox = {} # initialize infobox dictionary
-        infobox_keys = ( "dataset", *list(state.targets.keys()), "annotation" ) 
+        infobox_keys = ( "dataset", *self.target_keys, "annotation" ) 
         for key in infobox_keys: # for each key in dataset and selection
-            self.infobox[key] = self._init_infobox(state, key)
+            self.infobox[key] = self._init_infobox(key)
         
         # Create the inflation slider widget
-        self.inflation_slider = self._init_inflation_slider(state)
+        self.inflation_slider = self._init_inflation_slider()
 
         # Create the overlay dropdown widget
-        self.overlay_dropdown = self._init_overlay_dropdown(state)
+        self.overlay_dropdown = self._init_overlay_dropdown()
 
         # Create the overlay alpha slider widget
-        self.overlay_slider = self._init_overlay_slider(state)
+        self.overlay_slider = self._init_overlay_slider()
 
         # Create point size slider (user-defined points)
-        self.point_size_slider = self._init_point_size_slider(state)
+        self.point_size_slider = self._init_point_size_slider()
 
         # Create line size slider (interpolated)
-        self.line_size_slider = self._init_line_size_slider(state)
+        self.line_size_slider = self._init_line_size_slider()
 
         # Create the number of line points slider widget
-        self.line_points_slider = self._init_line_points_slider(state)
+        self.line_points_slider = self._init_line_points_slider()
 
         # Assemble the control panel with children widgets
         children = [
-            # HTML header
-            self._make_html_header(),
             # Cortex Viewer title
             self._make_section_title("Selection:"),
             # Dataset infoboxes
             self.infobox["dataset"],
             # Targets infoboxes
-            *[ self.infobox[key] for key in state.targets.keys() ],
+            *[ self.infobox[key] for key in self.target_keys ],
             # Annotation infobox
             self.infobox["annotation"],
             # Horizontal line
@@ -89,24 +92,37 @@ class CortexControlPanel(ipw.VBox):
             # Line interpolation slider
             self.line_points_slider,
         ]
+        vbox = ipw.VBox(children, layout = { "width": "250px" })
 
-        # Set the overall layout into the VBox
-        super().__init__(children = children)
-
-        # Add CSS class for styling
+        # Wrap the whole thing in an accordion so that it can be collapsed.
+        accordion = ipw.Accordion((vbox, ), selected_index = 0)
         self.add_class("cortex-control-panel")
-        
+
+        # Initalize the VBox with the accordion.
+        super().__init__(
+            children = [ self._make_html_header(background_color), accordion ],  
+            layout   = { "border": "0px", "height": "100%" }
+        )        
+
 
     @classmethod
-    def _make_html_header(cls):
+    def _make_html_header(cls, background_color = "#f0f0f0"):
         return ipw.HTML(f"""
             <style>
-                .cortex-control-panel {{
-                    background-color: #f0f0f0;
-                    border: 1px solid lightgray;
+                .cortex-control-panel .jupyter-widget-Collapse-open {{
+                    background-color: white;
+                }}
+                .cortex-control-panel .jupyter-widget-Collapse-header {{
+                    background-color: white;
+                    border-width: 0px;
+                    padding: 0px;
+                }}
+                .cortex-control-panel .jupyter-widget-Collapse-contents {{
+                    background-color: {background_color};
                     padding: 2px;
-                    height: 100%;
-                    width: 260px; 
+                    border-width: 1px;
+                    border-style: solid;
+                    border-color: lightgray;
                 }}
                 .info-label {{
                     margin-right: 8px;
@@ -145,14 +161,14 @@ class CortexControlPanel(ipw.VBox):
         return ipw.HTML("""<div class="cortex-hline"></div>""")
 
 
-    def _prep_infobox_value(self, state, key):
+    def _prep_infobox_value(self, key):
         """Prepare the infobox value for display."""
         if key == "dataset":
-            return state.dataset
+            return self.state.dataset
         elif key == "annotation":
-            return state.annotation
+            return self.state.annotation
         else: # key in state.targets
-            return state.targets[key]
+            return self.state.targets[key]
 
 
     def _make_infobox_value(self, value):
@@ -160,9 +176,9 @@ class CortexControlPanel(ipw.VBox):
         return f"""<div class="info-value">{value}</div>"""
     
 
-    def _init_infobox(self, state, key):
+    def _init_infobox(self, key):
         """Update an information box for the given key and state."""
-        value = self._prep_infobox_value(state, key)
+        value = self._prep_infobox_value(key)
         return ipw.Box([
             ipw.HTML(f"""<div class="info-label">{key.capitalize()}:</div>""",
                      layout = { "width": "40%", "margin": "0px" }),
@@ -174,9 +190,9 @@ class CortexControlPanel(ipw.VBox):
         ))
 
 
-    def _init_inflation_slider(self, state):
+    def _init_inflation_slider(self):
         inflation_slider = ipw.IntSlider(
-            value             = state.style["inflation_percent"],
+            value             = self.state.style["inflation_percent"],
             min               = 0,
             max               = 100,
             step              = 1,
@@ -190,7 +206,7 @@ class CortexControlPanel(ipw.VBox):
         return inflation_slider
 
 
-    def _init_overlay_dropdown(self, state):
+    def _init_overlay_dropdown(self):
         overlay_dropdown = ipw.Dropdown(
             options     = [
                 ( "None", "curvature" ), 
@@ -198,16 +214,16 @@ class CortexControlPanel(ipw.VBox):
                 ( "Eccentricity", "eccen" ), 
                 ( "Variance Explained", "vexpl" )
             ],
-            value       = state.style["overlay"],    
+            value       = self.state.style["overlay"],    
             description = "Overlay:",
         )
         overlay_dropdown.add_class("cortex-control-widgets")
         return overlay_dropdown
 
 
-    def _init_overlay_slider(self, state):
+    def _init_overlay_slider(self):
         overlay_slider = ipw.FloatSlider(
-            value             = state.style["overlay_alpha"],
+            value             = self.state.style["overlay_alpha"],
             min               = 0.0,
             max               = 1.0,
             step              = 0.1,
@@ -221,9 +237,9 @@ class CortexControlPanel(ipw.VBox):
         return overlay_slider
     
 
-    def _init_point_size_slider(self, state):
+    def _init_point_size_slider(self):
         point_size_slider = ipw.FloatSlider(
-            value             = state.style["point_size"],
+            value             = self.state.style["point_size"],
             min               = 0.5,
             max               = 5,
             step              = 0.1,
@@ -237,9 +253,9 @@ class CortexControlPanel(ipw.VBox):
         return point_size_slider
     
 
-    def _init_line_size_slider(self, state):
+    def _init_line_size_slider(self):
         line_size_slider = ipw.FloatSlider(
-            value             = state.style["line_size"],
+            value             = self.state.style["line_size"],
             min               = 0.5,
             max               = 5,
             step              = 0.1,
@@ -253,9 +269,9 @@ class CortexControlPanel(ipw.VBox):
         return line_size_slider
 
 
-    def _init_line_points_slider(self, state):
+    def _init_line_points_slider(self):
         line_points_slider = ipw.IntSlider(
-            value             = state.style["line_points"],
+            value             = self.state.style["line_points"],
             min               = 2,
             max               = 20,
             step              = 1,
@@ -269,9 +285,9 @@ class CortexControlPanel(ipw.VBox):
         return line_points_slider
     
 
-    def refresh_infobox(self, state, key):
+    def refresh_infobox(self, key):
         """Refresh the control panel display to reflect updated infobox values."""
-        value = self._prep_infobox_value(state, key)
+        value = self._prep_infobox_value(key)
         self.infobox[key].children[1].value = self._make_infobox_value(value)
 
 
@@ -312,31 +328,33 @@ class CortexFigurePanel(ipw.GridBox):
     The panel that contains the 3D cortex plot for the Cortex Viewer tool.
     """
     
-    def __init__(self, state, width = None, height = 400):
+    def __init__(self, state, height = 400):
+        # Store the state.
+        self.state = state
 
         # Create a figure background (k3d plot)
         self.figure = k3d.plot(
             # K3d does not use width, just fills the space
-            height          = height, 
-            grid_visible    = False,
-            camera_auto_fit = False,
-            menu_visibility = False,
-            camera_fov      = 60,
-            axes_helper     = 0, # remove axes direction helper
+            height            = height, 
+            grid_visible      = False,
+            camera_auto_fit   = False,
+            menu_visibility   = False,
+            camera_fov        = 60,
+            axes_helper       = 0, # remove axes direction helper
             camera_zoom_speed = 1.5,
         )
 
         # Create and add the cortex mesh to the figure
-        self.k3dmesh_cortex = self._init_cortex(state)
+        self.k3dmesh_cortex = self._init_cortex()
 
         # Create and add the overlay mesh to the figure
-        self.k3dmesh_overlay = self._init_overlay(state)
+        self.k3dmesh_overlay = self._init_overlay()
         
         # Create active points to figure 
-        self.k3dpoints_active = self._init_active_points(state)
+        self.k3dpoints_active = self._init_active_points()
 
         # Create background points to figure
-        self.k3dpoints_background = self._init_background_points(state)
+        self.k3dpoints_background = self._init_background_points()
 
         # Add the meshes and points to the figure and initial render
         self.figure += self.k3dmesh_cortex
@@ -423,11 +441,11 @@ class CortexFigurePanel(ipw.GridBox):
         return mesh
 
 
-    def _prep_cortex(self, state):
+    def _prep_cortex(self):
         """Prepare the data for the cortex mesh."""
-        vertices  = state.coordinates.T.astype(np.float32) # (n_vertices, 3)
-        indices   = state.fsaverage[state.hemisphere]["tesselation"].T.astype(np.uint32)
-        curvature = self._rgb_to_k3dcolor(state.curvature)
+        vertices  = self.state.coordinates.T.astype(np.float32) # (n_vertices, 3)
+        indices   = self.state.fsaverage[self.state.hemisphere]["tesselation"].T.astype(np.uint32)
+        curvature = self._rgb_to_k3dcolor(self.state.curvature)
         return { 
             "vertices" : vertices, 
             "indices"  : indices, 
@@ -435,29 +453,29 @@ class CortexFigurePanel(ipw.GridBox):
         }
     
 
-    def _prep_overlay(self, state):
+    def _prep_overlay(self):
         """Prepare the data for the cortex overlay mesh."""
         # If no overlay, return None
-        if state.style["overlay"] == "curvature":
+        if self.state.style["overlay"] == "curvature":
             return None
 
         # Else return the overlay mesh keyword arguments
         return {
-            **self._prep_cortex(state), # same vertices + indices
-            "colors"   : self._rgb_to_k3dcolor(state.color),
-            "opacity"  : state.style["overlay_alpha"]
+            **self._prep_cortex(), # same vertices + indices
+            "colors"   : self._rgb_to_k3dcolor(self.state.color),
+            "opacity"  : self.state.style["overlay_alpha"]
         }
     
 
-    def _init_cortex(self, state):
+    def _init_cortex(self):
         """Initialize the cortex mesh."""
-        cortex_kwargs = self._prep_cortex(state)
+        cortex_kwargs = self._prep_cortex()
         return k3d.mesh(**cortex_kwargs, wireframe = False, flat_shading = False)          
     
 
-    def _init_overlay(self, state):
+    def _init_overlay(self):
         """Initialize the cortex overlay mesh."""
-        overlay_kwargs = self._prep_overlay(state)
+        overlay_kwargs = self._prep_overlay()
         if overlay_kwargs is None:
             return self._init_mesh()
         return k3d.mesh(**overlay_kwargs, wireframe = False, flat_shading = False)
@@ -473,16 +491,20 @@ class CortexFigurePanel(ipw.GridBox):
         return points
     
 
-    def _prep_active_points(self, state):
+    def _prep_active_points(self):
         """Prepare the data for the active annotation."""
-        # Get the selected annotation
-        selected_annotation = state.selected_annotation
+        # Get the annotation coordinates and anchor points
+        annotation  = self.state.annotation
+        coordinates = self.state.surface_annotations[annotation]["coordinates"] 
+        anchor      = self.state.surface_annotations[annotation]["anchor"]
         
-        # Get the annotation style, coordinates, and anchor points
-        annotation_style = state.annotation_styles[selected_annotation]
-        coordinates = state.surface_annotations[selected_annotation]["coordinates"] 
-        anchor      = state.surface_annotations[selected_annotation]["anchor"]
+        print("Annotation:", annotation)
+        print("Coordinates shape:", coordinates.shape)
+        print("Coordinates shape:", coordinates.shape)
+        print("Anchor shape:", anchor.shape)
 
+        # Get the annotation style from the styler (active = None)
+        annotation_style = self.state.styler(None)
         # If not visible or no coordinates, return None
         if (not annotation_style["visible"]) or (coordinates is None):
             return None
@@ -491,11 +513,11 @@ class CortexFigurePanel(ipw.GridBox):
         n_points = coordinates.shape[1]
 
         # Prepare scatter sizes by anchor points
-        point_sizes = np.ones(n_points) * state.style["line_size"]
-        point_sizes[anchor == 1] = state.style["point_size"]
+        point_sizes = np.ones(n_points) * self.state.style["line_size"]
+        point_sizes[anchor == 1] = self.state.style["point_size"]
 
         # Prepare colors
-        point_colors = self._rgb_to_k3dcolor(state.style_active["color"])
+        point_colors = self._rgb_to_k3dcolor(annotation_style["color"])
         point_colors = np.tile(point_colors, (n_points, 1))
 
         # Return the scatter plot keyword arguments
@@ -506,21 +528,21 @@ class CortexFigurePanel(ipw.GridBox):
         }
 
 
-    def _prep_background_points(self, state):
+    def _prep_background_points(self):
         """Prepare the data for the background annotations."""
         # Get the list of annotations excluding the selected one
-        selected_annotation = state.selected_annotation
-        annotation_list = list(state.surface_annotations.keys())
-        annotation_list.remove(selected_annotation)
+        annotation = self.state.annotation
+        annotation_list = list(self.state.surface_annotations.keys())
+        annotation_list.remove(annotation)
         
         # Initialize arrays for all colors and coordinates
         all_colors = np.empty((0, 3)) 
         all_coordinates = np.empty((3, 0)) 
 
         for annotation in annotation_list: # for each annotation
-            annotation_style = state.annotation_styles[annotation]
-            coordinates = state.surface_annotations[annotation]["coordinates"] 
+            coordinates = self.state.surface_annotations[annotation]["coordinates"] 
 
+            annotation_style = self.state.styler(annotation)
             if annotation_style["visible"] and coordinates is not None: 
                 # Get colors for the annotation points
                 point_colors = self._rgb_to_k3dcolor(annotation_style["color"])
@@ -537,41 +559,41 @@ class CortexFigurePanel(ipw.GridBox):
         # Return the scatter plot keyword arguments
         return { 
             "positions"  : all_coordinates.T.astype(np.float32),
-            "point_size" : state.style["line_size"].astype(np.float32), 
+            "point_size" : self.state.style["line_size"].astype(np.float32), 
             "colors"     : all_colors 
         }
             
     
-    def _init_active_points(self, state):
+    def _init_active_points(self):
         """Initialize the points plot for the active annotation."""
-        points_kwargs = self._prep_active_points(state)
+        points_kwargs = self._prep_active_points()
         if points_kwargs is None:
             return self._init_points()
         return k3d.points(**points_kwargs, shader = "3d")
 
 
-    def _init_background_points(self, state):
+    def _init_background_points(self):
         """Initialize the points plot for the background annotations."""
-        points_kwargs = self._prep_background_points(state)
+        points_kwargs = self._prep_background_points()
         if points_kwargs is None:
             return self._init_points()
         return k3d.points(**points_kwargs, shader = "3d")
 
 
-    def refresh_figure(self, state):
+    def refresh_figure(self):
         """Update the existing figure mesh coordinates and annotation points."""
         # Disable auto rendering for performance
         self.figure.auto_rendering = False
 
         # Update the cortex mesh values
-        cortex_kwargs = self._prep_cortex(state)
+        cortex_kwargs = self._prep_cortex()
         self.k3dmesh_cortex.vertices = cortex_kwargs["vertices"]
         self.k3dmesh_cortex.indices  = cortex_kwargs["indices"]
         self.k3dmesh_cortex.colors   = cortex_kwargs["colors"] # curvature
 
         # Update the overlay mesh values 
-        overlay_kwargs = self._prep_overlay(state)
-        if state.style["overlay"] == "curvature":
+        overlay_kwargs = self._prep_overlay()
+        if self.state.style["overlay"] == "curvature":
             self.k3dmesh_overlay.visible = False
         else:
             self.k3dmesh_overlay.vertices = overlay_kwargs["vertices"]
@@ -585,7 +607,7 @@ class CortexFigurePanel(ipw.GridBox):
         self.figure.render()
 
         # Update the surface active annotation
-        active_kwargs = self._prep_active_points(state)
+        active_kwargs = self._prep_active_points()
         if active_kwargs is None:
             self.k3dpoints_active.visible = False
         else:
@@ -595,7 +617,7 @@ class CortexFigurePanel(ipw.GridBox):
             self.k3dpoints_active.visible     = True
         
         # Update the surface background annotation
-        background_kwargs = self._prep_background_points(state)
+        background_kwargs = self._prep_background_points()
         if background_kwargs is None:
             self.k3dpoints_background.visible = False
         else:

@@ -495,10 +495,10 @@ class ControlPanel(ipw.VBox):
             self._make_info_message()
         ]
         vbox = ipw.VBox(children, layout = { "width": "250px" })
-        
+
         # Wrap the whole thing in an accordion so that it can be collapsed.
         accordion = ipw.Accordion((vbox, ), selected_index = 0)
-        accordion.add_class("annotate-control-panel") #TODO
+        accordion.add_class("annotate-control-panel") 
 
         # Finally, call the VBox initializer. 
         super().__init__(
@@ -506,25 +506,25 @@ class ControlPanel(ipw.VBox):
             layout   = { "border": "0px", "height": "100%" }
         )
     
-    # TODO: come back here to edit for the annotate-control-panel class nesting
+
     @classmethod
     def _make_html_header(cls, background_color = "#f0f0f0"):
         return ipw.HTML(f"""
             <style>
-                .jupyter-widget-Collapse-header {{
+                .annotate-control-panel .jupyter-widget-Collapse-open {{
+                    background-color: white;
+                }}
+                .annotate-control-panel .jupyter-widget-Collapse-header {{
                     background-color: white;
                     border-width: 0px;
                     padding: 0px;
                 }}
-                .jupyter-widget-Collapse-contents {{
+                .annotate-control-panel .jupyter-widget-Collapse-contents {{
                     background-color: {background_color};
                     padding: 2px;
                     border-width: 1px;
                     border-style: solid;
                     border-color: lightgray;
-                }}
-                .jupyter-widget-Collapse-open {{
-                    background-color: white;
                 }}
                 .annotate-hline {{
                     border-color: lightgray;

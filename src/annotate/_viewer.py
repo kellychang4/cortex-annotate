@@ -61,8 +61,9 @@ class CortexViewerState:
         self.targets       = self.get_targets()
         self.annotation    = self.get_annotation()
 
-        # Prepare initial annotation style from annotation widget
-        self.update_style_options() 
+        # Prepare dataset dependent annotation information and styler
+        self.update_annot_cfg()
+        self.update_styler() 
 
         # Set cortex viewer style (default) options
         self.style = {
@@ -82,7 +83,6 @@ class CortexViewerState:
 
         # Extract the flatmap and annotation data
         self.update_flatmap_annotations()
-        self.update_annotation_styles() 
 
         # Prepare surface annotations and path 
         self.update_surface_annotations() 
@@ -140,10 +140,10 @@ class CortexViewerState:
         }
     
 
-    def get_annotation(self):
-        """Get the active annotation from the active annotation tool."""
-        selection_panel = self._get_active_selection_panel()
-        return selection_panel.annotation
+    @property
+    def participant(self):
+        """Get the current participant selection."""
+        return self.targets.get("participant", None)
 
 
     @staticmethod
@@ -162,46 +162,39 @@ class CortexViewerState:
     @property
     def hemisphere(self):
         """Get the current hemisphere selection."""
-        return self.convert_hemisphere(self.targets["hemisphere"])
+        hemisphere = self.targets.get("hemisphere", None)
+        if hemisphere is not None:
+            return self.convert_hemisphere(hemisphere)
+        return hemisphere
     
+
+    def get_annotation(self):
+        """Get the active annotation from the active annotation tool."""
+        selection_panel = self._get_active_selection_panel()
+        return selection_panel.annotation
+
 
     def get_style_annotation(self):
         """Get the current style annotation selection widget."""
         return self.style_panel.annotation
     
+
+    def update_annot_cfg(self):
+        """Update the annotation configuration based on current state."""
+        active_tool = self._get_active_annotation_tool()
+        self.annot_cfg = active_tool.state.config.annotations
     
-    #TODO: there is a really nice way tok get this inforamtion
-    def update_style_options(self):
+
+    def update_styler(self):
         """Update the style panel options based on current state."""
-        active_tool       = self._get_active_annotation_tool()
-        self.style_panel  = active_tool.control_panel.style_panel
-        self.styler       = active_tool.state.style
-        self.style_active = active_tool.state.config.display.active_style
+        active_tool = self._get_active_annotation_tool()
+        self.styler = active_tool.state.style
 
 
     def update_flatmap_annotations(self):
         """Get the annotation tool's annotation dictionary"""
         figure_panel = self._get_active_figure_panel()
         self.flatmap_annotations = figure_panel.annotations    
-
-
-    def update_annotation_styles(self, annotation = Ellipsis):
-        """Get the annotation tool's flatmap style dictionary"""
-        # Initialize annotation styles dictionary if not present
-        self.annotation_styles = self.get("annotation_styles", {})
-        
-        # If annotation is not Ellipsis, update the style for the current annotation.
-        if annotation is not Ellipsis: 
-            self.annotation_styles[annotation] = self.styler(annotation)
-
-        # If annotation is Ellipsis, update the styles for all annotations.
-        else:
-            # Get the active style from the annotation tool (coded as None)
-            self.annotation_styles[None] = self.styler(None)
-            
-            # Get the styles from the annotation tool for the remaining annotations
-            for key in self.flatmap_annotations.keys(): # for each annotation
-                self.annotation_styles[key] = self.styler(key)
 
 
     def _read_coordinates(self, filename):
@@ -225,8 +218,8 @@ class CortexViewerState:
     def update_participant(self): 
         """Load participant dataset based on current state."""
         # Locate participant directory and files
-        participant_dir = op.join(self.dataset_directory, self.dataset.lower(), 
-            self.selection["participant"], self.hemisphere)
+        participant_dir = op.join(
+            self.dataset_directory, self.dataset.lower(), self.participant)
         filenames = glob.glob(op.join(participant_dir, f"{self.hemisphere}.3d.*"))
 
         # Load participant midgray coordinates
@@ -313,7 +306,7 @@ class CortexViewerState:
     def update_surface_annotations(self, annotation = None): 
         """Update cortical surface annotation coordinates."""
         # Initialize surface annotations dictionary if not present
-        self.surface_annotations = self.get("surface_annotations", {})
+        self.surface_annotations = getattr(self, "surface_annotations", {})
 
         # Get current fsaverage hemisphere flatmap
         fsa_flatmap = self.fsaverage[self.hemisphere]["flatmap"]
@@ -400,8 +393,11 @@ class CortexViewer(ipw.GridBox):
     cortical mesh that assists the flatmap viewer.
     """
 
-    def __init__(self, annotation_widgets, dataset_directory, 
-                 panel_width = 270):
+    def __init__(
+            self, annotation_widgets, dataset_directory, 
+            control_panel_background_color = "#f0f0f0",
+            panel_width = 270, panel_height = 400
+        ):
         # Initialize the Cortex Viewer state
         self.state = CortexViewerState(
             annotation_widgets = annotation_widgets,
@@ -409,36 +405,60 @@ class CortexViewer(ipw.GridBox):
         )
 
         # Create the Cortex Viewer control panel
-        self.control_panel = CortexControlPanel(self.state)
+        self.control_panel = CortexControlPanel(
+            self.state, control_panel_background_color)
 
         # Create the Cortex Viewer figure panel
-        self.figure_panel = CortexFigurePanel(self.state)
+        self.figure_panel = CortexFigurePanel(
+            self.state, height = panel_height
+        )
 
         # Initialize the GridBox with the control panel and figure panel
+        chldren = [
+            self._make_html_header(),
+            self.control_panel,
+            self.figure_panel
+        ]
         super().__init__(
-            children = [ self.control_panel, self.figure_panel ], 
+            children = chldren, 
             layout   = ipw.Layout(
-                border  = "1px solid rgb(158, 158, 158)", 
+                border  = "1px solid rgb(159, 159, 159)", 
                 padding = "15px",
                 grid_template_columns = f"{panel_width}px 1fr",
                 grid_template_rows    = "auto"
             )
         )
+        self.add_class("cortex-viewer")
 
         # Assign information box observers
-        for k in self.control_panel.infobox.keys():
+        for k in self._infobox_observers.keys():
             self._infobox_observers[k](partial(self.on_selection_change, k))
 
         # Assign user annotation input observers
-        self.state.observe_annotation(self.on_annotation_change)
+        self.state.observe_annotation_change(self.on_annotation_change)
 
-        # Assign flatmap annotation style observers
+        # Assign annotation tool style observers
         self.state.observe_annotation_styles(self.on_annotation_style_change)
 
         # Assign style option observers
         for k in self.state.style.keys():
             self._style_observers[k](partial(self.on_style_change, k)) 
 
+
+    @classmethod
+    def _make_html_header(cls):
+        return ipw.HTML(f"""
+            <style>
+                .horizontal-view .cortex-viewer {{
+                    margin-top: 28px;
+                }}
+                .vertical-view .cortex-viewer {{
+                    margin-top: 0px;
+                    margin-left: 2px;
+                }}
+            </style>
+        """)
+    
 
     @property
     def _infobox_observers(self):
@@ -447,7 +467,7 @@ class CortexViewer(ipw.GridBox):
             "dataset"    : self.state.observe_dataset_index,
             "targets"    : self.state.observe_targets,
             "annotation" : self.state.observe_annotation,
-        }   
+        } 
 
 
     @property
@@ -471,58 +491,55 @@ class CortexViewer(ipw.GridBox):
             self.state.dataset       = self.state.get_selected_dataset()
             self.state.targets       = self.state.get_targets()
             self.state.annotation    = self.state.get_annotation()
-        else: # key == "targets"  
-            # TODO: I do not think the key is being changed
-            # key is always "targets" but the value is changing, so we need to 
-            # update the targets based on the new value
-            self.state.targets[key] = change.new
-            self.state.annotation   = self.state.get_annotation()
-        
+        elif key == "targets":
+            self.state.targets       = self.state.get_targets()
+            self.state.annotation    = self.state.get_annotation()
+        else: # key == "annotation":
+            self.state.annotation    = self.state.get_annotation()
+
         # Update style options based on new dataset
         if key == "dataset":
-            self.state.update_style_options()
+            self.state.update_annot_cfg()
+            self.state.update_styler()
 
         # Update the cortex viewer state based on selection change
-        if key in ( "dataset", "target" ):
+        if key in ( "dataset", "targets" ):
             self.state.update_participant()
             self.state.update_coordinates()
             self.state.update_mesh()
             self.state.update_color()
             self.state.update_flatmap_annotations()
-            self.state.update_annotation_styles()
             self.state.update_surface_annotations()
+        else: # key == "annotation"
+            self.state.update_surface_annotations(self.state.annotation)
         
         # Update the infobox displays
         for k in self.control_panel.infobox.keys():
-            self.control_panel.refresh_infobox(self.state, k)
+            self.control_panel.refresh_infobox(k)
 
         # Refresh the figure with updated state
-        self.figure_panel.refresh_figure(self.state)
+        self.figure_panel.refresh_figure()
+
+
+    def on_annotation_change(self, _):
+        """Handle update to after the active annotation changes."""
+        # Update surface annotations and paths for the current annotation
+        self.state.update_surface_annotations(self.state.annotation)
+
+        # Update surface annotations for any annotations that depended on the
+        # curent annotation.
+        fixed_deps = self.state.annot_cfg.fixed_dependencies
+        for dep in fixed_deps[self.state.annotation]:
+            self.state.update_surface_annotations(dep)
+
+        # Refresh the figure with updated state
+        self.figure_panel.refresh_figure()
 
 
     def on_annotation_style_change(self, change):
-        """Handle changes to the flatmap style option changes."""
-        # Get the annotation style annotation name
-        annotation_name = self.state.get_style_annotation()
-        
-        # If the active style annotative is the active annotation, coded as None.
-        if annotation_name == "Active Annotation":
-            annotation_name = None
-
-        # Update the annotation styles for the current annotation
-        self.state.update_annotation_styles(annotation_name)
-    
+        """Handle changes to the annotation style option changes."""
         # Refresh the figure with updated state
-        self.figure_panel.refresh_figure(self.state)
-        
-            
-    def on_annotation_change(self, _):
-        """Handle changes to the annotation data."""
-        # Update surface annotations and paths for the current annotation
-        self.state.update_surface_annotations(self.state.selected_annotation)
-
-        # Refresh the figure with updated state
-        self.figure_panel.refresh_figure(self.state)
+        self.figure_panel.refresh_figure()
 
 
     def on_style_change(self, key, change):
@@ -542,4 +559,4 @@ class CortexViewer(ipw.GridBox):
             self.state.update_surface_annotations()
  
         # Update the figure with updated state
-        self.figure_panel.refresh_figure(self.state)
+        self.figure_panel.refresh_figure()
