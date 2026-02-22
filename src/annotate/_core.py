@@ -653,26 +653,36 @@ class AnnotationTool(ipw.HBox):
         annotation    = self.control_panel.annotation
         target_annots = self.state.annotations[target_id]
 
-        # Check that the selected annotation has valid fixed points (exist or
-        # can be calculated with the current data). If not, we have an error.
+        # Check that the selected annotation has valid fixed annotations. 
         error = None
         fixed_points = self.annot_cfg.fixed_points[annotation]
         for fp in fixed_points: # for the name of the fixed point
             # Determine if the fixed point is a fixed head or tail. 
             fp_type = ( "fixed_head" if fp in 
                 self.annot_cfg.fixed_head[annotation] else "fixed_tail" )
-
-            # If there is no data for this fixed point, then we have an error.
+            
+            # If there is no data for this fixed point or if the fixed point is
+            # the only data for the annotation, then we have an error.
             if target_annots.is_lazy(fp) or target_annots[fp].shape[0] == 0:
                 error = f"Annotation '{annotation}' requires fixed point '{fp}' " \
                         f"which is not yet available for target: {target_id}."
                 break
 
-            # Else, there is data for this fixed point. Check if the fixed point
-            # can be calculated with the current data. If not, we have an error.
+            # If there is data for this fixed point, must make sure the fixed 
+            # point is valid based on the annotation type. For contours and 
+            # boundary, must have data besides their own fixed points (if there).
+            atype = self.annot_cfg.types[fp] 
+            if atype != "point": # atype in ( "contour", "boundary" )
+                n_deps = len(self.annot_cfg.fixed_points[fp])
+                if target_annots[fp].shape[0] <= n_deps:
+                    error = f"Annotation '{annotation}' requires fixed point '{fp}' " \
+                            f"which is not yet available for target: {target_id}."
+                    break
+
+            # If there is data for this fixed point, we need to make sure that 
+            # the figure panel can calculate the fixed point based on the current data.
             try:
-                self.figure_panel.calc_fixed_point(
-                    annotation, target_annots, fp_type)
+                self.figure_panel.calc_fixed_point(annotation, target_annots, fp_type)
             except Exception as e:
                 error = f"Annotation '{annotation}' requires fixed point '{fp}' " \
                         f"which cannot be calculated for target: {target_id} " \
