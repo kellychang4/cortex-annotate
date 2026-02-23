@@ -41,6 +41,11 @@ class CortexViewerState:
                      "kwargs": { "cmap": "hot", "vmin": 0, "vmax": 100 } },
     }
 
+        # Point type constants
+    
+    POINT_FIXED  = 2  # fixed head/tail
+    POINT_USER   = 1  # user-placed
+    POINT_INTERP = 0  # interpolated
 
     def __init__(
             self, 
@@ -52,12 +57,12 @@ class CortexViewerState:
         self.annotation_widgets = annotation_widgets 
         self.dataset_directory  = dataset_directory
 
-        # Prepare fsaverage data 
+        # Prepare fsaverage da_ta 
         self.fsaverage = self._get_fsaverage()
 
         # Prepare initial values from annotation widget
-        self.dataset_index = self.get_selected_dataset_index()
-        self.dataset       = self.get_selected_dataset()
+        self.dataset_index = self.get_dataset_index()
+        self.dataset       = self.get_dataset()
         self.targets       = self.get_targets()
         self.annotation    = self.get_annotation()
 
@@ -79,7 +84,7 @@ class CortexViewerState:
         self.update_participant()
         self.update_coordinates()
         self.update_mesh()
-        self.update_color()
+        self.update_overlay()
 
         # Extract the flatmap and annotation data
         self.update_flatmap_annotations()
@@ -87,6 +92,8 @@ class CortexViewerState:
         # Prepare surface annotations and path 
         self.update_surface_annotations() 
 
+
+    # [Cortex Viwer] fsaverage Method ------------------------------------------
 
     def _get_fsaverage(self):
         """load fsaverage tesselations and inflated surface coordinates."""
@@ -103,6 +110,7 @@ class CortexViewerState:
             } for h in ( "lh", "rh" )
         }
 
+    # [Annotation Tool] Get Active Widget Methods ------------------------------
 
     def _get_active_annotation_tool(self):
         """Get the active multicanvas widget."""
@@ -120,13 +128,14 @@ class CortexViewerState:
         active_tool = self._get_active_annotation_tool()
         return active_tool.figure_panel
     
+    # [Annotation Tool] Get Selected Information Methods -----------------------
 
-    def get_selected_dataset_index(self):
+    def get_dataset_index(self):
         """Get the current dataset selection index."""
         return self.annotation_widgets.selected_index
     
 
-    def get_selected_dataset(self):
+    def get_dataset(self):
         """Get the current dataset selection widget."""
         return self.annotation_widgets.titles[self.dataset_index]
     
@@ -169,7 +178,7 @@ class CortexViewerState:
     
 
     def get_annotation(self):
-        """Get the active annotation from the active annotation tool."""
+        """Get the annotation from the active annotation tool."""
         selection_panel = self._get_active_selection_panel()
         return selection_panel.annotation
 
@@ -178,6 +187,7 @@ class CortexViewerState:
         """Get the current style annotation selection widget."""
         return self.style_panel.annotation
     
+    # [Annotation Tool] Update State Methods -----------------------------------
 
     def update_annot_cfg(self):
         """Update the annotation configuration based on current state."""
@@ -186,7 +196,7 @@ class CortexViewerState:
     
 
     def update_styler(self):
-        """Update the style panel options based on current state."""
+        """Update the styler options based on current state."""
         active_tool = self._get_active_annotation_tool()
         self.styler = active_tool.state.style
 
@@ -196,6 +206,7 @@ class CortexViewerState:
         figure_panel = self._get_active_figure_panel()
         self.flatmap_annotations = figure_panel.annotations    
 
+    # [Cortex Viewer] Update Participant ---------------------------------------
 
     def _read_coordinates(self, filename):
         """Read cortical mesh coordinates from a <hemisphere>.3d.coordinates file."""
@@ -254,18 +265,19 @@ class CortexViewerState:
         self.curvature = ny.graphics.cortex_plot_colors(self.mesh)[:, :3]    
 
     
-    def update_color(self):
+    def update_overlay(self):
         """Update the cortical mesh color based on curvature."""
         if self.style["overlay"] == "curvature":
-            self.color = None
+            self.overlay = None
         else: # Get property kwargs and values 
             overlay_style = self.style["overlay"]
             prop_kwargs   = CortexViewerState.__PROPERTY_KWARGS[overlay_style]
             prop_values   = self.mesh.properties[overlay_style]
             prop_color    = prop_kwargs["func"](prop_values, self.hemisphere)
-            self.color    = ny.graphics.cortex_plot_colors(self.mesh, 
+            self.overlay  = ny.graphics.cortex_plot_colors(self.mesh, 
                 color = prop_color, **prop_kwargs["kwargs"])[:, :3]
 
+    # [Cortex Viewer] Update Surface Coordinates -------------------------------
 
     @staticmethod
     def _flatmap_to_surface(flatmap_address, mesh_coordinates):
@@ -276,77 +288,128 @@ class CortexViewerState:
         return barycentric_to_cartesian(tx, bary_coords) # (3, n_points)
 
     
-    def _interpolate_coordinates(self, coordinates):
+    def _interpolate_coordinates(self, coordinates, point_types):
         """Interpolate coordinates along the path."""
         # Get number of interpolated points
         n = self.style["line_points"] + 2
 
         # Intialize ararys to store interpolated coordinates
-        x_interp = []; y_interp = []
+        x_interp = []; y_interp = []; ptype_interp = []
+
+        # Initialize point type interpolation filler
+        ptype_filler = [self.POINT_INTERP] * self.style["line_points"]
 
         # Iterate over each segment and interpolate points  
         n_interp = coordinates.shape[0] - 1 
         for i in np.arange(n_interp): # for each pair of coordinates
             xs, xe = coordinates[i, 0], coordinates[i+1, 0]
             ys, ye = coordinates[i, 1], coordinates[i+1, 1]
+            ps, pe = point_types[i], point_types[i+1]
             x_interp.append(np.linspace(xs, xe, n))
             y_interp.append(np.linspace(ys, ye, n))
+            ptype_interp.append([ps, *ptype_filler, pe])
 
         # Concatenate and prepare interpolated points
         x_interp = np.concatenate(x_interp)
         y_interp = np.concatenate(y_interp)
-        anchor   = np.tile(np.hstack([1, np.zeros((n - 2,)), 1]), n_interp)
+        ptype_interp = np.concatenate(ptype_interp)
 
         # Return unique interpolated coordinates
-        interp_coordinates = np.vstack((x_interp, y_interp, anchor)).T
+        interp_coordinates = np.vstack((x_interp, y_interp, ptype_interp)).T
         interp_coordinates = np.unique(interp_coordinates, axis = 0)
-        return interp_coordinates[:,:-1], interp_coordinates[:,-1]
+        return interp_coordinates[:,:-1], interp_coordinates[:,-1].astype(int)
 
 
-    def update_surface_annotations(self, annotation = None): 
-        """Update cortical surface annotation coordinates."""
+    def update_surface_addresses(self, annotations = None): 
+        """Update cortical surface addresses for each annotation."""
         # Initialize surface annotations dictionary if not present
         self.surface_annotations = getattr(self, "surface_annotations", {})
+
+        # Get the list of annotations to update
+        if annotations is None:
+            annotations = list(self.flatmap_annotations.keys())
+        elif isinstance(annotations, str):
+            annotations = [annotations, ]
+        else:
+            raise ValueError(f"Invalid annotations value: {annotations}")
 
         # Get current fsaverage hemisphere flatmap
         fsa_flatmap = self.fsaverage[self.hemisphere]["flatmap"]
 
-        # Define annotations to update
-        annotation_list = [annotation] if annotation is not None \
-            else list(self.flatmap_annotations.keys())
-        
         # Convert each flatmap annotation to surface coordinates
-        for key in annotation_list: # for each annotation
-            # get the current roi's flatmap coorindates
+        for key in annotations: # for each annotation to update
+            # Get the current annotaitons flatmap coordinates
             flatmap_coordinates = self.flatmap_annotations[key]
 
             # If no flatmap coordinates, set surface annotation to None
-            if (flatmap_coordinates is None) or \
-                (flatmap_coordinates.shape[0] == 0): 
+            if flatmap_coordinates is None or flatmap_coordinates.shape[0] == 0: 
                 self.surface_annotations[key] = {
+                    "addresses"   : None,
                     "coordinates" : None,
-                    "anchor"      : None,
+                    "point_types" : None,
                 }
-            else: 
-                # If multiple flatmap coordinates, interpolate first
-                anchor = np.array([1]) # initailize
-                if flatmap_coordinates.shape[0] > 1:
-                    flatmap_coordinates, anchor = \
-                        self._interpolate_coordinates(flatmap_coordinates)
-                
-                # Convert flatmap coordinates to addresses
-                flatmap_address = fsa_flatmap.address(flatmap_coordinates)
-
-                # Calculate surface coordinates
-                surface_coordinates = self._flatmap_to_surface(
-                    flatmap_address, self.coordinates)
+                continue
             
-                # Store surface annotation coordinates
-                self.surface_annotations[key] = {
-                    "coordinates" : surface_coordinates,
-                    "anchor"      : anchor,
-                }
+            # If there are flatmap coordinates, figure out each point type
+            n_points    = flatmap_coordinates.shape[0]
+            point_types = np.full(n_points, self.POINT_USER)
+            fixed_head  = bool(self.annot_cfg.fixed_head[key])
+            fixed_tail  = bool(self.annot_cfg.fixed_tail[key])
+            if fixed_head: point_types[0]  = self.POINT_FIXED
+            if fixed_tail: point_types[-1] = self.POINT_FIXED
 
+            # Interpolate coordinate if there are more than 1 point (to make a 
+            # segment) and if the points are NOT all fixed points.
+            if n_points > 1 and not np.all(point_types == self.POINT_FIXED):
+                flatmap_coordinates, point_types = \
+                    self._interpolate_coordinates(flatmap_coordinates, point_types)
+            
+            # Convert flatmap coordinates to addresses
+            flatmap_address = fsa_flatmap.address(flatmap_coordinates)
+        
+            # Store surface annotation addresses
+            self.surface_annotations[key] = {
+                "addresses"   : flatmap_address,
+                "coordinates" : None,
+                "point_types" : point_types,
+            }
+
+
+    def update_surface_coordinates(self, annotations = None):
+        """Update cortical surface coordinates for each annotation."""
+        # Initialize surface annotations dictionary if not present
+        self.surface_annotations = getattr(self, "surface_annotations", {})
+
+        # Get the list of annotations to update
+        if annotations is None:
+            annotations = list(self.flatmap_annotations.keys())
+        elif isinstance(annotations, str):
+            annotations = [annotations, ]
+        else:
+            raise ValueError(f"Invalid annotations value: {annotations}")
+
+        # Update surface coordinates for each annotation
+        for key in annotations:
+            # Get the current annotation's surface addresses
+            surface_annotation = self.surface_annotations.get(key, {})
+            flatmap_address = surface_annotation.get("addresses", None)
+
+            # If no surface addresses, set surface annotation coordinates to None
+            if flatmap_address is not None:
+                # Calculate surface coordinates
+                surface_coordinates = (
+                    self._flatmap_to_surface(flatmap_address, self.coordinates))
+                
+                # Store surface annotation coordinates
+                self.surface_annotations[key]["coordinates"] = surface_coordinates
+
+        
+    def update_surface_annotations(self, annotations = None):
+        """Update cortical surface annotations based on current state."""
+        self.update_surface_addresses(annotations)
+        self.update_surface_coordinates(annotations)
+
+    # [Cortex Viewer] Observer Methods -----------------------------------------
 
     def observe_dataset_index(self, callback):
         """Assign a callback function to dataset value changes."""
@@ -369,6 +432,13 @@ class CortexViewerState:
             annotations_dropdown.observe(callback, names = "value")
 
 
+    def observe_annotation_change(self, callback):
+        """Assign a callback function to annotation data changes."""
+        for annotation_widget in self.annotation_widgets.children:
+            annotation_figure = annotation_widget.figure_panel
+            annotation_figure.observe(callback, names = "_annotation_change")
+
+
     def observe_annotation_styles(self, callback):
         """Assign a callback function to style option changes."""
         for annotation_widget in self.annotation_widgets.children:
@@ -377,16 +447,10 @@ class CortexViewerState:
             style_panel.color_picker.observe(callback, names = "value")
 
 
-    def observe_annotation_change(self, callback):
-        """Assign a callback function to annotation data changes."""
-        for annotation_widget in self.annotation_widgets.children:
-            annotation_figure = annotation_widget.figure_panel
-            annotation_figure.observe(callback, names = "_annotation_change")
-
-
 # The Cortex Viewer Widget -----------------------------------------------------
 
 class CortexViewer(ipw.GridBox):
+    
     """The Cortex Viewer widget.
 
     The `CortexViewer` type handles the 3D Cortex figure that renders the 
@@ -396,7 +460,7 @@ class CortexViewer(ipw.GridBox):
     def __init__(
             self, annotation_widgets, dataset_directory, 
             control_panel_background_color = "#f0f0f0",
-            panel_width = 270, panel_height = 400
+            panel_width = 270, panel_height = 512
         ):
         # Initialize the Cortex Viewer state
         self.state = CortexViewerState(
@@ -406,7 +470,8 @@ class CortexViewer(ipw.GridBox):
 
         # Create the Cortex Viewer control panel
         self.control_panel = CortexControlPanel(
-            self.state, control_panel_background_color)
+            self.state, control_panel_background_color
+        )
 
         # Create the Cortex Viewer figure panel
         self.figure_panel = CortexFigurePanel(
@@ -414,13 +479,13 @@ class CortexViewer(ipw.GridBox):
         )
 
         # Initialize the GridBox with the control panel and figure panel
-        chldren = [
-            self._make_html_header(),
+        children = [
+            # self._make_html_header(),
             self.control_panel,
             self.figure_panel
         ]
         super().__init__(
-            children = chldren, 
+            children = children, 
             layout   = ipw.Layout(
                 border  = "1px solid rgb(159, 159, 159)", 
                 padding = "15px",
@@ -431,34 +496,16 @@ class CortexViewer(ipw.GridBox):
         self.add_class("cortex-viewer")
 
         # Assign information box observers
-        for k in self._infobox_observers.keys():
-            self._infobox_observers[k](partial(self.on_selection_change, k))
+        for key in self._infobox_observers.keys():
+            self._infobox_observers[key](partial(self.on_selection_change, key))
 
         # Assign user annotation input observers
         self.state.observe_annotation_change(self.on_annotation_change)
 
-        # Assign annotation tool style observers
-        self.state.observe_annotation_styles(self.on_annotation_style_change)
-
         # Assign style option observers
-        for k in self.state.style.keys():
-            self._style_observers[k](partial(self.on_style_change, k)) 
+        for key in self._style_observers.keys():
+            self._style_observers[key](partial(self.on_style_change, key)) 
 
-
-    @classmethod
-    def _make_html_header(cls):
-        return ipw.HTML(f"""
-            <style>
-                .horizontal-view .cortex-viewer {{
-                    margin-top: 28px;
-                }}
-                .vertical-view .cortex-viewer {{
-                    margin-top: 0px;
-                    margin-left: 2px;
-                }}
-            </style>
-        """)
-    
 
     @property
     def _infobox_observers(self):
@@ -480,6 +527,7 @@ class CortexViewer(ipw.GridBox):
             "point_size"        : self.control_panel.observe_point_size_slider, 
             "line_size"         : self.control_panel.observe_line_size_slider,
             "line_points"       : self.control_panel.observe_line_points_slider, 
+            "annotation_style"  : self.state.observe_annotation_styles,
         }
     
 
@@ -488,7 +536,7 @@ class CortexViewer(ipw.GridBox):
         # Update the control panel information
         if key == "dataset":
             self.state.dataset_index = change.new
-            self.state.dataset       = self.state.get_selected_dataset()
+            self.state.dataset       = self.state.get_dataset()
             self.state.targets       = self.state.get_targets()
             self.state.annotation    = self.state.get_annotation()
         elif key == "targets":
@@ -496,6 +544,10 @@ class CortexViewer(ipw.GridBox):
             self.state.annotation    = self.state.get_annotation()
         else: # key == "annotation":
             self.state.annotation    = self.state.get_annotation()
+
+        # Update the infobox displays
+        for k in self.control_panel.infobox.keys():
+            self.control_panel.refresh_infobox(k)
 
         # Update style options based on new dataset
         if key == "dataset":
@@ -507,56 +559,60 @@ class CortexViewer(ipw.GridBox):
             self.state.update_participant()
             self.state.update_coordinates()
             self.state.update_mesh()
-            self.state.update_color()
+            self.state.update_overlay()
             self.state.update_flatmap_annotations()
             self.state.update_surface_annotations()
+            cortex, points = True, True
         else: # key == "annotation"
-            self.state.update_surface_annotations(self.state.annotation)
+            self.state.update_surface_annotations()
+            cortex, points = False, True
         
-        # Update the infobox displays
-        for k in self.control_panel.infobox.keys():
-            self.control_panel.refresh_infobox(k)
-
-        # Refresh the figure with updated state
-        self.figure_panel.refresh_figure()
+        # Refresh the figure with annotation changes
+        self.figure_panel.refresh_figure(cortex = cortex, points = points)
 
 
     def on_annotation_change(self, _):
-        """Handle update to after the active annotation changes."""
-        # Update surface annotations and paths for the current annotation
-        self.state.update_surface_annotations(self.state.annotation)
+        """Handle update when the user changes the annotation data."""
+        # Get the updated annotation and its fixed dependent annotations
+        annotation = self.state.annotation
+        fixed_deps = self.state.annot_cfg.fixed_dependencies[annotation]
 
-        # Update surface annotations for any annotations that depended on the
-        # curent annotation.
-        fixed_deps = self.state.annot_cfg.fixed_dependencies
-        for dep in fixed_deps[self.state.annotation]:
-            self.state.update_surface_annotations(dep)
+        # Recalculate the surface annotations for the update annotation and its
+        # fixed dependencies.
+        for annot in set([annotation] + fixed_deps):
+            self.state.update_surface_annotations(annot)
 
-        # Refresh the figure with updated state
-        self.figure_panel.refresh_figure()
-
-
-    def on_annotation_style_change(self, change):
-        """Handle changes to the annotation style option changes."""
-        # Refresh the figure with updated state
-        self.figure_panel.refresh_figure()
+        # Refresh the figure with annotation changes
+        self.figure_panel.refresh_figure(cortex = False, points = True)
 
 
     def on_style_change(self, key, change):
         """Handle changes to the style option changes."""
         # Change style based on key value
-        self.state.style[key] = change.new
+        if key != "annotation_style":
+            self.state.style[key] = change.new
 
         # Update the mesh color based on the new overlay
         if key == "inflation_percent":
             self.state.update_coordinates()
             self.state.update_mesh()
-            self.state.update_color()
-            self.state.update_surface_annotations()
-        elif key in ( "overlay", "overlay_alpha" ):
-            self.state.update_color()
+            self.state.update_overlay()
+            self.state.update_surface_coordinates()
+            cortex, points = True, True
+        elif key == "overlay":
+            self.state.update_overlay()
+            cortex, points = True, False
+        elif key == "overlay_alpha":
+            cortex, points = True, False
+        elif key in ( "point_size", "line_size" ):
+            cortex, points = False, True
         elif key == "line_points":
             self.state.update_surface_annotations()
- 
+            cortex, points = False, True
+        elif key == "annotation_style":
+            cortex, points = False, True
+        else: 
+            raise ValueError(f"Invalid style key: {key}")
+            
         # Update the figure with updated state
-        self.figure_panel.refresh_figure()
+        self.figure_panel.refresh_figure(cortex = cortex, points = points)
