@@ -41,11 +41,11 @@ class CortexViewerState:
                      "kwargs": { "cmap": "hot", "vmin": 0, "vmax": 100 } },
     }
 
-        # Point type constants
-    
+    # Point type constants
     POINT_FIXED  = 2  # fixed head/tail
     POINT_USER   = 1  # user-placed
     POINT_INTERP = 0  # interpolated
+
 
     def __init__(
             self, 
@@ -75,9 +75,9 @@ class CortexViewerState:
             "inflation_percent" : 100,
             "overlay"           : "curvature",
             "overlay_alpha"     : 1.0, 
-            "point_size"        : 2.5, 
-            "line_size"         : 1.0,
-            "line_points"       : 10,
+            "point_size"        : 1.5, 
+            "line_width"        : 0.25,
+            "line_interp"       : 10,
         }
 
         # Prepare participant 3d coordinate and mesh data
@@ -291,40 +291,48 @@ class CortexViewerState:
     def _interpolate_coordinates(self, coordinates, point_types):
         """Interpolate coordinates along the path."""
         # Get number of interpolated points
-        n = self.style["line_points"] + 2
+        n = self.style["line_interp"] + 2
 
         # Intialize ararys to store interpolated coordinates
         x_interp = []; y_interp = []; ptype_interp = []
 
         # Initialize point type interpolation filler
-        ptype_filler = [self.POINT_INTERP] * self.style["line_points"]
+        ptype_filler = [self.POINT_INTERP] * self.style["line_interp"]
 
         # Iterate over each segment and interpolate points  
         n_interp = coordinates.shape[0] - 1 
         for i in np.arange(n_interp): # for each pair of coordinates
+            # Extract start and end coordinates and point types for the segment
             xs, xe = coordinates[i, 0], coordinates[i+1, 0]
             ys, ye = coordinates[i, 1], coordinates[i+1, 1]
             ps, pe = point_types[i], point_types[i+1]
-            x_interp.append(np.linspace(xs, xe, n))
-            y_interp.append(np.linspace(ys, ye, n))
-            ptype_interp.append([ps, *ptype_filler, pe])
+
+            # Interpolate x and y coordinates and point types for the segment
+            xn = np.linspace(xs, xe, n)
+            yn = np.linspace(ys, ye, n)
+            pn = [ps, *ptype_filler, pe]
+
+            if i == 0: # for the first segment, include the starting point
+                x_interp.append(xn)
+                y_interp.append(yn)
+                ptype_interp.append(pn)
+            else: # for subsequent segments, exclude the starting point to avoid duplicates
+                x_interp.append(xn[1:])
+                y_interp.append(yn[1:])
+                ptype_interp.append(pn[1:])
 
         # Concatenate and prepare interpolated points
         x_interp = np.concatenate(x_interp)
         y_interp = np.concatenate(y_interp)
         ptype_interp = np.concatenate(ptype_interp)
 
-        # Return unique interpolated coordinates
+        # Return interpolated coordinates (as matrix) and point types (as int)
         interp_coordinates = np.vstack((x_interp, y_interp, ptype_interp)).T
-        interp_coordinates = np.unique(interp_coordinates, axis = 0)
         return interp_coordinates[:,:-1], interp_coordinates[:,-1].astype(int)
 
 
     def update_surface_addresses(self, annotations = None): 
         """Update cortical surface addresses for each annotation."""
-        # Initialize surface annotations dictionary if not present
-        self.surface_annotations = getattr(self, "surface_annotations", {})
-
         # Get the list of annotations to update
         if annotations is None:
             annotations = list(self.flatmap_annotations.keys())
@@ -365,7 +373,7 @@ class CortexViewerState:
                     self._interpolate_coordinates(flatmap_coordinates, point_types)
             
             # Convert flatmap coordinates to addresses
-            flatmap_address = fsa_flatmap.address(flatmap_coordinates)
+            flatmap_address = fsa_flatmap.address(flatmap_coordinates.T)
         
             # Store surface annotation addresses
             self.surface_annotations[key] = {
@@ -377,9 +385,6 @@ class CortexViewerState:
 
     def update_surface_coordinates(self, annotations = None):
         """Update cortical surface coordinates for each annotation."""
-        # Initialize surface annotations dictionary if not present
-        self.surface_annotations = getattr(self, "surface_annotations", {})
-
         # Get the list of annotations to update
         if annotations is None:
             annotations = list(self.flatmap_annotations.keys())
@@ -406,6 +411,10 @@ class CortexViewerState:
         
     def update_surface_annotations(self, annotations = None):
         """Update cortical surface annotations based on current state."""
+        # Initialize surface annotations dictionary if not present
+        if annotations is None: self.surface_annotations = {} 
+
+        # Get the list of annotations to update
         self.update_surface_addresses(annotations)
         self.update_surface_coordinates(annotations)
 
@@ -525,8 +534,8 @@ class CortexViewer(ipw.GridBox):
             "overlay"           : self.control_panel.observe_overlay_dropdown, 
             "overlay_alpha"     : self.control_panel.observe_overlay_slider, 
             "point_size"        : self.control_panel.observe_point_size_slider, 
-            "line_size"         : self.control_panel.observe_line_size_slider,
-            "line_points"       : self.control_panel.observe_line_points_slider, 
+            "line_width"        : self.control_panel.observe_line_width_slider,
+            "line_interp"       : self.control_panel.observe_line_interp_slider, 
             "annotation_style"  : self.state.observe_annotation_styles,
         }
     
@@ -562,29 +571,24 @@ class CortexViewer(ipw.GridBox):
             self.state.update_overlay()
             self.state.update_flatmap_annotations()
             self.state.update_surface_annotations()
-            cortex, points = True, True
+            clear, cortex, points = True, True, True
         else: # key == "annotation"
-            self.state.update_surface_annotations()
-            cortex, points = False, True
-        
-        # Refresh the figure with annotation changes
-        self.figure_panel.refresh_figure(cortex = cortex, points = points)
+            clear, cortex, points = False, False, True
+
+        # Refresh the figure.
+        self.figure_panel.refresh_figure(
+            clear = clear, cortex = cortex, points = points)
 
 
     def on_annotation_change(self, _):
         """Handle update when the user changes the annotation data."""
-        # Get the updated annotation and its fixed dependent annotations
-        annotation = self.state.annotation
-        fixed_deps = self.state.annot_cfg.fixed_dependencies[annotation]
-
-        # Recalculate the surface annotations for the update annotation and its
-        # fixed dependencies.
-        for annot in set([annotation] + fixed_deps):
-            self.state.update_surface_annotations(annot)
+        # Update the surface annotations based on the new annotation data
+        self.state.update_surface_annotations()
 
         # Refresh the figure with annotation changes
-        self.figure_panel.refresh_figure(cortex = False, points = True)
-
+        self.figure_panel.refresh_figure(
+            clear = False, cortex = False, points = True)
+        
 
     def on_style_change(self, key, change):
         """Handle changes to the style option changes."""
@@ -598,21 +602,22 @@ class CortexViewer(ipw.GridBox):
             self.state.update_mesh()
             self.state.update_overlay()
             self.state.update_surface_coordinates()
-            cortex, points = True, True
+            clear, cortex, points = False, True, True
         elif key == "overlay":
             self.state.update_overlay()
-            cortex, points = True, False
+            clear, cortex, points = False, True, False
         elif key == "overlay_alpha":
-            cortex, points = True, False
-        elif key in ( "point_size", "line_size" ):
-            cortex, points = False, True
-        elif key == "line_points":
+            clear, cortex, points = False, True, False
+        elif key in ( "point_size", "line_width" ):
+            clear, cortex, points = False, False, True
+        elif key == "line_interp":
             self.state.update_surface_annotations()
-            cortex, points = False, True
+            clear, cortex, points = False, False, True
         elif key == "annotation_style":
-            cortex, points = False, True
+            clear, cortex, points = False, False, True
         else: 
             raise ValueError(f"Invalid style key: {key}")
             
         # Update the figure with updated state
-        self.figure_panel.refresh_figure(cortex = cortex, points = points)
+        self.figure_panel.refresh_figure(
+            clear = clear, cortex = cortex, points = points)

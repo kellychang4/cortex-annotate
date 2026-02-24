@@ -54,16 +54,16 @@ class CortexControlPanel(ipw.VBox):
         self.overlay_dropdown = self._init_overlay_dropdown()
 
         # Create the overlay alpha slider widget
-        self.overlay_slider = self._init_overlay_slider()
+        self.overlay_slider = self._init_overlay_alpha_slider()
 
         # Create point size slider (user-defined points)
         self.point_size_slider = self._init_point_size_slider()
 
         # Create line size slider (interpolated)
-        self.line_size_slider = self._init_line_size_slider()
+        self.line_width_slider = self._init_line_width_slider()
 
         # Create the number of line points slider widget
-        self.line_points_slider = self._init_line_points_slider()
+        self.line_interp_slider = self._init_line_interp_slider()
 
         # Assemble the control panel with children widgets
         children = [
@@ -88,9 +88,9 @@ class CortexControlPanel(ipw.VBox):
             # Point size slider
             self.point_size_slider, 
             # Line size slider
-            self.line_size_slider,
+            self.line_width_slider,
             # Line interpolation slider
-            self.line_points_slider,
+            self.line_interp_slider,
         ]
         vbox = ipw.VBox(children, layout = { "width": "250px" })
 
@@ -221,7 +221,7 @@ class CortexControlPanel(ipw.VBox):
         return overlay_dropdown
 
 
-    def _init_overlay_slider(self):
+    def _init_overlay_alpha_slider(self):
         overlay_slider = ipw.FloatSlider(
             value             = self.state.style["overlay_alpha"],
             min               = 0.0,
@@ -230,10 +230,7 @@ class CortexControlPanel(ipw.VBox):
             description       = "Alpha:",
             continuous_update = False,
             orientation       = "horizontal",
-            readout           = True,
-            readout_format    = ".1f", 
         )
-        overlay_slider.add_class("cortex-control-widgets")
         return overlay_slider
     
 
@@ -246,43 +243,34 @@ class CortexControlPanel(ipw.VBox):
             description       = "Point Size:",
             continuous_update = False,
             orientation       = "horizontal",
-            readout           = True,
-            readout_format    = ".1f", 
         )
-        point_size_slider.add_class("cortex-control-widgets")
         return point_size_slider
     
 
-    def _init_line_size_slider(self):
-        line_size_slider = ipw.FloatSlider(
-            value             = self.state.style["line_size"],
-            min               = 0.5,
-            max               = 5,
-            step              = 0.1,
-            description       = "Line Size:",
+    def _init_line_width_slider(self):
+        line_width_slider = ipw.FloatSlider(
+            value             = self.state.style["line_width"],
+            min               = 0.10,
+            max               = 0.50,
+            step              = 0.05,
+            description       = "Line Width:",
             continuous_update = False,
             orientation       = "horizontal",
-            readout           = True,
-            readout_format    = ".1f", 
         )
-        line_size_slider.add_class("cortex-control-widgets")
-        return line_size_slider
+        return line_width_slider
 
 
-    def _init_line_points_slider(self):
-        line_points_slider = ipw.IntSlider(
-            value             = self.state.style["line_points"],
-            min               = 2,
+    def _init_line_interp_slider(self):
+        line_interp_slider = ipw.IntSlider(
+            value             = self.state.style["line_interp"],
+            min               = 5,
             max               = 20,
             step              = 1,
-            description       = "Line Points:",
+            description       = "Line Interp.:",
             continuous_update = False,
             orientation       = "horizontal",
-            readout           = True,
-            readout_format    = "d", 
         )
-        line_points_slider.add_class("cortex-control-widgets")
-        return line_points_slider
+        return line_interp_slider
     
 
     def refresh_infobox(self, key):
@@ -311,14 +299,14 @@ class CortexControlPanel(ipw.VBox):
         self.point_size_slider.observe(callback, names = "value")
 
 
-    def observe_line_size_slider(self, callback):
-        """A method to register a callback for changes in the line size slider."""
-        self.line_size_slider.observe(callback, names = "value")
+    def observe_line_width_slider(self, callback):
+        """A method to register a callback for changes in the line width slider."""
+        self.line_width_slider.observe(callback, names = "value")
 
     
-    def observe_line_points_slider(self, callback):
+    def observe_line_interp_slider(self, callback):
         """A method to register a callback for changes in the line points slider."""
-        self.line_points_slider.observe(callback, names = "value")
+        self.line_interp_slider.observe(callback, names = "value")
 
 # The Cortex Figure Panel ------------------------------------------------------
 
@@ -350,16 +338,20 @@ class CortexFigurePanel(ipw.GridBox):
         # Create and add the overlay mesh to the figure
         self.k3dmesh_overlay = self._init_overlay()
         
-        # Create active points to figure 
-        self.k3dpoints_active = self._init_active_points()
+        # Create active annotation to figure 
+        self.k3dline_active, self.k3dpoints_active = \
+            self._init_active_annotation()
 
-        # Create background points to figure
-        self.k3dpoints_background = self._init_background_points()
+        # Create background annotations to figure
+        self.k3dline_background, self.k3dpoints_background = \
+            self._init_background_annotations()
 
         # Add the meshes and points to the figure and initial render
         self.figure += self.k3dmesh_cortex
         self.figure += self.k3dmesh_overlay 
+        self.figure += self.k3dline_active
         self.figure += self.k3dpoints_active 
+        self.figure += self.k3dline_background
         self.figure += self.k3dpoints_background 
 
         # Set initial camera values
@@ -429,14 +421,30 @@ class CortexFigurePanel(ipw.GridBox):
         else:
             raise ValueError("Color matrices must be RGB (Nx3) or RGBA (Nx4).")
 
-    # Initialize Empty Plots Methods -------------------------------------------
+    # Empty Value Methods ------------------------------------------------------
+
+    def _empty_coordinates(self):
+        """Helper method to create an empty matrix for initializing empty plots."""
+        return np.array([[0, 0, 0]], dtype = np.float32)
+
+
+    def _empty_indices(self):
+        """Helper method to create an empty matrix for initializing empty meshes."""
+        return np.array([[0, 0, 0]], dtype = np.uint32)
+
+
+    def _empty_colors(self):
+        """Helper method to create an empty color for initializing empty plots."""
+        return np.array([0x000000], dtype = np.uint32)
+    
+    # Initialize Methods -------------------------------------------------------
 
     def _init_mesh(self):
         """Initialize an empty and invisible mesh."""
         mesh = k3d.mesh(
-            vertices     = np.array([[0, 0, 0]], dtype = np.float32), 
-            indices      = np.array([[0, 0, 0]], dtype = np.uint32),
-            colors       = np.array([0x000000 ], dtype = np.uint32),
+            vertices     = self._empty_coordinates(), 
+            indices      = self._empty_indices(),
+            colors       = self._empty_colors(),
             wireframe    = False,
             flat_shading = False
         )
@@ -461,39 +469,58 @@ class CortexFigurePanel(ipw.GridBox):
     def _init_points(self):
         """Initialize an empty and invisible points plot."""
         points = k3d.points(
-            positions  = np.array([[0, 0, 0]], dtype = np.float32),
-            shader     = "3d"
+            positions = self._empty_coordinates(),
+            colors    = self._empty_colors(), 
+            shader    = "3d"
         )
         points.visible = False
         return points
 
 
-    def _init_active_points(self):
-        """Initialize the points plot for the active annotation."""
-        points_kwargs = self._prep_active_points()
-        if points_kwargs is None:
-            return self._init_points()
-        return k3d.points(**points_kwargs, shader = "3d")
+    def _init_line(self):
+        """Initialize an empty and invisible line plot."""
+        line = k3d.line(
+            vertices = self._empty_coordinates(),
+            colors   = self._empty_colors(), 
+            width    = 0.1, 
+            shader   = "mesh"
+        )
+        line.visible = False
+        return line
 
 
-    def _init_background_points(self):
+    def _init_active_annotation(self):
+        """Initialize the line and points for the active annotation."""
+        active_kwargs = self._prep_active_annotation()
+        if active_kwargs is None:
+            return ( self._init_line(), self._init_points() )
+        return (
+            k3d.line(**active_kwargs["line"], shader = "mesh"),
+            k3d.points(**active_kwargs["points"], shader = "3d"), 
+        )
+
+
+    def _init_background_annotations(self):
         """Initialize the points plot for the background annotations."""
-        points_kwargs = self._prep_background_points()
-        if points_kwargs is None:
-            return self._init_points()
-        return k3d.points(**points_kwargs, shader = "3d")
+        background_kwargs = self._prep_background_annotations()
+        if background_kwargs is None:
+            return ( self._init_line(), self._init_points() )
+        return (
+            k3d.line(**background_kwargs["line"], shader = "mesh"),
+            k3d.points(**background_kwargs["points"], shader = "3d")
+        )
 
     # Prepare Cortex Methods ---------------------------------------------------
 
     def _prep_cortex(self):
         """Prepare the data for the cortex mesh."""
-        vertices  = self.state.coordinates.T.astype(np.float32) # (n_vertices, 3)
-        indices   = self.state.fsaverage[self.state.hemisphere]["tesselation"].T.astype(np.uint32)
+        vertices  = self.state.coordinates.T # (n_vertices, 3)
+        indices   = self.state.fsaverage[self.state.hemisphere]["tesselation"]
         curvature = self._rgb_to_k3dcolor(self.state.curvature)
         return { 
-            "vertices" : vertices, 
-            "indices"  : indices, 
-            "colors"   : curvature 
+            "vertices" : vertices.astype(np.float32), 
+            "indices"  : indices.T.astype(np.uint32), 
+            "colors"   : curvature.astype(np.uint32) 
         }
     
     # Prepare Overlay Methods --------------------------------------------------
@@ -508,12 +535,12 @@ class CortexFigurePanel(ipw.GridBox):
         return {
             **self._prep_cortex(), # same vertices + indices
             "colors"   : self._rgb_to_k3dcolor(self.state.overlay),
-            "opacity"  : self.state.style["overlay_alpha"]
+            "opacity"  : float(self.state.style["overlay_alpha"])
         }
     
     # Prepare Active Points Methods ---------------------------------------------------
 
-    def _prep_active_points(self):
+    def _prep_active_annotation(self):
         """Prepare the data for the active annotation."""
         # Get the currnet active surface annotation
         annotation         = self.state.annotation
@@ -527,39 +554,60 @@ class CortexFigurePanel(ipw.GridBox):
         # If not visible, return None to skip plotting.
         annotation_style = self.state.styler(None)
         if not annotation_style["visible"]: return None
-                
-        # Get number of annotation points and point types
-        n_points    = coordinates.shape[1]
+
+        # Get number of annotation vertex (line) coordinates and point types
+        vertices    = coordinates.T.astype(np.float32)
+        positions   = vertices.copy() # copy!
         point_types = surface_annotation.get("point_types", None)
 
+        # Check if vertices are all fixed points, skip lines if so. 
+        if np.all(point_types == self.state.POINT_FIXED):
+            vertices = self._empty_coordinates() # set vertices to empty to skip line plotting
+
+        # Get annotation positions (for points) and point types
+        positions   = positions[point_types != self.state.POINT_INTERP]
+        point_types = point_types[point_types != self.state.POINT_INTERP]
+        n_points    = positions.shape[0]
+
         # Prepare scatter sizes by points type (slightly larger fixed points)
-        point_sizes = np.full(n_points, self.state.style["line_size"])
-        point_sizes[point_types == self.state.POINT_USER ] = self.state.style["point_size"]
+        point_sizes = np.full(n_points, self.state.style["point_size"])
         point_sizes[point_types == self.state.POINT_FIXED] = self.state.style["point_size"] * 1.25
 
         # Prepare colors for each annotation point
-        point_colors = self._rgb_to_k3dcolor(annotation_style["color"])
-        point_colors = np.full(n_points, point_colors)
+        annotation_color = self._rgb_to_k3dcolor(annotation_style["color"])
 
-        # Return the scatter plot keyword arguments
+        # Return the active annotation plot keyword arguments by plot type
         return { 
-            "positions"   : coordinates.T.astype(np.float32), 
-            "point_sizes" : point_sizes.astype(np.float32), 
-            "colors"      : point_colors.astype(np.uint32)
+            "line": {
+                "vertices" : vertices.astype(np.float32),
+                "width"    : float(self.state.style["line_width"]),
+                "colors"   : np.full(vertices.shape[0], annotation_color, dtype = np.uint32)
+            },
+            "points": {
+                "positions"   : positions.astype(np.float32), 
+                "point_sizes" : point_sizes.astype(np.float32), 
+                "colors"      : np.full(n_points, annotation_color, dtype = np.uint32)
+            }
         }
 
     # Prepare Background Points Methods ----------------------------------------
 
-    def _prep_background_points(self):
+    def _prep_background_annotations(self):
         """Prepare the data for the background annotations."""
         # Get the list of annotations excluding the selected one
         annotation      = self.state.annotation
         annotation_list = list(self.state.surface_annotations.keys())
         annotation_list.remove(annotation)
         
-        # Initialize arrays for all colors and coordinates
-        all_colors      = np.empty(0,)
-        all_coordinates = np.empty((3, 0)) 
+        # Initialize empty arrays for all coordinates and colors
+        all_vertices  = np.empty((0, 3)) 
+        all_positions = np.empty((0, 3))
+        all_lcolors   = np.empty((0,), dtype = np.uint32)
+        all_pcolors   = np.empty((0,), dtype = np.uint32)
+
+        # Initailize NaN array to separate annotations (for line plotting)
+        coord_sep = np.full((1, 3), np.nan)
+        color_sep = np.array([0], dtype = np.uint32)
 
         for annotation in annotation_list: # for each annotation
             # Get the surface annotation and style for the annotation
@@ -573,79 +621,123 @@ class CortexFigurePanel(ipw.GridBox):
             # If not visible, return None to skip plotting.
             annotation_style = self.state.styler(annotation)
             if not annotation_style["visible"]: continue
-            
-            # Get colors for the annotation points
-            point_colors = self._rgb_to_k3dcolor(annotation_style["color"])
-            point_colors = np.full(coordinates.shape[1], point_colors)
 
-            # Concatenate coordinates and colors
-            all_coordinates = np.hstack((all_coordinates, coordinates))
-            all_colors = np.hstack((all_colors, point_colors))
+            # Get annotation color and point types for the current annotation
+            annotation_color = self._rgb_to_k3dcolor(annotation_style["color"])
+            point_types = surface_annotation.get("point_types", None)
 
+            # Get number of annotation vertex (line) coordinates and point types
+            vertices  = coordinates.T.astype(np.float32)
+            positions = vertices.copy() # copy!
+
+            # Check if not all vertices are all fixed points, all to lines.
+            if not np.all(point_types == self.state.POINT_FIXED):
+                # Prepare the vertices and line colors arrays
+                all_vertices  = np.vstack((all_vertices, vertices, coord_sep))
+                vertex_colors = np.full(vertices.shape[0], annotation_color)
+                all_lcolors   = np.hstack((all_lcolors, vertex_colors, color_sep))
+
+            # Get annotation positions (for points) and point types
+            positions   = positions[point_types != self.state.POINT_INTERP]
+            point_types = point_types[point_types != self.state.POINT_INTERP]
+
+            # Prepare the positions and point colors arrays
+            all_positions = np.vstack((all_positions, positions))
+            point_colors  = np.full(positions.shape[0], annotation_color)
+            all_pcolors   = np.hstack((all_pcolors, point_colors))
+    
         # If no coordinates, return None to skip plotting.
-        if all_coordinates.shape[1] == 0: return None
-        
-        # Prepare scatter sizes (all the same for background points)
-        all_sizes = np.full(all_coordinates.shape[1], self.state.style["line_size"])
+        if all_vertices.shape[0] == 0: return None
 
-        # Return the scatter plot keyword arguments
         return { 
-            "positions"  : all_coordinates.T.astype(np.float32),
-            "point_sizes": all_sizes.astype(np.float32),
-            "colors"     : all_colors.astype(np.uint32)
+            "line": {
+                "vertices" : all_vertices.astype(np.float32),
+                "width"    : float(self.state.style["line_width"] * 0.5), 
+                "colors"   : all_lcolors.astype(np.uint32)
+            },
+            "points": {
+                "positions"  : all_positions.astype(np.float32), 
+                "point_size" : float(self.state.style["point_size"] * 0.5),
+                "colors"     : all_pcolors.astype(np.uint32)
+            }
         }
-            
+    
+    # Figure Clear Method ------------------------------------------------------
+
+    def clear_figure(self):
+        """Clear the figure by setting layers to invisible."""
+        self.k3dmesh_cortex.visible       = False
+        self.k3dmesh_overlay.visible      = False
+        self.k3dline_active.visible       = False
+        self.k3dpoints_active.visible     = False
+        self.k3dline_background.visible   = False
+        self.k3dpoints_background.visible = False 
+
     # Figure Refresh Methods ---------------------------------------------------
 
     def refresh_cortex(self):
         """Refresh the cortex mesh."""
         # Update the cortex mesh values
         cortex_kwargs = self._prep_cortex()
-        self.k3dmesh_cortex.vertices = cortex_kwargs["vertices"]
-        self.k3dmesh_cortex.indices  = cortex_kwargs["indices"]
-        self.k3dmesh_cortex.colors   = cortex_kwargs["colors"] # curvature
+        for key in cortex_kwargs.keys():
+            setattr(self.k3dmesh_cortex, key, cortex_kwargs[key])
+        self.k3dmesh_cortex.visible = True
 
         # Update the overlay mesh values 
         overlay_kwargs = self._prep_overlay()
         if self.state.style["overlay"] == "curvature":
             self.k3dmesh_overlay.visible = False
         else:
-            self.k3dmesh_overlay.vertices = overlay_kwargs["vertices"]
-            self.k3dmesh_overlay.indices  = overlay_kwargs["indices"]
-            self.k3dmesh_overlay.colors   = overlay_kwargs["colors"]
-            self.k3dmesh_overlay.opacity  = overlay_kwargs["opacity"]
-            self.k3dmesh_overlay.visible  = True
+            for key in overlay_kwargs.keys():
+                setattr(self.k3dmesh_overlay, key, overlay_kwargs[key])
+            self.k3dmesh_overlay.visible = True
 
     
     def refresh_points(self):
         """Refresh the annotation points."""
         # Update the surface active annotation
-        active_kwargs = self._prep_active_points()
+        active_kwargs = self._prep_active_annotation()
         if active_kwargs is None:
-            self.k3dpoints_active.visible     = False
+            self.k3dpoints_active.visible = False
         else:
-            self.k3dpoints_active.positions   = active_kwargs["positions"]
-            self.k3dpoints_active.point_sizes = active_kwargs["point_sizes"]
-            self.k3dpoints_active.colors      = active_kwargs["colors"]
-            self.k3dpoints_active.visible     = True
+            # Update the active line layer (interpolated between points)
+            line_kwargs = active_kwargs["line"]
+            for key in line_kwargs.keys(): 
+                setattr(self.k3dline_active, key, line_kwargs[key])
+            self.k3dline_active.visible = True
+
+            # Update the active points layer (fixed + user points)
+            points_kwargs = active_kwargs["points"]
+            for key in points_kwargs.keys():
+                setattr(self.k3dpoints_active, key, points_kwargs[key])
+            self.k3dpoints_active.visible = True
     
         # Update the surface background annotation
-        background_kwargs = self._prep_background_points()
+        background_kwargs = self._prep_background_annotations()
         if background_kwargs is None:
-            self.k3dpoints_background.visible     = False
+            self.k3dline_background.visible = False
         else:
-            self.k3dpoints_background.positions   = background_kwargs["positions"]
-            self.k3dpoints_background.point_sizes = background_kwargs["point_sizes"]
-            self.k3dpoints_background.colors      = background_kwargs["colors"]  
-            self.k3dpoints_background.visible     = True
+            # Update the background line layer (interpolated between points)
+            line_kwargs = background_kwargs["line"]
+            for key in line_kwargs.keys():
+                setattr(self.k3dline_background, key, line_kwargs[key])
+            self.k3dline_background.visible = True
 
+            # Update the background points layer (fixed + user points)
+            points_kwargs = background_kwargs["points"]
+            for key in points_kwargs.keys():
+                setattr(self.k3dpoints_background, key, points_kwargs[key])
+            self.k3dpoints_background.visible = True
+            
 
-    def refresh_figure(self, cortex = True, points = True):
+    def refresh_figure(self, clear = False, cortex = True, points = True):
         """Refresh the entire figure."""
         # Disable auto rendering for performance
         self.figure.auto_rendering = False
 
         # Figure refresh, dependent on which layers need to be updated
+        if clear:
+            self.clear_figure()
         if cortex:
             self.refresh_cortex()
         if points:
