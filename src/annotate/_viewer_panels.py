@@ -698,6 +698,7 @@ class CortexFigurePanel(ipw.GridBox):
         # Update the surface active annotation
         active_kwargs = self._prep_active_annotation()
         if active_kwargs is None:
+            self.k3dline_active.visible   = False
             self.k3dpoints_active.visible = False
         else:
             # Update the active line layer (interpolated between points)
@@ -715,7 +716,8 @@ class CortexFigurePanel(ipw.GridBox):
         # Update the surface background annotation
         background_kwargs = self._prep_background_annotations()
         if background_kwargs is None:
-            self.k3dline_background.visible = False
+            self.k3dline_background.visible   = False
+            self.k3dpoints_background.visible = False
         else:
             # Update the background line layer (interpolated between points)
             line_kwargs = background_kwargs["line"]

@@ -611,6 +611,7 @@ class FigurePanel(ipw.HBox):
                 self.redraw_image()
             if redraw_annotations: 
                 self.redraw_annotations()
+                self._increment_annotation_change()
 
     # Canvas to Figure Coordinate Conversion Method ----------------------------
 

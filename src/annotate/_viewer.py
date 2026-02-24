@@ -585,6 +585,8 @@ class CortexViewer(ipw.GridBox):
         # Update the surface annotations based on the new annotation data
         self.state.update_surface_annotations()
 
+        print("Updated surface annotations:", self.state.surface_annotations)
+        
         # Refresh the figure with annotation changes
         self.figure_panel.refresh_figure(
             clear = False, cortex = False, points = True)
