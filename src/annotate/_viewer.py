@@ -49,22 +49,20 @@ class CortexViewerState:
 
     def __init__(
             self, 
-            annotation_widgets, 
+            annotation_tool, 
             dataset_directory = "/home/jovyan/datasets", 
         ):
         
         # Store intialization variables
-        self.annotation_widgets = annotation_widgets 
-        self.dataset_directory  = dataset_directory
+        self.annotation_tool   = annotation_tool 
+        self.dataset_directory = dataset_directory
 
         # Prepare fsaverage da_ta 
         self.fsaverage = self._get_fsaverage()
 
         # Prepare initial values from annotation widget
-        self.dataset_index = self.get_dataset_index()
-        self.dataset       = self.get_dataset()
-        self.targets       = self.get_targets()
-        self.annotation    = self.get_annotation()
+        self.targets    = self.get_targets()
+        self.annotation = self.get_annotation()
 
         # Prepare dataset dependent annotation information and styler
         self.update_annot_cfg()
@@ -112,33 +110,16 @@ class CortexViewerState:
 
     # [Annotation Tool] Get Active Widget Methods ------------------------------
 
-    def _get_active_annotation_tool(self):
-        """Get the active multicanvas widget."""
-        return self.annotation_widgets.children[self.dataset_index]
-
-
     def _get_active_selection_panel(self):
         """Get the active selection panel widget."""
-        active_tool = self._get_active_annotation_tool()
-        return active_tool.control_panel.selection_panel
+        return self.annotation_tool.control_panel.selection_panel
     
 
     def _get_active_figure_panel(self):
         """Get the active figure panel widget."""
-        active_tool = self._get_active_annotation_tool()
-        return active_tool.figure_panel
+        return self.annotation_tool.figure_panel
     
-    # [Annotation Tool] Get Selected Information Methods -----------------------
-
-    def get_dataset_index(self):
-        """Get the current dataset selection index."""
-        return self.annotation_widgets.selected_index
-    
-
-    def get_dataset(self):
-        """Get the current dataset selection widget."""
-        return self.annotation_widgets.titles[self.dataset_index]
-    
+    # [Annotation Tool] Get Selected Information Methods -----------------------    
 
     def get_targets(self):
         """Get the active targets from the active annotation tool."""
@@ -147,6 +128,11 @@ class CortexViewerState:
             key.lower(): value.value for key, value 
             in selection_panel.target_dropdowns.items() 
         }
+    
+    @property
+    def dataset(self):
+        """Get the current dataset selection."""
+        return self.targets.get("dataset", None)
     
 
     @property
@@ -191,14 +177,12 @@ class CortexViewerState:
 
     def update_annot_cfg(self):
         """Update the annotation configuration based on current state."""
-        active_tool = self._get_active_annotation_tool()
-        self.annot_cfg = active_tool.state.config.annotations
-    
+        self.annot_cfg = self.annotation_tool.state.config.annotations
+
 
     def update_styler(self):
         """Update the styler options based on current state."""
-        active_tool = self._get_active_annotation_tool()
-        self.styler = active_tool.state.style
+        self.styler = self.annotation_tool.state.style
 
 
     def update_flatmap_annotations(self):
@@ -420,40 +404,31 @@ class CortexViewerState:
 
     # [Cortex Viewer] Observer Methods -----------------------------------------
 
-    def observe_dataset_index(self, callback):
-        """Assign a callback function to dataset value changes."""
-        self.annotation_widgets.observe(callback, names = "selected_index")
-
-
     def observe_targets(self, callback):
         """Assign a callback function to target value changes."""
-        for annotation_widget in self.annotation_widgets.children:
-            selection_panel = annotation_widget.control_panel.selection_panel
-            for target_dropdown in selection_panel.target_dropdowns.values():
-                target_dropdown.observe(callback, names = "value")
+        selection_panel = self.annotation_tool.control_panel.selection_panel
+        for target_dropdown in selection_panel.target_dropdowns.values():
+            target_dropdown.observe(callback, names = "value")
 
 
     def observe_annotation(self, callback):
         """Assign a callback function to annotation data changes."""
-        for annotation_widget in self.annotation_widgets.children:
-            selection_panel = annotation_widget.control_panel.selection_panel
-            annotations_dropdown = selection_panel.annotations_dropdown
-            annotations_dropdown.observe(callback, names = "value")
+        selection_panel = self.annotation_tool.control_panel.selection_panel
+        annotations_dropdown = selection_panel.annotations_dropdown
+        annotations_dropdown.observe(callback, names = "value")
 
 
     def observe_annotation_change(self, callback):
         """Assign a callback function to annotation data changes."""
-        for annotation_widget in self.annotation_widgets.children:
-            annotation_figure = annotation_widget.figure_panel
-            annotation_figure.observe(callback, names = "_annotation_change")
+        annotation_figure = self.annotation_tool.figure_panel
+        annotation_figure.observe(callback, names = "_annotation_change")
 
 
     def observe_annotation_styles(self, callback):
         """Assign a callback function to style option changes."""
-        for annotation_widget in self.annotation_widgets.children:
-            style_panel = annotation_widget.control_panel.style_panel
-            style_panel.visible_checkbox.observe(callback, names = "value")
-            style_panel.color_picker.observe(callback, names = "value")
+        style_panel = self.annotation_tool.control_panel.style_panel
+        style_panel.visible_checkbox.observe(callback, names = "value")
+        style_panel.color_picker.observe(callback, names = "value")
 
 
 # The Cortex Viewer Widget -----------------------------------------------------
@@ -467,14 +442,14 @@ class CortexViewer(ipw.GridBox):
     """
 
     def __init__(
-            self, annotation_widgets, dataset_directory, 
+            self, annotation_tool, dataset_directory, 
             control_panel_background_color = "#f0f0f0",
             panel_width = 270, panel_height = 512
         ):
         # Initialize the Cortex Viewer state
         self.state = CortexViewerState(
-            annotation_widgets = annotation_widgets,
-            dataset_directory  = dataset_directory,
+            annotation_tool   = annotation_tool,
+            dataset_directory = dataset_directory,
         )
 
         # Create the Cortex Viewer control panel
@@ -520,7 +495,6 @@ class CortexViewer(ipw.GridBox):
     def _infobox_observers(self):
         """Return a list of observer functions for the Cortex Viewer state."""
         return {
-            "dataset"    : self.state.observe_dataset_index,
             "targets"    : self.state.observe_targets,
             "annotation" : self.state.observe_annotation,
         } 
@@ -543,28 +517,20 @@ class CortexViewer(ipw.GridBox):
     def on_selection_change(self, key, change):
         """Handle changes to the dataset selection."""
         # Update the control panel information
-        if key == "dataset":
-            self.state.dataset_index = change.new
-            self.state.dataset       = self.state.get_dataset()
-            self.state.targets       = self.state.get_targets()
-            self.state.annotation    = self.state.get_annotation()
-        elif key == "targets":
-            self.state.targets       = self.state.get_targets()
-            self.state.annotation    = self.state.get_annotation()
+        if key == "targets":
+            self.state.targets    = self.state.get_targets()
+            self.state.annotation = self.state.get_annotation()
         else: # key == "annotation":
-            self.state.annotation    = self.state.get_annotation()
+            self.state.annotation = self.state.get_annotation()
 
         # Update the infobox displays
         for k in self.control_panel.infobox.keys():
             self.control_panel.refresh_infobox(k)
 
-        # Update style options based on new dataset
-        if key == "dataset":
+        # Update the cortex viewer state based on selection change
+        if key == "targets":
             self.state.update_annot_cfg()
             self.state.update_styler()
-
-        # Update the cortex viewer state based on selection change
-        if key in ( "dataset", "targets" ):
             self.state.update_participant()
             self.state.update_coordinates()
             self.state.update_mesh()
@@ -584,8 +550,6 @@ class CortexViewer(ipw.GridBox):
         """Handle update when the user changes the annotation data."""
         # Update the surface annotations based on the new annotation data
         self.state.update_surface_annotations()
-
-        print("Updated surface annotations:", self.state.surface_annotations)
         
         # Refresh the figure with annotation changes
         self.figure_panel.refresh_figure(

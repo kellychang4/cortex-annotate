@@ -43,7 +43,7 @@ class CortexControlPanel(ipw.VBox):
 
         # Create information boxes
         self.infobox = {} # initialize infobox dictionary
-        infobox_keys = ( "dataset", *self.target_keys, "annotation" ) 
+        infobox_keys = ( *self.target_keys, "annotation" ) 
         for key in infobox_keys: # for each key in dataset and selection
             self.infobox[key] = self._init_infobox(key)
         
@@ -69,8 +69,6 @@ class CortexControlPanel(ipw.VBox):
         children = [
             # Cortex Viewer title
             self._make_section_title("Selection:"),
-            # Dataset infoboxes
-            self.infobox["dataset"],
             # Targets infoboxes
             *[ self.infobox[key] for key in self.target_keys ],
             # Annotation infobox
