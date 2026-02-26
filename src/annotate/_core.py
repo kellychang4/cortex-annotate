@@ -354,9 +354,11 @@ class AnnotationState:
     def load_target_annotations(self, target_id):
         """Loads (lazily) the annotations for the current tool user for a single target"""
         target_annotations = ldict() # initialize
-        for annotation in self.config.annotations.keys():
-            target_annotations[annotation] = delay(
-                self.load_target_annotation, target_id, annotation)
+        for annotation, annotation_info in self.config.annotations.items():
+            if annotation_info.filter is None or \
+                annotation_info.filter(self.config.targets[target_id]):
+                target_annotations[annotation] = delay(
+                    self.load_target_annotation, target_id, annotation)
         return target_annotations
 
     

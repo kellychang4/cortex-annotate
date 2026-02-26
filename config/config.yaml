@@ -15,7 +15,7 @@ display:
     markersize: 0
     linewidth: 2
     linestyle: "solid"
-
+    
 
 init: |
   # Load libraries that will be used throughout the configuration file.
@@ -27,10 +27,9 @@ init: |
   from struct import unpack
   from matplotlib.colors import LinearSegmentedColormap
 
-  # Define directories
-  dataset  = "nod"
-  data_dir = op.join("/home", "jovyan", "datasets", dataset)
-
+  # define dataset directory (inside Docker container)
+  # datasets_dir = op.join("/home", "jovyan", "datasets") 
+  
   # define flatmap kwargs
   FLATMAP_KWARGS = {
     "mask"      : ( "parcellation", 43 ), 
@@ -58,24 +57,37 @@ init: |
     ]
   )
 
-
-  
 targets:
-  # The "Participant" is a choice for the user. It will appear as a dropdown 
-  # menu with these two options in the annotation tool.
-  Participant:
-    - sub-01
-    - sub-02
-    - sub-03
-    - sub-04
-    - sub-05
-    - sub-06
-    - sub-07
-    - sub-08
-    - sub-09
+  # The "Dataset" is a choice for the user; as a list of one option.
+  Dataset:
+    - CHN-Retinotopy
+    - HCP-Retinotopy
+    - NOD
+    - NSD
+    - NYU-Retinotopy
+    - StudyForrest
 
-  # The "Hemisphere" is a choice for the user; as a list of two options, it will
-  # appear as a dropdown menu with these two options in the annotation tool.
+  # The "Participant" is a choice for the user. It will depend on the dataset
+  # selection, so we define it as a function returning the list of participants.
+  Participant: 
+    depends_on: Dataset
+    calculate: |
+      # get dropdown selection from above choices.
+      dataset = target["Dataset"].lower() # string
+
+      # define dataset directory
+      dataset_dir = op.join(datasets_dir, dataset)
+
+      # find all participant directories in dataset directory
+      participant_dirs = glob.glob(op.join(dataset_dir, "*"))
+
+      # extract participant names from participant directories
+      participants = [op.basename(d) for d in participant_dirs]
+
+      # return list of participants for dropdown menu
+      return participants
+
+  # The "Hemisphere" is a choice for the user; as a list of two options.
   Hemisphere:
     - Left Hemisphere
     - Right Hemisphere
@@ -83,14 +95,15 @@ targets:
   # create subject flatmap.
   flatmap: |
     # get dropdown selections from above choices.
-    participant = target["Participant"] # string
-    hemi        = target["Hemisphere"]  # string
+    dataset     = target["Dataset"].lower() # string
+    participant = target["Participant"]     # string
+    hemisphere  = target["Hemisphere"]      # string
 
     # format dropdown items
-    fs_hemi = f"{hemi[0].lower()}h"
+    fs_hemi = f"{hemisphere[0].lower()}h"
 
     # define participant directory
-    participant_dir = op.join(data_dir, participant)
+    participant_dir = op.join(datasets_dir, dataset, participant)
 
     # find all participant property files
     prop_files = glob.glob(op.join(participant_dir, f"{fs_hemi}.2d.*"))
@@ -107,7 +120,7 @@ targets:
     # copy fsaverage flatmap 
     participant_flatmap = fsa_flatmaps[fs_hemi].copy()
 
-    # attatch and return properties to fsaverage flatmap
+    # attach and return participant flatmap with properties
     return participant_flatmap.with_prop(props)
 
 
@@ -267,6 +280,15 @@ annotations:
     figure_grid:
       - ["eccen_7.0", "angle"]
       - ["eccen", "vexpl"]
+    filter: |
+      return target["Dataset"] != "NSD"
+  11.0 Degrees Eccentricity:
+    type: contour
+    figure_grid:
+      - ["eccen_11.0", "angle"]
+      - ["eccen", "vexpl"]
+    filter: |
+      return target["Dataset"] in ( "NYU-Retinotopy", )
 
 
 figures:

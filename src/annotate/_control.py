@@ -32,6 +32,10 @@ class SelectionPanel(ipw.VBox):
         # Store the state
         self.state = state
 
+        # We have to manage an "updating" state to avoid firing observers while
+        # in the middle of updating dependent dropdowns.
+        self._updating = False
+
         # Initialize the dropdowns.
         self.target_dropdowns = {}
         
@@ -42,6 +46,19 @@ class SelectionPanel(ipw.VBox):
         dd_layout = { "width": "94%", "margin": "1% 3% 1% 3%" }
         for key in state.config.targets.concrete_keys:
             dropdown_values = state.config.targets.items[key]
+
+            # If dynamic target (dcit), dropdown values depend on the parent 
+            # key's dropdown selection.
+            if isinstance(dropdown_values, dict):        
+                # Look up the parent key that this target depends on.
+                parent_key = dropdown_values["depends_on"]
+
+                # Look up the first parent selection and return options.
+                parent0 = state.config.targets.items[parent_key][0]
+                
+                # Look up the dropdown values for this parent selection.
+                dropdown_values = dropdown_values[parent0]
+
             dropdown_widget = ipw.Dropdown(
                 options     = dropdown_values, 
                 value       = dropdown_values[0], 
@@ -67,9 +84,27 @@ class SelectionPanel(ipw.VBox):
         # the Figure panel's listener does not get updated before the annotation
         # selection dropbox is changed when the user changes the target
         # selection.
+
+        # FIRST: Wire up dependent dropdown updates.
+        # These must fire before on_target_change so that downstream
+        # dropdowns have valid options when the target is read.
+        for key in state.config.targets.concrete_keys:
+            target_item = state.config.targets.items[key]
+            if isinstance(target_item, dict):
+                parent_key = target_item["depends_on"]
+                self.target_dropdowns[parent_key].observe(
+                    partial(self.on_parent_change, key), names = "value"
+                )
+
+        # SECOND: Wire up the (non-dependent) target change observers.
+        # By the time these fire, dependent dropdowns are already updated.
         for key in state.config.targets.concrete_keys:
             self.target_dropdowns[key].observe(
-                partial(self.on_target_change, key), names = "value")
+                partial(self.on_target_change, key), names = "value"
+        )   
+
+        # THIRD: Wire up the annotation change observer.
+        # By the time this fires, the target observers have already fired.
         self.annotations_dropdown.observe(
             self.on_annotation_change, names = "value")
         
@@ -101,7 +136,6 @@ class SelectionPanel(ipw.VBox):
 
     def refresh_annotations(self):
         """Refreshes the annotations dropdown menu based on the current target selection."""
-
         # Get the new target selection entirely.
         target_id = self.target
     
@@ -109,17 +143,38 @@ class SelectionPanel(ipw.VBox):
         target = self.state.config.targets[target_id]
     
         # Recalculate the annotations for this target and update the menu.
-        annotion_options = [ 
-            annotation for (annotation, annotation_data) 
+        annotation_options = [ 
+            annotation for ( annotation, annotation_data ) 
             in self.state.config.annotations.items()
             if annotation_data.filter is None or annotation_data.filter(target) 
         ]
-        self.annotations_dropdown.options = annotion_options
-        self.annotations_dropdown.value   = annotion_options[0]
+        self.annotations_dropdown.options = annotation_options
+        self.annotations_dropdown.value   = annotation_options[0]
+
+
+    def on_parent_change(self, key, change):
+        """Handles the change in a parent dropdown for a dynamic target."""
+        # Set "updating" state to avoid firing dependent dropdown observers.
+        self._updating = True
+        try: 
+            # Get the new parent selection and dropdown values.
+            dependent_items = self.state.config.targets.items[key]
+            dropdown_values = dependent_items[change.new]
+
+            # Update the dependent dropdown's options and value.
+            dependent_dropdown = self.target_dropdowns[key]
+            dependent_dropdown.options = dropdown_values
+            dependent_dropdown.value   = dropdown_values[0]
+        finally: 
+            # Undo "updating" state.
+            self._updating = False
 
 
     def on_target_change(self, key, change):
         """Alert our observers that the target selection has changed."""
+        # Prevent firing observers if we are updating dependent dropdowns.
+        if self._updating: return
+
         # Refresh the annotations menu.
         self.refresh_annotations()
 

@@ -369,6 +369,7 @@ class TargetsConfig(ldict):
         # into a function that takes `target` as an argument.
         elif isinstance(value, str):
             self.items[key] = init.compile_fn("target", value)
+
         else:
             # Error if the item value is not a list, dict, or string.
             raise ConfigError(f"targets.{key}", 
@@ -380,7 +381,7 @@ class TargetsConfig(ldict):
     def _resolve_concrete_items(self, concrete_key, partial_target):
         """Resolves the concrete items for a concrete key based on the partial target."""
         # Get the concrete items for this key.
-        concrete_items = self.items[concrete_key]
+        concrete_items = self.items[concrete_key].copy()
 
         # If the concrete items is a list, then use the list
         if isinstance(concrete_items, list):
@@ -388,16 +389,24 @@ class TargetsConfig(ldict):
         
         # If the concrete items is a dict, then this is a dependent concrete key.
         elif isinstance(concrete_items, dict):
-            # Get the "calculate" key if it exists. 
+            # Get the parent key and value that this concrete key depends on.
+            depends_on   = concrete_items["depends_on"]
+            parent_value = partial_target[depends_on]
+
+            # Pop the "calculate" key if it exists. 
             calculate = concrete_items.get("calculate", None)
             if calculate is not None:
-                values = calculate(partial_target)
+                # Use the calculate function to get the values based on the partial target.
+                values = sorted(calculate(partial_target))
+
+                # Store the calculated values into the original dictionary
+                self.items[concrete_key].update({ parent_value : values })
 
             # If there is no "calculate" key, then we get the parent key and
             # values and build the values based on the parent key values.
             else:
-                depends_on = concrete_items["depends_on"]
-                values     = concrete_items[partial_target[depends_on]]
+                values = concrete_items[parent_value]
+                print(values)
 
             # Check that the values is a list.
             if not isinstance(values, list):
@@ -445,6 +454,11 @@ class TargetsConfig(ldict):
             
             # Update the target keys with the update keys.
             targets_keys = update_keys
+
+        # Clean up "calculate" fields from the targets dictionary
+        for concrete_key in self.concrete_keys:
+            if "calculate" in self.items[concrete_key]:
+                self.items[concrete_key].pop("calculate")
 
         # Return the target keys.
         return targets_keys
@@ -622,7 +636,7 @@ class AnnotationsConfig(dict):
             raise err(f"{key} must contain 'calculate' if it is a mapping.")
             
         # Compile the calculate code string into a function. 
-        calculate = init.compile_fn("target, annotations", calculate)
+        calculate = init.compile_fn("annotations", calculate)
         
         # Return the fixed point dictionary.
         return { "calculate": calculate, "requires": requires }
