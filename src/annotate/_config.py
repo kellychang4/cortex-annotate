@@ -7,6 +7,8 @@
 
 # Imports ----------------------------------------------------------------------
 
+from ast import If
+from mimetypes import init
 import os
 import yaml
 import numpy as np
@@ -194,7 +196,6 @@ class InitConfig:
     def _init_env(self, globals, locals):
         """Initializes the environment by merging the given locals and globals with the init environment."""
         base_globals = {} if globals is None else globals
-        # base_gloabls = { **globals, "delay": delay, "ldict": ldict }
         base_locals  = {} if locals is None else locals
         return { **base_globals, **base_locals }
 
@@ -239,8 +240,8 @@ class TargetsConfig(ldict):
     """A dict-like configuration item for the annotation tool's targets.
 
     The `TargetsConfig` type is a (lazy) dict-like object that stores, as dict
-    entries, the targets of the annotation project (i.e., subjects, hemispheres)
-    as well as meta-data about the targets.
+    entries, the targets of the annotation project (i.e., dataset, participants,
+    hemispheres) as well as meta-data about the targets.
 
     For a `TargetsConfig` object `targets`, `targets[(id1, id2...)]` evaluates
     to the `target` dictionary for the target that is identified by the values
@@ -259,45 +260,203 @@ class TargetsConfig(ldict):
             raise ConfigError("targets", "targets section must be a mapping.")
 
         # First, we step through and compile the keys when necessary.
-        self.items = {}
-        self.concrete_keys = []
-        for (key, value) in targets_yaml.items(): 
-            if isinstance(value, list):
-                # If list, then this will become a concrete_key -> dropdown.
-                self.items[key] = value 
-                self.concrete_keys.append(key)
-            elif isinstance(value, str):
-                # If string, then this is treated as a code block that is 
-                # compiled into a function that takes `target` as an argument.
-                self.items[key] = init.compile_fn("target", value)
-            else:
-                # Error if the item value is not a list or string.
-                raise ConfigError(f"targets.{key}", 
-                    f"Target elements must be strings or lists: {value}"
-                )
+        self.items = {} # initialize
+        self.concrete_keys = [] # initialize
+        for (key, value) in targets_yaml.items():
+            self._parse_target(key, value, init)
 
-        # We then fill these out into a lazy dict that reifies each target
+        # Second, we build the product of all concrete keys
+        targets_keys = self._build_targets_keys()
+
+        # Third, we then fill these out into a lazy dict that reifies each target
         # individually. We start with a dict but put the delays into this object
         # (which is a lazy dict itself).
         targets_dict = {} 
-        for target_key in product(*[self.items[k] for k in self.concrete_keys]):
-            targets_dict[target_key] = delay(
+        for target_id in targets_keys:
+            targets_dict[target_id] = delay(
                 TargetsConfig._reify_target, 
                 self.items, 
                 self.concrete_keys, 
-                target_key
+                target_id
             )
             
         # Finally, we update this object with the target data.
         self.update(targets_dict)
 
+   
+    # Parsing Methods ----------------------------------------------------------
+
+    def _parse_dict_target(self, key, value, init):
+        """Parses a dictionary target entry. 
+        
+        A dictionary target entry is a concrete key that depends on another
+        concrete key. It must contain a "depends_on" field that specifies the
+        concrete key that it depends on. 
+        
+        The mapping can either specify the list values for each parent key of it
+        can contain a "calculate" field that is a code string that is compiled 
+        into a function that takes `target` as an argument and returns a list of
+        values.
+        """
+        # Check that "depends_on" field is present in the dictionary.
+        depends_on = value.get("depends_on", None)
+        if depends_on is None:
+            raise ConfigError(f"targets.{key}", 
+                f"Target items that are mappings must contain a "
+                f"'depends_on' field: {value}"
+            )
+
+        # Check that the depends_on field is a string.
+        if not isinstance(depends_on, str):
+            raise ConfigError(f"targets.{key}", 
+                f"'depends_on' field must be a string: {depends_on}"
+            )
+        
+        # Check that the depends_on field refers to a valid target.
+        parents = self.items.get(depends_on, None)
+        if parents is None or not isinstance(parents, list):
+            raise ConfigError(f"target.{key}", 
+                f"'depends_on' field must refer to a valid target with "
+                f"a list value: {depends_on}"
+            )
+
+        # If "calculate" field is present, compile the code. The return
+        # should be a list per parent key. 
+        calculate = value.get("calculate", None)
+        if calculate is not None:
+            return {
+                "depends_on" : depends_on,
+                "calculate"  : init.compile_fn("target", calculate)
+            }
+
+        # If there is no "calculate" field, then the given dictionary 
+        # should have the parent keys as fields with list values.
+        value_dict = { k: value.get(k, None) for k in parents }
+
+        # Check that all parent keys are present in the value dict.
+        if not all(isinstance(v, list) for v in value_dict.values()):
+            raise ConfigError(f"targets.{key}", 
+                f"Target items that are mappings must contain a "
+                f"field for each parent key with a list value: "
+                f"{self.items[depends_on]} -> "
+                f"{[x for x in value.keys() if x != 'depends_on']}"
+            )
+        # Return the value dict with the depends_on field.
+        return { "depends_on": depends_on, **value_dict }
+
+
+    def _parse_target(self, key, value, init):
+        """Parses a target entry.
+        
+        A target entry can be a list, dict, or string. If it is a list, then it
+        is treated as a concrete key with the list as its values. If it is a dict,
+        then it is treated as a concrete key with dependencies that are parsed by
+        the `_parse_dict_target` method. If it is a string, then it is treated as
+        a code block that is compiled into a function that takes `target` as an
+        argument.
+        """
+        # If list, then this will become a concrete_key.
+        if isinstance(value, list):
+            self.items[key] = value 
+            self.concrete_keys.append(key)
+
+        # If dict, then this is a concrete key with dependencies. 
+        elif isinstance(value, dict):
+            self.items[key] = self._parse_dict_target(key, value, init)
+            self.concrete_keys.append(key)
+
+        # If string, then this is treated as a code block that is compiled 
+        # into a function that takes `target` as an argument.
+        elif isinstance(value, str):
+            self.items[key] = init.compile_fn("target", value)
+        else:
+            # Error if the item value is not a list, dict, or string.
+            raise ConfigError(f"targets.{key}", 
+                f"Target elements must be lists, dicts, or strings: {value}"
+            )                
+    
+    # Target Key Building Methods ----------------------------------------------
+
+    def _resolve_concrete_items(self, concrete_key, partial_target):
+        """Resolves the concrete items for a concrete key based on the partial target."""
+        # Get the concrete items for this key.
+        concrete_items = self.items[concrete_key]
+
+        # If the concrete items is a list, then use the list
+        if isinstance(concrete_items, list):
+            return concrete_items
+        
+        # If the concrete items is a dict, then this is a dependent concrete key.
+        elif isinstance(concrete_items, dict):
+            # Get the "calculate" key if it exists. 
+            calculate = concrete_items.get("calculate", None)
+            if calculate is not None:
+                values = calculate(partial_target)
+
+            # If there is no "calculate" key, then we get the parent key and
+            # values and build the values based on the parent key values.
+            else:
+                depends_on = concrete_items["depends_on"]
+                values     = concrete_items[partial_target[depends_on]]
+
+            # Check that the values is a list.
+            if not isinstance(values, list):
+                raise ConfigError(f"targets.{concrete_key}", 
+                    f"Concrete key values must be lists: {values}"
+                )
+            
+            # Return the values.
+            return values
+        else: 
+            raise ConfigError(f"targets.{concrete_key}",
+                f"Concrete key items must be lists or dicts: {concrete_items}"
+            )
+
+
+    def _build_targets_keys(self):
+        """Builds the target keys by taking the product over the concrete keys.
+        
+        The target keys are the tuples of values for the concrete keys that 
+        identify each target. For example, if the concrete keys are "Dataset"
+        and "Participant", then a target key might be ("DatasetA", "sub-01").
+
+        Each concrete key is resolved in order. Dict-typed keys receive a 
+        partial target built from the concrete keys resolved so far.
+        """
+
+        # Initialize the target keys as a list with one empty tuple.
+        targets_keys = [()] 
+
+        # For each concrete key, we build up the target keys by taking the
+        # produict of the current target with the previous target keys.
+        for concrete_key in self.concrete_keys:
+            # Initialize the update keys as an empty list. 
+            update_keys = [] 
+
+            # For each target key, we build up the new target keys by appending 
+            for target_id in targets_keys:
+                # Build a lookup for the dependencies of this key based on the 
+                # current target_id.
+                partial_target = dict(zip(self.concrete_keys, target_id))
+                values = self._resolve_concrete_items(concrete_key, partial_target)
+
+                # Append previous and current target key values
+                for v in values: update_keys.append(target_id + (v,))
+            
+            # Update the target keys with the update keys.
+            targets_keys = update_keys
+
+        # Return the target keys.
+        return targets_keys
+    
+    # Target Reification Methods -----------------------------------------------
 
     @staticmethod
-    def _reify_target(items, concrete_keys, target_key):
+    def _reify_target(items, concrete_keys, target_id):
         """Builds up and returns an `ldict` of the all target data.
 
-        `TargetsConfig._reify_target(items, concrete_keys, target_key)`
-        takes the target-id tuple `target_key` and builds up the `ldict` 
+        `TargetsConfig._reify_target(items, concrete_keys, target_id)`
+        takes the target-id tuple `target_id` and builds up the `ldict` 
         representation of the target data, in which all keys in the 
         `config.yaml` file have values (albeit lazy ones in the case of the keys
         that are not concrete). The parameters `items` and `concrete_keys` 
@@ -305,7 +464,7 @@ class TargetsConfig(ldict):
         must be the concrete keys for the target, respectively.
         """
         d = ldict()
-        target_iter = iter(target_key)
+        target_iter = iter(target_id)
         for (key, value) in items.items():
             if key in concrete_keys:
                 d[key] = next(target_iter)
@@ -463,7 +622,7 @@ class AnnotationsConfig(dict):
             raise err(f"{key} must contain 'calculate' if it is a mapping.")
             
         # Compile the calculate code string into a function. 
-        calculate = init.compile_fn("annotations", calculate)
+        calculate = init.compile_fn("target, annotations", calculate)
         
         # Return the fixed point dictionary.
         return { "calculate": calculate, "requires": requires }
