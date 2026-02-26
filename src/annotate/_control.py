@@ -236,7 +236,63 @@ class SelectionPanel(ipw.VBox):
         self.observe_target(fn)
         self.observe_annotation(partial(fn, None))
 
+# The Legend Subpanel Widget ---------------------------------------------------
 
+class LegendPanel(ipw.VBox):
+    """The subpanel of the control panel containing the legend controls."""
+
+    slots = ( "state", "hemisphere_index", "image_dir", "image_widget" )
+
+    def __init__(self, state):
+        # Store the state
+        self.state = state
+
+        # Store the hemisphere index for later use in legend updates.
+        self.hemisphere_index = state.config.targets.concrete_keys.index("Hemisphere")
+
+        # Set up the path to the annotation legend images.
+        self.image_dir = op.join(op.dirname(__file__), "annotation-legends")
+
+        # Create the image widget
+        self.image_widget = ipw.Image(
+            format = "png",
+            layout = { "margin": "0% 3% 0% 3%", "width": "94%" }
+        )
+
+        # Create the VBox children
+        children = [
+            ipw.HTML("<b style=\"margin: 0% 3% 0% 3%;\">Annotation Legend:</b>"),
+            self.image_widget
+        ]
+
+        # Initialize the VBox
+        super().__init__(
+            children = children, 
+            layout   = { "margin": "0% 0% 3% 0%" }
+        )
+
+        # Update the legend with the initial image
+        target_id  = list(state.config.targets.keys())[0]
+        annotation = list(state.config.annotations.keys())[0]
+        self.update_legend(target_id, annotation)
+
+
+    def _read_image(self, image_path):
+        """Reads the image data from the given path."""
+        # Read the image data and return it.
+        with open(image_path, "rb") as f:
+            image_data = f.read()
+        return image_data
+    
+
+    def update_legend(self, target_id, annotation):
+        """Updates the legend image to the given legend name."""
+        hemisphere = target_id[self.hemisphere_index]
+        image_path = op.join(self.image_dir, hemisphere, f"{annotation}.png")
+        if not op.isfile(image_path): # if the image does not exist, use empty
+            image_path = op.join(self.image_dir, "empty.png")
+        self.image_widget.value = self._read_image(image_path)
+        
 # The Style Subpanel Widget ----------------------------------------------------
 
 class StylePanel(ipw.VBox):
@@ -423,65 +479,6 @@ class StylePanel(ipw.VBox):
         """
         self.style_observers.append(fn)
 
-
-# The Legend Subpanel Widget ---------------------------------------------------
-
-class LegendPanel(ipw.VBox):
-    """The subpanel of the control panel containing the legend controls."""
-
-    slots = ( "state", "hemisphere_index", "image_dir", "image_widget" )
-
-    def __init__(self, state):
-        # Store the state
-        self.state = state
-
-        # Store the hemisphere index for later use in legend updates.
-        self.hemisphere_index = state.config.targets.concrete_keys.index("Hemisphere")
-
-        # Set up the path to the annotation legend images.
-        self.image_dir = op.join(op.dirname(__file__), "annotation-legends")
-
-        # Create the image widget
-        self.image_widget = ipw.Image(
-            format = "png",
-            layout = { "margin": "0% 3% 0% 3%", "width": "94%" }
-        )
-
-        # Create the VBox children
-        children = [
-            ipw.HTML("<b style=\"margin: 0% 3% 0% 3%;\">Annotation Legend:</b>"),
-            self.image_widget
-        ]
-
-        # Initialize the VBox
-        super().__init__(
-            children = children, 
-            layout   = { "margin": "0% 0% 3% 0%" }
-        )
-
-        # Update the legend with the initial image
-        target_id  = list(state.config.targets.keys())[0]
-        annotation = list(state.config.annotations.keys())[0]
-        self.update_legend(target_id, annotation)
-
-
-    def _read_image(self, image_path):
-        """Reads the image data from the given path."""
-        # Read the image data and return it.
-        with open(image_path, "rb") as f:
-            image_data = f.read()
-        return image_data
-    
-
-    def update_legend(self, target_id, annotation):
-        """Updates the legend image to the given legend name."""
-        hemisphere = target_id[self.hemisphere_index]
-        image_path = op.join(self.image_dir, hemisphere, f"{annotation}.png")
-        if not op.isfile(image_path): # if the image does not exist, use empty
-            image_path = op.join(self.image_dir, "empty.png")
-        self.image_widget.value = self._read_image(image_path)
-        
-
 # The Control Panel Widget -----------------------------------------------------
 
 class ControlPanel(ipw.VBox):
@@ -535,7 +532,7 @@ class ControlPanel(ipw.VBox):
             layout   = { "margin" : "3% 3% 3% 3%", "width" : "94%" }
         )            
 
-        # Create the VBox children; main control panel components and dividers.
+        # First: Selection and Annotation related panels.
         children = [
             self.selection_panel,
             self._make_hline(),
@@ -543,16 +540,26 @@ class ControlPanel(ipw.VBox):
             self._make_hline(),
             self.legend_panel,
             self._make_hline(),
-            self.style_panel,
-            self._make_hline(),
             self.button_box,
             self._make_hline(),
             self._make_info_message()
         ]
-        vbox = ipw.VBox(children, layout = { "width": "250px" })
+        selection_vbox = ipw.VBox(children, layout = { "width": "250px" })
 
-        # Wrap the whole thing in an accordion so that it can be collapsed.
-        accordion = ipw.Accordion((vbox, ), selected_index = 0)
+        # Second: Style panel
+        children = [ 
+            self.style_panel 
+        ]
+        style_vbox = ipw.VBox(children, layout = { "width": "250px" })
+
+        # Wrap the selection and style panels in tab widget. 
+        control_tabs = ipw.Tab(
+            children = [ selection_vbox, style_vbox ], 
+            titles   = [ "Selection", "Style" ]
+        )
+
+        # Finally, put the whole thing in an accordion so that it can be collapsed.
+        accordion = ipw.Accordion((control_tabs, ), selected_index = 0)
         accordion.add_class("annotate-control-panel") 
 
         # Finally, call the VBox initializer. 
@@ -643,7 +650,7 @@ class ControlPanel(ipw.VBox):
         the `config.yaml` file's `targets` section. In other words, the
         selection target changes when any of the selection dropdowns are changed
         except for the annotation dropdown.
-
+a
         When the selection target changes, the given function is called with two
         arguments: `fn(concrete_key, change)` where `concrete_key` is the
         (string) name of one of the concrete keys and `change` is the change
