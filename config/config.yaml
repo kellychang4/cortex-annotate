@@ -28,7 +28,7 @@ init: |
   from matplotlib.colors import LinearSegmentedColormap
 
   # define dataset directory (inside Docker container)
-  # datasets_dir = op.join("/home", "jovyan", "datasets") 
+  datasets_dir = op.join("/home", "jovyan", "datasets") 
   
   # define flatmap kwargs
   FLATMAP_KWARGS = {
