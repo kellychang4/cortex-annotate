@@ -7,12 +7,9 @@
 
 # Imports ----------------------------------------------------------------------
 
-from ast import If
-from mimetypes import init
 import os
 import yaml
 import numpy as np
-from itertools import product
 from functools import partial
 from collections import namedtuple
 from numbers import Real, Integral

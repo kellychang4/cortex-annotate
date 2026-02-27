@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 ################################################################################
-# annotate/_control_panel.py
+# annotate/_control.py
 
 """Core implementation code for the annotation tool's control panel.
 
@@ -17,6 +17,8 @@ in `_figure.py` as appropriate.
 import os.path as op
 import ipywidgets as ipw
 from functools import partial
+
+from ._util import make_section_title, make_hline, darken_color
 
 # The Selection Subpanel Widget ------------------------------------------------
 
@@ -41,7 +43,7 @@ class SelectionPanel(ipw.VBox):
         
         # Create the dropdown widgets as children (excluding annotation).
         children = [ 
-            ipw.HTML("<b style=\"margin: 0% 3% 0% 3%;\">Selection:</b>") 
+            make_section_title("Selection"),
         ]
         dd_layout = { "width": "94%", "margin": "1% 3% 1% 3%" }
         for key in state.config.targets.concrete_keys:
@@ -259,15 +261,12 @@ class LegendPanel(ipw.VBox):
             layout = { "margin": "0% 3% 0% 3%", "width": "94%" }
         )
 
-        # Create the VBox children
-        children = [
-            ipw.HTML("<b style=\"margin: 0% 3% 0% 3%;\">Annotation Legend:</b>"),
-            self.image_widget
-        ]
-
         # Initialize the VBox
         super().__init__(
-            children = children, 
+            children = [ 
+                make_section_title("Annotation Legend"), 
+                self.image_widget 
+            ],
             layout   = { "margin": "0% 0% 3% 0%" }
         )
 
@@ -292,11 +291,26 @@ class LegendPanel(ipw.VBox):
         if not op.isfile(image_path): # if the image does not exist, use empty
             image_path = op.join(self.image_dir, "empty.png")
         self.image_widget.value = self._read_image(image_path)
-        
+
 # The Style Subpanel Widget ----------------------------------------------------
 
 class StylePanel(ipw.VBox):
     """The subpanel of the control panel containing the style controls."""
+    
+    _WIDGET_LAYOUT = { "width": "94%", "margin": "0% 3% 0% 3%" } 
+
+    _SLIDER_KWARGS = {
+        "readout"           : False,
+        "continuous_update" : False,
+        "orientation"       : "horizontal",
+        "layout"            : _WIDGET_LAYOUT
+    }
+
+    _ANNOT_SLIDER_KWARGS = {
+        **_SLIDER_KWARGS, 
+        "value": 1, "min": 1, "max": 8, "step": 1, 
+        "readout": True, 
+    }
 
     __slots__ = (
         "state", "style_dropdown", "visible_checkbox",
@@ -308,121 +322,209 @@ class StylePanel(ipw.VBox):
         # Store the state
         self.state = state
 
-        # Declare default layout and kwargs options for the style controls.
-        layout = { "width": "94%", "margin": "0% 3% 0% 3%" }   
-        slider_kwargs = {
-            "value": 1, "min": 1, "max": 8, "step": 1,
-            "readout": True, "continuous_update": False,
-            "layout": layout
-        }
+        # Initialize the style controls (annotation).
+        self.style_dropdown     = self._init_style_dropdown()
+        self.visible_checkbox   = self._init_visible_checkbox()
+        self.color_picker       = self._init_color_picker()
+        self.markersize_slider  = self._init_markersize_slider()
+        self.linewidth_slider   = self._init_linewidth_slider()
+        self.linestyle_dropdown = self._init_linestyle_dropdown()
 
-        # The style dropdown menu will have an "Active Annotation" option 
-        # followed by an option for each annotation in the configuration.
-        entries  = [ "Active Annotation" ]
-        entries += list(state.config.annotations.keys())
+        # Initialize the style controls (cortex).
+        self.inflation_slider   = self._init_inflation_slider()
+        self.overlay_dropdown   = self._init_overlay_dropdown()
+        self.overlay_slider     = self._init_overlay_alpha_slider()
+        self.point_size_slider  = self._init_point_size_slider()
+        self.line_width_slider  = self._init_line_width_slider()
+        self.line_interp_slider = self._init_line_interp_slider()
 
-        # Define the style dropdown menu.
-        self.style_dropdown = ipw.Dropdown(
-            options     = entries, 
-            value       = entries[0],
-            description = "Annotation:",
-            layout      = { **layout, "margin": "3% 3% 3% 3%" }
-        )
-
-        # Define the visible checkbox.
-        self.visible_checkbox = ipw.Checkbox(
-            description = "Visible",
-            value       = True,
-            layout      = layout
-        )
-
-        # Define the color picker.
-        self.color_picker = ipw.ColorPicker(
-            concise     = False,
-            description = "Color:",
-            value       = "blue",
-            layout      = layout
-        )
-
-        # Define the marker size slider.
-        self.markersize_slider = ipw.IntSlider(
-            **{ **slider_kwargs, "max": 12 },
-            description = "Point Size:",
-        )
-        self.markersize_slider.add_class("annotate-style-widget")
-
-        # Define the line width slider.
-        self.linewidth_slider = ipw.IntSlider(
-            **slider_kwargs,
-            description = "Line Width:",
-        )
-        self.linewidth_slider.add_class("annotate-style-widget")
-
-        # Define the line style dropdown.
-        self.linestyle_dropdown = ipw.Dropdown(
-            options     = [ "solid", "dashed", "dot-dashed", "dotted" ],
-            description = "Line Style:",
-            layout      = layout
-        )
-
-        # Create the VBox children of style options.
+        # Assemble the style panel children.
         children = [
-            self._make_html_header(),
-            ipw.HTML("<b style=\"margin: 0% 3% 0% 3%;\">Style Options:</b>"),
+            make_section_title("Style Options"),
             self.style_dropdown,
-            self._make_hline(),
+            make_hline(),
+            make_section_title("Annotation Options"),
             self.visible_checkbox,
             self.color_picker,
             self.markersize_slider,
             self.linewidth_slider,
-            self.linestyle_dropdown
+            self.linestyle_dropdown,
+            make_hline(),
+            make_section_title("Cortex Options"),
+            self.inflation_slider,
+            self.overlay_dropdown,
+            self.overlay_slider, 
+            self.point_size_slider, 
+            self.line_width_slider,
+            self.line_interp_slider,
         ]
         super().__init__(children, layout = { "margin": "0% 0% 3% 0%" })
-        
+
         # Set up our observer pattern. We track these manually so that we can
         # call the functions using a parameter order that makes sense.
         self.style_observers = []
         self.style_widgets = {
-            "visible"   : self.visible_checkbox,
-            "color"     : self.color_picker,
-            "markersize": self.markersize_slider,
-            "linewidth" : self.linewidth_slider,
-            "linestyle" : self.linestyle_dropdown
+            "visible"       : self.visible_checkbox,
+            "color"         : self.color_picker,
+            "markersize"    : self.markersize_slider,
+            "linewidth"     : self.linewidth_slider,
+            "linestyle"     : self.linestyle_dropdown, 
         }
         for (key, value) in self.style_widgets.items():
             value.observe(partial(self.on_style_change, key), names = "value")
+
+        self.cortex_style_widgets = {
+            "inflation"     : self.inflation_slider,
+            "overlay"       : self.overlay_dropdown,
+            "overlay_alpha" : self.overlay_slider,
+            "point_size"    : self.point_size_slider,
+            "line_width"    : self.line_width_slider,
+            "line_interp"   : self.line_interp_slider,
+        }
+        # TODO: will add observers later!!!
         
         # We need to make sure that we update things when the style dropdown
         # changes also.
         self.style_dropdown.observe(self.refresh_style, names = "index")
         self.refresh_style()
 
+    # Annotation Style Widgets -------------------------------------------------
 
-    @classmethod
-    def _make_html_header(cls, hline_width = 85):
-        hline_right = (100 - hline_width) // 2
-        hline_left  = 100 - hline_width - hline_right
-        return ipw.HTML(f"""
-            <style>
-                .annotate-style-hline {{
-                    border-color: lightgray;
-                    border-style: dotted;
-                    border-width: 1px;
-                    height: 0px;
-                    width: {hline_width}%;
-                    margin: 0% {hline_right}% 0% {hline_left}%;               
-                }}
-                .annotate-style-widget .widget-readout {{
-                    min-width: 50px;
-                }}
-            </style>
-        """)
+    def _init_style_dropdown(self):
+        """Initializes the style dropdown menu for selecting which annotation to style."""
+        # The style dropdown menu will have an "Active Annotation" option 
+        # followed by an option for each annotation in the configuration.
+        options  = [ "Active Annotation" ]
+        options += list(self.state.config.annotations.keys())
 
+        # Define the style dropdown menu.
+        return ipw.Dropdown(
+            options     = options, 
+            value       = options[0],
+            description = "Annotation:",
+            layout      = { **self._WIDGET_LAYOUT, "margin": "3% 3% 3% 3%" }
+        )
     
-    @classmethod
-    def _make_hline(cls):
-        return ipw.HTML("""<div class="annotate-style-hline"></div>""")
+
+    def _init_visible_checkbox(self):
+        """Initialize the annotation visibility checkbox widget."""
+        return ipw.Checkbox(
+            description = "Visible",
+            value       = True,
+            layout      = self._WIDGET_LAYOUT
+        )
+
+
+    def _init_color_picker(self):
+        """Initialize the annotation color picker widget."""
+        return ipw.ColorPicker(
+            concise     = False,
+            description = "Color:",
+            value       = "blue",
+            layout      = self._WIDGET_LAYOUT
+        )
+
+
+    def _init_markersize_slider(self):
+        """Initialize the annotation point size slider widget."""
+        return ipw.IntSlider(
+            **{ **self._ANNOT_SLIDER_KWARGS, "max": 12 },
+            description = "Point Size:",
+        )
     
+
+    def _init_linewidth_slider(self):
+        """Initialize the annotation line width slider widget."""
+        return ipw.IntSlider(
+            **self._ANNOT_SLIDER_KWARGS,
+            description = "Line Width:",
+        )
+    
+
+    def _init_linestyle_dropdown(self):
+        """Initialize the annotation line style dropdown widget."""
+        return ipw.Dropdown(
+            options     = [ "solid", "dashed", "dot-dashed", "dotted" ],
+            description = "Line Style:",
+            layout      = self._WIDGET_LAYOUT
+        )
+
+    # Cortex Style Widgets -----------------------------------------------------
+
+    def _init_inflation_slider(self):
+        """Initialize the cortex inflation slider widget."""
+        return ipw.IntSlider(
+            **self._SLIDER_KWARGS,
+            value       = 100,
+            min         = 0,
+            max         = 100,
+            step        = 1,
+            description = "Inflation %:",
+        )
+
+
+    def _init_overlay_dropdown(self):
+        """Initialize the cortex overlay dropdown widget."""
+        return ipw.Dropdown(
+            options     = [
+                ( "None", "curvature" ), 
+                ( "Polar Angle", "angle" ), 
+                ( "Eccentricity", "eccen" ), 
+                ( "Variance Explained", "vexpl" )
+            ],
+            value       = "curvature",    
+            description = "Overlay:",
+        )
+
+
+    def _init_overlay_alpha_slider(self):
+        """Initialize the cortex overlay alpha slider widget."""
+        return ipw.FloatSlider(
+            **self._SLIDER_KWARGS,
+            value       = 1.0,
+            min         = 0.0,
+            max         = 1.0,
+            step        = 0.1,
+            description = "Alpha:"
+        )
+    
+
+    def _init_point_size_slider(self):
+        """Initialize the cortex point size slider widget."""
+        return ipw.FloatSlider(
+            **self._SLIDER_KWARGS,
+            value       = 0.5, 
+            min         = 0.5,
+            max         = 5,
+            step        = 0.1,
+            description = "Point Size:",
+        )
+    
+
+    def _init_line_width_slider(self):
+        """Initialize the cortex line width slider widget."""
+        return ipw.FloatSlider(
+            **self._SLIDER_KWARGS,
+            value       = 0.2, 
+            min         = 0.10,
+            max         = 0.50,
+            step        = 0.05,
+            description = "Line Width:",
+        )
+
+
+    def _init_line_interp_slider(self):
+        """Initialize the cortex line interpolation slider widget."""
+        return ipw.IntSlider(
+            **self._SLIDER_KWARGS,
+            value       = 10,
+            min         = 5,
+            max         = 20,
+            step        = 1,
+            description = "Line Interp.:",
+        )
+
+    # Property Methods and Observer Registration -------------------------------
 
     @property
     def annotation(self):
@@ -436,7 +538,7 @@ class StylePanel(ipw.VBox):
         """Compute the current style preferences based on the current style controls."""
         return { key: widget.value for (key, widget) in self.style_widgets.items() }
     
-
+    
     def on_style_change(self, key, change):
         """Handles a change in one of the style controls and alerts our observers."""
         # Alert our observers.
@@ -535,60 +637,78 @@ class ControlPanel(ipw.VBox):
         # First: Selection and Annotation related panels.
         children = [
             self.selection_panel,
-            self._make_hline(),
+            make_hline(),
             self.figure_size_slider,
-            self._make_hline(),
+            make_hline(),
             self.legend_panel,
-            self._make_hline(),
+            make_hline(),
             self.button_box,
-            self._make_hline(),
+            make_hline(),
             self._make_info_message()
         ]
-        selection_vbox = ipw.VBox(children, layout = { "width": "250px" })
-
-        # Second: Style panel
-        children = [ 
-            self.style_panel 
-        ]
-        style_vbox = ipw.VBox(children, layout = { "width": "250px" })
+        selection_vbox = ipw.VBox(children)
 
         # Wrap the selection and style panels in tab widget. 
         control_tabs = ipw.Tab(
-            children = [ selection_vbox, style_vbox ], 
-            titles   = [ "Selection", "Style" ]
+            children = [ selection_vbox, self.style_panel ], 
+            titles   = [ "Selection", "Style" ],
+            selected_index = 0,       
         )
+        control_tabs.add_class("annotate-control-tabs")
 
         # Finally, put the whole thing in an accordion so that it can be collapsed.
-        accordion = ipw.Accordion((control_tabs, ), selected_index = 0)
-        accordion.add_class("annotate-control-panel") 
+        accordion = ipw.Accordion(
+            children = [ control_tabs ],
+            selected_index = 0,
+        )
 
         # Finally, call the VBox initializer. 
         super().__init__(
             children = [ self._make_html_header(background_color), accordion ],  
-            layout   = { "border": "0px", "height": "100%" }
+            layout   = { "border": "0px", }
         )
-    
+
+    # Classmethod Methods ------------------------------------------------------
 
     @classmethod
-    def _make_html_header(cls, background_color = "#f0f0f0"):
+    def _make_html_header(
+        cls, background_color = "#f0f0f0", inactive_amount = 0.10
+    ):
+        inactive_color = darken_color(background_color, inactive_amount)
         return ipw.HTML(f"""
             <style>
-                .annotate-control-panel .jupyter-widget-Collapse-open {{
+                .jupyter-widget-Collapse-open {{
                     background-color: white;
+                    width: 300px;
                 }}
-                .annotate-control-panel .jupyter-widget-Collapse-header {{
+                .jupyter-widget-Collapse-header {{
                     background-color: white;
-                    border-width: 0px;
+                    border: 0px;
                     padding: 0px;
                 }}
-                .annotate-control-panel .jupyter-widget-Collapse-contents {{
-                    background-color: {background_color};
-                    padding: 2px;
-                    border-width: 1px;
-                    border-style: solid;
-                    border-color: lightgray;
+                .jupyter-widget-Collapse-contents {{
+                    background-color: white;
+                    border: 0px;
+                    padding: 0px;
                 }}
-                .annotate-hline {{
+                .annotate-control-tabs.jupyter-widget-tab.widget-tab {{
+                        max-width: 300px;
+                        min-height: 850px;
+                }}
+                .annotate-control-tabs > .jupyter-widget-TabPanel-tabContents.widget-tab-contents
+                {{
+                    background-color: {background_color};
+                    margin: 0px;
+                    padding: 5px;
+                }}
+                .annotate-control-tabs.jupyter-widgets.jupyter-widget-tab > .lm-TabBar .lm-TabBar-tab {{
+                    background-color: rgb{inactive_color};
+                    flex: 1 1 auto;
+                }}
+                .annotate-control-tabs.jupyter-widgets.jupyter-widget-tab > .lm-TabBar .lm-TabBar-tab.lm-mod-current {{
+                    background-color: {background_color};
+                }}
+                .annotate-control-panel-hline {{
                     border-color: lightgray;
                     border-style: solid;
                     border-width: 1px;
@@ -599,11 +719,6 @@ class ControlPanel(ipw.VBox):
             </style>
         """)
 
-    
-    @classmethod
-    def _make_hline(cls):
-        return ipw.HTML("""<div class="annotate-hline"></div>""")
-    
     
     @classmethod
     def _make_info_message(cls):
@@ -624,6 +739,7 @@ class ControlPanel(ipw.VBox):
                 """)
             ], layout = { "margin": "3%", "width": "88%" })
 
+    # Property Methods ---------------------------------------------------------
 
     @property
     def target(self):
@@ -642,6 +758,7 @@ class ControlPanel(ipw.VBox):
         """Compute the current selection (targets + annotation)."""
         return self.selection_panel.selection
     
+    # Observe Methods ----------------------------------------------------------
 
     def observe_target(self, fn):
         """Registers the given function to be called when the taget changes.

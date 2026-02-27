@@ -17,7 +17,7 @@ from struct import unpack
 from functools import partial
 from neuropythy.geometry.util import barycentric_to_cartesian
 
-from ._viewer_panels import CortexControlPanel, CortexFigurePanel
+from ._viewer_panels import CortexFigurePanel
 
 # The Cortex Viewer State ------------------------------------------------------
 
@@ -443,18 +443,12 @@ class CortexViewer(ipw.GridBox):
 
     def __init__(
             self, annotation_tool, dataset_directory, 
-            control_panel_background_color = "#f0f0f0",
             panel_width = 270, panel_height = 512
         ):
         # Initialize the Cortex Viewer state
         self.state = CortexViewerState(
             annotation_tool   = annotation_tool,
             dataset_directory = dataset_directory,
-        )
-
-        # Create the Cortex Viewer control panel
-        self.control_panel = CortexControlPanel(
-            self.state, control_panel_background_color
         )
 
         # Create the Cortex Viewer figure panel
@@ -465,7 +459,7 @@ class CortexViewer(ipw.GridBox):
         # Initialize the GridBox with the control panel and figure panel
         children = [
             # self._make_html_header(),
-            self.control_panel,
+            # self.control_panel,
             self.figure_panel
         ]
         super().__init__(
@@ -504,12 +498,12 @@ class CortexViewer(ipw.GridBox):
     def _style_observers(self):
         """Return a list of observer functions for the Cortex Viewer style."""
         return {
-            "inflation_percent" : self.control_panel.observe_inflation_slider, 
-            "overlay"           : self.control_panel.observe_overlay_dropdown, 
-            "overlay_alpha"     : self.control_panel.observe_overlay_slider, 
-            "point_size"        : self.control_panel.observe_point_size_slider, 
-            "line_width"        : self.control_panel.observe_line_width_slider,
-            "line_interp"       : self.control_panel.observe_line_interp_slider, 
+            # "inflation_percent" : self.control_panel.observe_inflation_slider, 
+            # "overlay"           : self.control_panel.observe_overlay_dropdown, 
+            # "overlay_alpha"     : self.control_panel.observe_overlay_slider, 
+            # "point_size"        : self.control_panel.observe_point_size_slider, 
+            # "line_width"        : self.control_panel.observe_line_width_slider,
+            # "line_interp"       : self.control_panel.observe_line_interp_slider, 
             "annotation_style"  : self.state.observe_annotation_styles,
         }
     
@@ -523,9 +517,6 @@ class CortexViewer(ipw.GridBox):
         else: # key == "annotation":
             self.state.annotation = self.state.get_annotation()
 
-        # Update the infobox displays
-        for k in self.control_panel.infobox.keys():
-            self.control_panel.refresh_infobox(k)
 
         # Update the cortex viewer state based on selection change
         if key == "targets":

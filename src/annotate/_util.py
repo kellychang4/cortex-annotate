@@ -10,9 +10,27 @@
 import os
 import numpy as np
 import scipy as sp
+import ipywidgets as ipw
+import matplotlib as mpl
 from functools import partial
 import matplotlib.pyplot as plt
 
+# Control Panel Utilities ######################################################
+
+def make_section_title(title):
+    """Returns an HTML widget containing the given title formatted as a section title."""
+    return ipw.HTML(f"<b style=\"margin: 0% 3% 0% 3%;\">{title}:</b>")
+
+
+def make_hline(class_name = "annotate-control-panel-hline"):
+    """Returns an HTML widget containing a horizontal line."""
+    return ipw.HTML(f"""<div class="{class_name}"></div>""")
+
+def darken_color(color, amount = 0.10):
+    """Returns a darkened version of the given color."""
+    color = mpl.colors.to_rgb(color) # convert to RGB tuple if it's a hex string
+    color = [ max(0.0, x * (1 - amount)) for x in color ] # darken the color by the given amount
+    return tuple([ int(x * 255) for x in color ]) # convert back to 0-255 range and return as list
 
 # Lazy Dict Type ###############################################################
 # The Lazy Dict type (ldict) is a mutable dictionary whose values may be delay
