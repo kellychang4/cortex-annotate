@@ -6,7 +6,7 @@
 
 This file primarily contains code for managing the widget and window state of
 the control panel; the canvas and figure code is largely handled by the
-FigurePanel widget in the _figure.py file.
+CanvasPanel widget in the _figure.py file.
 """
 
 
@@ -28,8 +28,8 @@ import matplotlib.pyplot as plt
 from ._util    import (ldict, delay)
 from ._config  import Config
 from ._control import ControlPanel
-from ._figure  import FigurePanel
-
+from ._canvas import CanvasPanel
+from ._viewer import CortexViewerState, CortexViewerPanel
 
 # The State Manager ############################################################
 
@@ -567,11 +567,12 @@ class AnnotationTool(ipw.HBox):
 
     def __init__(
             self,
-            config_path = "/config/config.yaml",
-            cache_path  = "/cache",
-            save_path   = "/save",
-            git_path    = "/git",
-            username    = None,
+            config_path  = "/config/config.yaml",
+            cache_path   = "/cache",
+            save_path    = "/save",
+            git_path     = "/git",
+            username     = None,
+            dataset_path = None, # only cortex viewer needs this
             control_panel_background_color = "#f0f0f0",
             button_color = "#e0e0e0",
         ):        
@@ -579,11 +580,11 @@ class AnnotationTool(ipw.HBox):
         
         # Store the state.
         self.state = AnnotationState(
-            config_path = config_path,
-            cache_path  = cache_path,
-            save_path   = save_path,
-            git_path    = git_path,
-            username    = username
+            config_path  = config_path,
+            cache_path   = cache_path,
+            save_path    = save_path,
+            git_path     = git_path,
+            username     = username, 
         )
 
         # Pull out the annotation config for easy access.
@@ -597,32 +598,64 @@ class AnnotationTool(ipw.HBox):
         )
         
         # Make the figure panel.
-        self.figure_panel = FigurePanel(self.state)
+        self.figure_panel = CanvasPanel(self.state)
         
         # Pass the loading context over to the state.
         self.state.loading_context = self.figure_panel.loading_context
 
-        # Go ahead and initialize the HBox component.
-        super().__init__([self.control_panel, self.figure_panel])
+        # Make the cortex viewer panel. 
 
-        # Give the figure the initial image to plot.
-        with self.state.loading_context:
-            self.refresh_figure()
+        # Initialize the Cortex Viewer state
+        #TODO: this requires a serious overhaul with overlapping references
+        self.cortex_state = CortexViewerState(
+            annotation_tool   = self,
+            dataset_directory = dataset_path,
+        )
+
+        # Initialize the Cortex Viewer panel 
+        # self.cortex_viewer_panel = CortexViewerPanel(
+        #     self.cortex_state, width = 512, height = 512
+        # )
+
+        self.horizontal_layout = ipw.Layout(
+            display = "flex", flex_flow = "row", align_items = "stretch")
+
+        self.vertical_layout = ipw.Layout(
+            display = "flex", flex_flow = "column", align_items = "stretch")
+
+        # Create the HBox/VBox figure area
+        self.figure_wrapper = ipw.Box(
+            children = [self.figure_panel, ], #self.cortex_viewer_panel],
+            layout   = self.horizontal_layout
+        )
+
+        # Go ahead and initialize the HBox component.
+        super().__init__(
+            children = [self.control_panel, self.figure_wrapper],
+            layout   = { "border": "1px solid black", }
+        )
+
+        # # Give the figure the initial image to plot.
+        # with self.state.loading_context:
+        #     self.refresh_figure()
 
         # And a listener for the selection change.
-        self.control_panel.observe_selection(self.on_selection_change)
+        # self.control_panel.observe_selection(self.on_selection_change)
 
-        # Add a listener for the figure size change.
-        self.control_panel.observe_figure_size(self.on_figure_size_change)
+        # # Add a listener for the figure size change.
+        # self.control_panel.observe_figure_size(self.on_figure_size_change)
 
-        # And a listener for the style change.
-        self.control_panel.observe_style(self.on_style_change)
+        # # And a listener for the style change.
+        # self.control_panel.observe_style(self.on_style_change)
 
-        # Add a listener for the clear all button.
-        self.control_panel.observe_clear(self.on_clear)
+        # # Add a listener for the clear all button.
+        # self.control_panel.observe_clear(self.on_clear)
 
-        # And a listener for the save button.
-        self.control_panel.observe_save(self.on_save)
+        # # And a listener for the save button.
+        # self.control_panel.observe_save(self.on_save)
+
+        # Add a listener for the layout button.
+        self.control_panel.observe_layout(self.on_layout_change)
 
     # Tool Locking Methods -----------------------------------------------------
 
@@ -793,3 +826,13 @@ class AnnotationTool(ipw.HBox):
         """This method runs when the control panel's save button is clicked."""
         self.state.save_annotations()
         self.state.save_preferences()
+
+    
+    def on_layout_change(self, change):
+        print(self.control_panel.layout_button.value)
+        if self.control_panel.layout_button.value: 
+            self.control_panel.layout_button.description = "Horizontal Layout"
+            self.figure_wrapper.layout = self.horizontal_layout
+        else:
+            self.control_panel.layout_button.description = "Vertical Layout"
+            self.figure_wrapper.layout = self.vertical_layout

@@ -21,10 +21,10 @@ from ._util import wrap as wordwrap
 
 # The Figure Panel #############################################################
 
-class FigurePanel(ipw.HBox):
+class CanvasPanel(ipw.HBox):
     """The canvas that manages the display of figures and annotations.
 
-    The `FigurePanel` is an subclass of `ipycanvas.MultiCanvas` that is designed
+    The `CanvasPanel` is an subclass of `ipycanvas.MultiCanvas` that is designed
     to manage the display of images and annotations for the `AnnotationTool` in
     `_core.py`.
     """
@@ -41,16 +41,16 @@ class FigurePanel(ipw.HBox):
 
 
         def __enter__(self):
-            count = FigurePanel.LoadingContext._count
+            count = CanvasPanel.LoadingContext._count
             idc   = id(self.canvas)
             c = count[idc]
             if c == 0:
-                FigurePanel._draw_loading(self.canvas, self.message)
+                CanvasPanel._draw_loading(self.canvas, self.message)
             count[idc] = c + 1 
 
 
         def __exit__(self, type, value, traceback):
-            count = FigurePanel.LoadingContext._count
+            count = CanvasPanel.LoadingContext._count
             idc = id(self.canvas)
             c = count[idc]
             c -= 1
@@ -101,7 +101,7 @@ class FigurePanel(ipw.HBox):
         # Draw the loading screen on the loading canvas and save it as the loading context.
         self._draw_loading(self.loading_canvas)
         self.loading_canvas.save()
-        self.loading_context = FigurePanel.LoadingContext(self.loading_canvas)
+        self.loading_context = CanvasPanel.LoadingContext(self.loading_canvas)
 
         # Set up our event observers for mouse clicks (to add points).
         self.multicanvas.on_mouse_down(self.on_mouse_click)
@@ -125,7 +125,10 @@ class FigurePanel(ipw.HBox):
         self.cursor      = None
 
         # Initialize our parent class.
-        super().__init__([ self._make_html_header(), self.multicanvas ])
+        super().__init__(
+            children = [ self._make_html_header(), self.multicanvas ],
+            layout = { "border": "1px solid blue"  }
+        )
 
 
     @classmethod
@@ -339,7 +342,7 @@ class FigurePanel(ipw.HBox):
     def _draw_text_canvas(canvas, message, wrap = True, fontsize = 32):
         """Draws a message on the given canvas."""
         # Prepare the message by word wrapping, if necessary.
-        message, x0, y0, max_width = FigurePanel._prep_canvas_message(
+        message, x0, y0, max_width = CanvasPanel._prep_canvas_message(
             canvas, message, wrap = wrap, fontsize = fontsize)
         
         with ipc.hold_canvas():
@@ -730,7 +733,7 @@ class FigurePanel(ipw.HBox):
         if self.active is None: return None
 
         # First convert the input into a point matrix, must be N x 2.
-        new_point = FigurePanel._to_point_matrix(x, y)
+        new_point = CanvasPanel._to_point_matrix(x, y)
 
         # Get the current points for this annotation. If None, initialize empty.
         points = self.annotations[self.active]
@@ -801,7 +804,7 @@ class FigurePanel(ipw.HBox):
         the cursor.
         """
         # First convert the input into a point matrix, must be N x 2.
-        x = FigurePanel._to_point_matrix(x, y)
+        x = CanvasPanel._to_point_matrix(x, y)
 
         # Convert to a figure point.
         x = self.canvas_to_figure(x)

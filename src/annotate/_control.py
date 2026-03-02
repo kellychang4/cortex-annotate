@@ -648,10 +648,17 @@ class ControlPanel(ipw.VBox):
         ]
         selection_vbox = ipw.VBox(children)
 
+        self.layout_button = ipw.ToggleButton(
+            value = True, 
+            description = "Horizontal Layout",
+            tooltip = "Toggle between horizontal and vertical layout of the control and figure panels.",
+            layout = { "width": "94%", "margin": "3% 3% 3% 3%" }
+        )
+
         # Wrap the selection and style panels in tab widget. 
         control_tabs = ipw.Tab(
-            children = [ selection_vbox, self.style_panel ], 
-            titles   = [ "Selection", "Style" ],
+            children = [ selection_vbox, self.style_panel, self.layout_button ], 
+            titles   = [ "Selection", "Style", "Layout" ],
             selected_index = 0,       
         )
         control_tabs.add_class("annotate-control-tabs")
@@ -858,3 +865,12 @@ a
         button instance.
         """
         self.clear_button.on_click(fn)
+
+    
+    def observe_layout(self, fn):
+        """Registers the argument to be called when the layout toggle button is toggled.
+
+        The function is called with a single argument, which is the layout toggle
+        button instance.
+        """
+        self.layout_button.observe(fn, names = "value")
