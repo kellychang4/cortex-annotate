@@ -338,6 +338,9 @@ class StylePanel(ipw.VBox):
         self.line_width_slider  = self._init_line_width_slider()
         self.line_interp_slider = self._init_line_interp_slider()
 
+        # Initialize the layout toggle button.
+        self.layout_toggle = self._init_layout_toggle()
+
         # Assemble the style panel children.
         children = [
             make_section_title("Style Options"),
@@ -357,6 +360,9 @@ class StylePanel(ipw.VBox):
             self.point_size_slider, 
             self.line_width_slider,
             self.line_interp_slider,
+            make_hline(),
+            make_section_title("Layout Options"),
+            self.layout_toggle
         ]
         super().__init__(children, layout = { "margin": "0% 0% 3% 0%" })
 
@@ -523,6 +529,17 @@ class StylePanel(ipw.VBox):
             step        = 1,
             description = "Line Interp.:",
         )
+    
+    # Layout Toggle Widget -----------------------------------------------------
+
+    def _init_layout_toggle(self):
+        """Initialize the layout toggle button widget."""
+        return ipw.ToggleButton(
+            value       = True,
+            description = "Horizontal Layout",
+            tooltip     = "Toggle between horizontal and vertical layout of the control and figure panels.",
+            layout      = self._WIDGET_LAYOUT
+        )
 
     # Property Methods and Observer Registration -------------------------------
 
@@ -648,17 +665,10 @@ class ControlPanel(ipw.VBox):
         ]
         selection_vbox = ipw.VBox(children)
 
-        self.layout_button = ipw.ToggleButton(
-            value = True, 
-            description = "Horizontal Layout",
-            tooltip = "Toggle between horizontal and vertical layout of the control and figure panels.",
-            layout = { "width": "94%", "margin": "3% 3% 3% 3%" }
-        )
-
         # Wrap the selection and style panels in tab widget. 
         control_tabs = ipw.Tab(
-            children = [ selection_vbox, self.style_panel, self.layout_button ], 
-            titles   = [ "Selection", "Style", "Layout" ],
+            children = [ selection_vbox, self.style_panel ], 
+            titles   = [ "Selection", "Style", ],
             selected_index = 0,       
         )
         control_tabs.add_class("annotate-control-tabs")
@@ -764,6 +774,12 @@ class ControlPanel(ipw.VBox):
     def selection(self):
         """Compute the current selection (targets + annotation)."""
         return self.selection_panel.selection
+    
+    
+    @property
+    def layout_toggle(self):
+        """Returns the layout toggle button widget."""
+        return self.style_panel.layout_toggle
     
     # Observe Methods ----------------------------------------------------------
 
@@ -873,4 +889,4 @@ class ControlPanel(ipw.VBox):
         The function is called with a single argument, which is the layout toggle
         button instance.
         """
-        self.layout_button.observe(fn, names = "value")
+        self.style_panel.layout_toggle.observe(fn, names = "value")

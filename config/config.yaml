@@ -28,7 +28,8 @@ init: |
   from matplotlib.colors import LinearSegmentedColormap
 
   # define dataset directory (inside Docker container)
-  datasets_dir = op.join("/home", "jovyan", "datasets") 
+  # datasets_dir = op.join("/home", "jovyan", "datasets") 
+  datasets_dir = op.join("/Volumes", "Leviathan", "CRCNS", "cortex-annotate", "datasets")
   
   # define flatmap kwargs
   FLATMAP_KWARGS = {
@@ -40,10 +41,18 @@ init: |
   # load fsaverage as a subject object
   fsa = ny.freesurfer_subject("fsaverage")
 
-  # prepare fsaverage flatmap
-  fsa_flatmaps = {} # initialize
-  fsa_flatmaps["lh"] = fsa.hemis["lh"].mask_flatmap(**FLATMAP_KWARGS)
-  fsa_flatmaps["rh"] = fsa.hemis["rh"].mask_flatmap(**FLATMAP_KWARGS)
+  # prepare fsaverage cortex
+  fsa_cortex = {} # initialize
+  fsa_cortex["lh"] = fsa.hemis["lh"].copy()
+  fsa_cortex["rh"] = fsa.hemis["rh"].copy()
+
+  # define function to read participant (packed) data files
+  def read_property(filename):
+      with open(filename, "rb") as f:
+          values = f.read() # load file content
+          fstr = "e" * (len(values) // 2)
+          values = np.array(unpack(fstr, values))
+      return values
 
   # define a custom colormap for isoeccentricity figures
   edge_cmap = LinearSegmentedColormap.from_list(
@@ -56,6 +65,28 @@ init: |
       (1, (1, 0, 0))     # positive values go towards red
     ]
   )
+
+  # define isoeccentricity list
+  isoeccentricity_list = ( 0.5, 1.0, 2.0, 4.0, 7.0, 11.0 )
+  isoeccentricity_dict = {
+    f"eccen_{iso}": { "func": lambda prop, _: { f"eccen_{iso}": prop }, 
+                      "kwargs": { "cmap": edge_cmap, "vmin": -1, "vmax": 1 } } 
+    for iso in isoeccentricity_list 
+  }
+
+  # define the propety kwargs for each property
+  PROPERTY_KWARGS = {
+    "angle"     : { "func": lambda prop, h: { f"polar_angle_{h}": prop }, 
+                    "kwargs": { } },
+    "eccen"     : { "func": lambda prop, _: { "eccentricity": prop }, 
+                    "kwargs": { } },
+    "vexpl"     : { "func": lambda prop, _: prop, 
+                    "kwargs": { "cmap": "hot", "vmin": 0, "vmax": 100 } },
+    "curvature" : { "func": lambda prop, _: None, 
+                    "kwargs": { "underlay": "curvature" } },
+    **isoeccentricity_dict
+  }
+
 
 targets:
   # The "Dataset" is a choice for the user; as a list of one option.
@@ -92,36 +123,88 @@ targets:
     - Left Hemisphere
     - Right Hemisphere
 
-  # create subject flatmap.
-  flatmap: |
+  # create the participant cortex object.
+  cortex: |
     # get dropdown selections from above choices.
     dataset     = target["Dataset"].lower() # string
     participant = target["Participant"]     # string
     hemisphere  = target["Hemisphere"]      # string
 
-    # format dropdown items
+    # Format dropdown items
     fs_hemi = f"{hemisphere[0].lower()}h"
 
-    # define participant directory
+    # Define participant directory
     participant_dir = op.join(datasets_dir, dataset, participant)
 
     # find all participant property files
-    prop_files = glob.glob(op.join(participant_dir, f"{fs_hemi}.2d.*"))
+    prop_files = glob.glob(op.join(participant_dir, f"{fs_hemi}.3d.*"))
 
-    # read in all subject properties
-    props = {} # initialize
-    for fname in prop_files: # for each property file
-      prop_name = fname.split(".")[-1]
-      with open(fname, "rb") as f:
-        values = f.read() # read property file, float16
-        values = unpack("e" * (len(values) // 2), values)
+    # Load participant midgray coordinates
+    coordinates_file = [x for x in prop_files if x.endswith("coordinates")][0]
+    coordinates = read_property(coordinates_file).reshape((3, -1))
+
+    # Create participant midgray mesh
+    midgray_mesh = ny.geometry.Mesh(
+      faces       = fsa_cortex[fs_hemi].tess, 
+      coordinates = coordinates
+    )
+
+    # Load remaining property files
+    property_files = [x for x in prop_files if x != coordinates_file]
+    props = {
+      fname.split(".")[-1]: read_property(fname).reshape((-1, ))
+      for fname in property_files
+    }
+
+    # Calculate the isoeccentricity maps
+    for isoeccentricity in isoeccentricity_list:
+      # Define property name for the current isoeccentricity
+      prop_name = f"eccen_{isoeccentricity}"
+
+      # Compute values relative to threshold 
+      # (clipped to [0, 16] eccentricity to remove extreme outliers)
+      values = np.clip(props["eccen"].copy(), 0, 16)
+      values = values - isoeccentricity
+  
+      # Normalize negative values to [-1, 0]
+      negative_index = values < 0
+      values[negative_index] = (values[negative_index] /
+        np.abs(np.nanmin(values[negative_index])))
+
+      # Normalize positive values to [0, 1]
+      positive_index = values > 0
+      values[positive_index] = (values[positive_index] / 
+        np.nanmax(values[positive_index]))
+
+      # Store values in props dictionary
       props[prop_name] = values
 
-    # copy fsaverage flatmap 
-    participant_flatmap = fsa_flatmaps[fs_hemi].copy()
+    # Create participant cortex object
+    participant_cortex = fsa_cortex[fs_hemi].copy()
+    participant_cortex = ny.mri.Cortex(
+      chirality = fs_hemi, 
+      tess      = participant_cortex.tess,
+      surfaces  = { 
+        **participant_cortex.surfaces, 
+        **{ "midgray": midgray_mesh }
+      },
+      registrations = participant_cortex.registrations, 
+      properties    = props
+    )
+  
+    # Return participant cortex with properties
+    return participant_cortex
 
-    # attach and return participant flatmap with properties
-    return participant_flatmap.with_prop(props)
+  # create participant flatmap.
+  flatmap: |
+    # get dropdown selections from above choices.
+    cortex = target["cortex"] # cortex object created above
+    
+    # Create participant flatmap 
+    participant_flatmap = cortex.mask_flatmap(**FLATMAP_KWARGS)
+
+    # Return participant flatmap 
+    return participant_flatmap
 
 
 annotations:
@@ -292,64 +375,20 @@ annotations:
 
 
 figures:
-  angle: |
+  _: |
     # prepare (formatted) target information for figure code below
     hemisphere = target["Hemisphere"]  # string
     fs_hemi    = f"{hemisphere[0].lower()}h"
 
-    # prepare colormap name and values for figure
-    colormap_name   = f"polar_angle_{fs_hemi}"
-    colormap_values = target["flatmap"].properties["angle"]
+    # prepare property values for figure
+    values = target["flatmap"].properties[key]
+
+    # get property function and kwargs for angle property
+    prop_color  = PROPERTY_KWARGS[key]["func"](values, fs_hemi)
+    prop_kwargs = PROPERTY_KWARGS[key]["kwargs"]
 
     ny.cortex_plot(
-      mesh  = target["flatmap"], 
-      color = { colormap_name: colormap_values }, 
-      axes  = axes
-    )
-  eccen: |
-    ny.cortex_plot(
-      mesh  = target["flatmap"], 
-      color = { "eccentricity": target["flatmap"].properties["eccen"] }, 
-      axes = axes
-    )
-  vexpl: |
-    ny.cortex_plot(
-      mesh  = target["flatmap"], 
-      color = "vexpl", 
-      cmap  = "hot", 
-      vmin  = 0, 
-      vmax  = 100, 
-      axes = axes
-    )
-  curvature: |
-    ny.cortex_plot(mesh = target["flatmap"], axes = axes)
-  _: |
-    # Prepare property name and threshold from figure name
-    prop_name, threshold = key.split("_")
-    
-    # Compute values relative to threshold 
-    # (clipped to [0, 16] eccentricity to remove extreme outliers)
-    values = np.clip(target["flatmap"].properties[prop_name].copy(), 0, 16)
-    values = values - float(threshold) 
-  
-    # Normalize negative values to [-1, 0]
-    negative_index = values < 0
-    values[negative_index] = (values[negative_index] /
-      np.abs(np.nanmin(values[negative_index])))
-
-    # Normalize positive values to [0, 1]
-    positive_index = values > 0
-    values[positive_index] = (values[positive_index] / 
-      np.nanmax(values[positive_index]))
-
-    # Plot with diverging colormap, centered at the threshold value
-    ny.cortex_plot(
-      mesh  = target["flatmap"], 
-      color = values, 
-      cmap  = edge_cmap, 
-      vmin  = -1, 
-      vmax  = 1, 
-      axes  = axes
+      mesh = target["flatmap"], color = prop_color, axes = axes, **prop_kwargs
     )
   term: |
     # figure aesthetics and limits

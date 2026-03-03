@@ -24,7 +24,6 @@ import ipywidgets as ipw
 import imageio.v3 as iio
 from warnings import warn 
 import matplotlib.pyplot as plt
-from neuropythy.geometry.util import barycentric_to_cartesian
 
 from ._util    import (ldict, delay)
 from ._config  import Config
@@ -100,9 +99,6 @@ class AnnotationState:
 
         # (Lazily) load the annotations.
         self.annotations = self.load_annotations()
-
-        # (Lazily) load the surface annotations.
-        self.cortex_annotations = self.load_cortex_annotations()
 
         # And (lazily) load the preferences.
         self.preferences = self.load_preferences()
@@ -614,34 +610,34 @@ class AnnotationTool(ipw.HBox):
         self.state.loading_context = self.canvas_panel.loading_context
 
         # Make the cortex viewer panel. 
-        self.viewer_panel = CortexViewerPanel(
-            self.state, width = 512, height = 512
-        )
+        # self.viewer_panel = CortexViewerPanel(
+        #     self.state, width = 512, height = 512
+        # )
 
         # Create the HBox/VBox figure area
         self.figure_wrapper = ipw.Box(
-            children = [self.canvas_panel, ], #self.viewer_panel],
+            children = [ self.canvas_panel, self.canvas_panel ], #self.viewer_panel],
             layout   = self._HORIZONTAL_LAYOUT
         )
 
         # Go ahead and initialize the HBox component.
         super().__init__(
-            children = [self.control_panel, self.figure_wrapper],
+            children = [ self.control_panel, self.figure_wrapper ],
             layout   = { "border": "1px solid black", }
         )
 
-        # # Give the figure the initial image to plot.
-        # with self.state.loading_context:
-        #     self.refresh_figure()
+        # Give the figure the initial image to plot.
+        with self.state.loading_context:
+            self.refresh_figure()
 
         # And a listener for the selection change.
-        # self.control_panel.observe_selection(self.on_selection_change)
+        self.control_panel.observe_selection(self.on_selection_change)
 
-        # # Add a listener for the figure size change.
-        # self.control_panel.observe_figure_size(self.on_figure_size_change)
+        # Add a listener for the figure size change.
+        self.control_panel.observe_figure_size(self.on_figure_size_change)
 
-        # # And a listener for the style change.
-        # self.control_panel.observe_style(self.on_style_change)
+        # And a listener for the style change.
+        self.control_panel.observe_style(self.on_style_change)
 
         # # Add a listener for the clear all button.
         # self.control_panel.observe_clear(self.on_clear)
@@ -737,7 +733,7 @@ class AnnotationTool(ipw.HBox):
 
             # Update the figure panel state variables.
             self.canvas_panel.update_state(target_id, annotation, target_annots)
-            self.viewer_panel.update_state(target_id, annotation, target_annots)
+            # self.viewer_panel.update_state(target_id, annotation, target_annots)
 
             # Redraw the figure. 
             self.canvas_panel.redraw_canvas()
@@ -828,11 +824,11 @@ class AnnotationTool(ipw.HBox):
     def on_layout_change(self, _):
         """This method runs when the control panel's layout toggle button is toggled."""
         # If the button is toggled on, we want the horizontal layout. 
-        if self.control_panel.layout_button.value: 
-            self.control_panel.layout_button.description = "Horizontal Layout"
+        if self.control_panel.layout_toggle.value: 
+            self.control_panel.layout_toggle.description = "Horizontal Layout"
             self.figure_wrapper.layout = self._HORIZONTAL_LAYOUT
 
         # If the button is toggled off, we want the vertical layout.
         else:
-            self.control_panel.layout_button.description = "Vertical Layout"
+            self.control_panel.layout_toggle.description = "Vertical Layout"
             self.figure_wrapper.layout = self._VERTICAL_LAYOUT
