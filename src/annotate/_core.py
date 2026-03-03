@@ -28,8 +28,7 @@ import matplotlib.pyplot as plt
 from ._util    import (ldict, delay)
 from ._config  import Config
 from ._control import ControlPanel
-from ._canvas  import CanvasPanel
-from ._viewer  import CortexViewerPanel
+from ._figure  import FigurePanel
 
 # The State Manager ############################################################
 
@@ -565,20 +564,6 @@ class AnnotationTool(ipw.HBox):
     images for the `cortex-annotate` project.
     """
 
-    _HORIZONTAL_LAYOUT = ipw.Layout(
-        display = "flex", 
-        flex_flow = "row", 
-        align_items = "stretch",
-        overflow = "hidden"
-    )
-
-    _VERTICAL_LAYOUT = ipw.Layout(
-        display = "flex", 
-        flex_flow = "column", 
-        align_items = "stretch",
-        overflow = "hidden"
-    )
-
     def __init__(
             self,
             config_path  = "/config/config.yaml",
@@ -611,25 +596,14 @@ class AnnotationTool(ipw.HBox):
         )
         
         # Make the canvas panel.
-        self.canvas_panel = CanvasPanel(self.state)
+        self.figure_panel = FigurePanel(self.state)
         
         # Pass the loading context over to the state.
-        self.state.loading_context = self.canvas_panel.loading_context
-
-        # Make the cortex viewer panel. 
-        self.viewer_panel = CortexViewerPanel(
-            self.state, width = 512, height = 512
-        )
-
-        # Create the HBox/VBox figure area
-        self.figure_wrapper = ipw.Box(
-            children = [ self.canvas_panel, self.viewer_panel ],
-            layout   = self._HORIZONTAL_LAYOUT
-        )
+        self.state.loading_context = self.figure_panel.canvas_panel.loading_context
 
         # Go ahead and initialize the HBox component.
         super().__init__(
-            children = [ self.control_panel, self.figure_wrapper ],
+            children = [ self.control_panel, self.figure_panel ],
             layout   = { "border": "1px solid black", }
         )
 
@@ -716,7 +690,7 @@ class AnnotationTool(ipw.HBox):
             # If there is data for this fixed point, we need to make sure that 
             # the figure panel can calculate the fixed point based on the current data.
             try:
-                self.canvas_panel.calc_fixed_point(annotation, target_annots, fp_type)
+                self.figure_panel.canvas_panel.calc_fixed_point(annotation, target_annots, fp_type)
             except Exception as e:
                 error = f"Annotation '{annotation}' requires fixed point '{fp}' " \
                         f"which cannot be calculated for target: {target_id} " \
@@ -730,20 +704,20 @@ class AnnotationTool(ipw.HBox):
             self._lock_tool()
 
             # Write the error message. 
-            self.canvas_panel.write_message(error)
+            self.figure_panel.canvas_panel.write_message(error)
         else:
             # Unlock the annotation tool, so user can interact with the figure.
             self._unlock_tool()
             
             # Clear any messages that might be up from before.
-            self.canvas_panel.clear_message()
+            self.figure_panel.canvas_panel.clear_message()
 
             # Update the figure panel state variables.
-            self.canvas_panel.update_state(target_id, annotation, target_annots)
-            # self.viewer_panel.update_state(target_id, annotation, target_annots)
+            self.figure_panel.canvas_panel.update_state(target_id, annotation, target_annots)
+            # self.figure_panel.viewer_panel.update_state(target_id, annotation, target_annots)
 
             # Redraw the figure. 
-            self.canvas_panel.redraw_canvas()
+            self.figure_panel.canvas_panel.redraw_canvas()
 
     # Event Handler Methods ----------------------------------------------------
 
@@ -776,7 +750,7 @@ class AnnotationTool(ipw.HBox):
         self.state.figure_size(change.new)
 
         # Resize the figure panel. 
-        self.canvas_panel.resize_canvas(change.new)
+        self.figure_panel.canvas_panel.resize_canvas(change.new)
 
 
     def on_style_change(self, annotation, key, change):
@@ -788,7 +762,7 @@ class AnnotationTool(ipw.HBox):
         self.state.style(annotation, { key: change.new })
         
         # Then redraw the annotation.
-        self.canvas_panel.redraw_canvas(redraw_image = False)
+        self.figure_panel.canvas_panel.redraw_canvas(redraw_image = False)
 
 
     def on_clear(self, button):
@@ -811,7 +785,7 @@ class AnnotationTool(ipw.HBox):
             target_id = self.control_panel.target
             for annotation in self.state.annotations[target_id].keys():
                 self.state.annotations[target_id][annotation] = (
-                    self.canvas_panel.empty_point_matrix())
+                    self.figure_panel.canvas_panel.empty_point_matrix())
 
             # Refresh the figure to show the cleared annotations.
             self.refresh_figure()
@@ -833,9 +807,9 @@ class AnnotationTool(ipw.HBox):
         # If the button is toggled on, we want the horizontal layout. 
         if self.control_panel.layout_toggle.value: 
             self.control_panel.layout_toggle.description = "Horizontal Layout"
-            self.figure_wrapper.layout = self._HORIZONTAL_LAYOUT
+            self.figure_panel.layout = FigurePanel._HORIZONTAL_LAYOUT
 
         # If the button is toggled off, we want the vertical layout.
         else:
             self.control_panel.layout_toggle.description = "Vertical Layout"
-            self.figure_wrapper.layout = self._VERTICAL_LAYOUT
+            self.figure_panel.layout = FigurePanel._VERTICAL_LAYOUT
