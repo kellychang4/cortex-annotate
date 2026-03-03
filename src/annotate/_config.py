@@ -37,7 +37,7 @@ class ConfigError(Exception):
 
 # Display Configuration --------------------------------------------------------
 
-class DisplayConfig:
+class DisplayConfig(dict):
     """An object that tracks the configuration of the tool's image display.
 
     The `DisplayConfig` type keeps track of the `display` section of the
@@ -70,6 +70,15 @@ class DisplayConfig:
         # Initialize the default style.
         self.default_style = self._init_style(
             display_yaml, parameter = "default_style", default = {})
+        
+        # Update the dictionary with the display data.
+        self.update({
+            "figsize": self.figsize,
+            "dpi": self.dpi,
+            "image_size": self.image_size,
+            "active_style": self.active_style,
+            "default_style": self.default_style,
+        })
 
 
     def _init_figsize(self, display_yaml, default = [4, 4]):
@@ -167,7 +176,6 @@ class InitConfig:
         self.code = self._init_code(code)
 
         # Prepare the given globals and locals for the merged environment.
-        # NOTE: __builtins__ might not be available this version, get if crashes!
         self.env = self._init_env(globals, locals)
 
         # Execute the code block to populate the environment.
@@ -710,7 +718,7 @@ class AnnotationsConfig(dict):
         return fixed_head, fixed_tail
 
 
-# Figure Configuration ---------------------------------------------------------
+# Figures Configuration --------------------------------------------------------
 
 class FiguresConfig(dict):
     """An object that stores configuration information for making figures.
@@ -804,6 +812,123 @@ class FiguresConfig(dict):
                     figures_dict[key] = compile_fn(code)
         return figures_dict
             
+# Cortex Configuration ---------------------------------------------------------
+
+class CortexConfig(dict):
+    """An object that stores configuration information for the cortex viewer.
+
+    The `CortexConfig` type stores information from the `cortex` section of
+    the `config.yaml` file for the `cortex-annotate` project. It resembles a
+    Python `dict` object TODO.
+    """
+    
+    __slots__ = ( "yaml", )    
+    
+    def __init__(self, cortex_yaml, figure_names, init):
+        # The cortex section is optional. TODO
+        if cortex_yaml is None:
+            cortex_yaml = {}
+        
+        # If cortex section is provided, it must be a dictionary.
+        if not isinstance(cortex_yaml, dict):
+            raise ConfigError("cortex", "cortex section must contain a mapping.")
+        
+        # Store the original cortex section yaml.
+        self.yaml = cortex_yaml
+        
+        # If cortex section is not empty, then we prepare the cortex data.
+        cortex_dict = {} # initialize
+        if cortex_yaml != {}: 
+            # Prepare the cortex yaml and the cortex compiling functions.
+            cortex_yaml, compile_fn, wildfn = CortexConfig._prep_yaml(
+                self.yaml.copy(), init)
+            
+            # Prepare the required cortex section fields.
+            required_dict = self._init_required_dict(cortex_yaml, compile_fn, wildfn)
+
+            # Prepare the cortex overlay dictionary.
+            overlay_dict = self._init_overlay_dict(
+                cortex_yaml, figure_names, compile_fn, wildfn)
+
+            # Combine the required and overlay dictionaries into one dictionary.
+            cortex_dict = { **required_dict, **overlay_dict }
+        
+        # Update CortexConfig class dictionary.
+        self.update(cortex_dict)
+
+
+    @staticmethod
+    def _compile_fn(init, initcode, termcode, code):
+        """Compiles the code strings as a cortex function in the `init` environment."""
+        return init.compile_fn("target, key", f"{initcode}\n{code}\n{termcode}")
+    
+
+    @classmethod
+    def _prep_yaml(cls, cortex_yaml, init):
+        # Check that the all fields are code strings if they are not None.
+        for key, value in cortex_yaml.items():
+            if not isinstance(value, str):
+                raise ConfigError(
+                    f"cortex.{key}", 
+                    f"'{key}' value must be a code string."
+                )
+
+        # Prepare the special fields (init, term, and wildcard).
+        special_dict = {
+            k: cortex_yaml.pop(k, None) 
+            for k in ( "init", "term", "_" )
+        }
+        
+        # Prepare the cortex compiling code.
+        compile_fn = partial(
+            cls._compile_fn, init, 
+            special_dict["init"], special_dict["term"]
+        )
+
+        # Compile the wildcard field if not None.
+        wildfn = None
+        if special_dict["_"] is not None:
+            wildfn = compile_fn(special_dict["_"])
+
+        return ( cortex_yaml, compile_fn, wildfn )
+
+
+    @staticmethod
+    def _init_required_dict(cortex_yaml, compile_fn, wildfn):
+        """Initializes the required fields dictionary from the cortex yaml."""
+        required_dict = {}
+        for key in ( "faces", "midgray", "inflated" ):
+            if key not in cortex_yaml:
+                raise ConfigError(
+                    f"cortex.{key}", f"Missing code for required field '{key}'"
+                )
+            else: 
+                code = cortex_yaml.get(key, None)
+                if code is not None:
+                    required_dict[key] = compile_fn(code)
+        return required_dict
+
+
+    @staticmethod
+    def _init_overlay_dict(cortex_yaml, figure_names, compile_fn, wildfn):
+        """Initializes the cortex overlay dictionary from the cortex yaml."""
+        cortex_dict = {}
+        for key in figure_names:
+            if key not in cortex_yaml:
+                if wildfn is None:
+                    raise ConfigError(
+                        f"cortex.{key}", 
+                        f"Missing code for cortex '{key}' and "
+                        f"no wildcard provided."
+                    )
+                else:
+                    cortex_dict[key] = wildfn
+            else: 
+                code = cortex_yaml.get(key, None)
+                if code is not None:
+                    cortex_dict[key] = compile_fn(code)
+        return cortex_dict
+    
 
 # Config Object ----------------------------------------------------------------
 
@@ -819,8 +944,8 @@ class Config:
     """
     
     __slots__ = (
-        "config_path", "yaml", "display", "init", "targets", "figures",
-        "annotations", 
+        "config_path", "yaml", "display", "init", "targets", "annotations", 
+        "figures", "cortex" 
     )
     
     def __init__(self, config_path = "/config/config.yaml"):
@@ -848,3 +973,11 @@ class Config:
             self.annotations.figure_names, 
             self.init
         )
+
+        # Parse the cortex section.
+        self.cortex = CortexConfig(
+            self.yaml.get("cortex", None),
+            self.annotations.figure_names, 
+            self.init
+        )
+

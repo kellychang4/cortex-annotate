@@ -774,7 +774,7 @@ class ControlPanel(ipw.VBox):
         the `config.yaml` file's `targets` section. In other words, the
         selection target changes when any of the selection dropdowns are changed
         except for the annotation dropdown.
-a
+
         When the selection target changes, the given function is called with two
         arguments: `fn(concrete_key, change)` where `concrete_key` is the
         (string) name of one of the concrete keys and `change` is the change

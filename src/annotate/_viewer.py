@@ -9,66 +9,41 @@ Implementation code for the Cortex Viewer.
 # Imports ----------------------------------------------------------------------
 
 import k3d
-import glob
 import numpy as np
-import os.path as op
-import neuropythy as ny
 import ipywidgets as ipw
-from struct import unpack
-from functools import partial
 from matplotlib.colors import to_rgb
 from neuropythy.geometry.util import barycentric_to_cartesian
 
 # The Cortex Viewer State ------------------------------------------------------
 
 class CortexViewerState:
-    """
-    The state object for the Cortex Viewer tool.
-    """
+    """Viewer-specific state for the 3D cortex viewer.
     
-    __FLATMAP_KWARGS = {
-        "mask"      : ( "parcellation", 43 ), 
-        "map_right" : "right", 
-        "radius"    : np.pi / 2
-    }
+    This class manages the data that is specific to the 3D viewer but not 
+    relevant to the 2D canvas or the broader annotation tool. It consumes 
+    cortex geometry and overlay data from `AnnotationState.cortex_data()` and
+    converts flatmap annotations into 3D surface coordinates.
+    """
 
-    __PROPERTY_KWARGS = {
-        "angle" : { "func": lambda prop, h: { f"polar_angle_{h}": prop }, 
-                     "kwargs": { } },
-        "eccen" : { "func": lambda prop, _: { "eccentricity": prop }, 
-                     "kwargs": { } },
-        "vexpl" : { "func": lambda prop, _: prop, 
-                     "kwargs": { "cmap": "hot", "vmin": 0, "vmax": 100 } },
-    }
-
-    # Point type constants
-    POINT_FIXED  = 2  # fixed head/tail
-    POINT_USER   = 1  # user-placed
-    POINT_INTERP = 0  # interpolated
+    # Point type constants (used for annotation rendering)
+    POINT_FIXED  = 2  # fixed head/tail point
+    POINT_USER   = 1  # user-placed point
+    POINT_INTERP = 0  # interpolated point (between user/fixed points)
 
 
-    def __init__(
-            self, 
-            annotation_tool, 
-            dataset_directory = "/home/jovyan/datasets", 
-        ):
+    def __init__(self, state):
+        """Initialize the cortex viewer state.
         
-        # Store intialization variables
-        self.annotation_tool   = annotation_tool 
-        self.dataset_directory = dataset_directory
+        Parameters
+        ----------
+        annotation_state : AnnotationState
+            The shared annotation state that provides cortex data, annotation
+            coordinates, annotation config, and style preferences.
+        """
+        # Store the state.
+        self.state = state
 
-        # Prepare fsaverage da_ta 
-        self.fsaverage = self._get_fsaverage()
-
-        # Prepare initial values from annotation widget
-        self.targets    = self.get_targets()
-        self.annotation = self.get_annotation()
-
-        # Prepare dataset dependent annotation information and styler
-        self.update_annot_cfg()
-        self.update_styler() 
-
-        # Set cortex viewer style (default) options
+        # Cortex viewer-specific (only) display style options.
         self.style = {
             "inflation_percent" : 100,
             "overlay"           : "curvature",
@@ -78,190 +53,71 @@ class CortexViewerState:
             "line_interp"       : 10,
         }
 
-        # Prepare participant 3d coordinate and mesh data
-        self.update_participant()
-        self.update_coordinates()
-        self.update_mesh()
-        self.update_overlay()
+        # Current viewer data — populated by update methods, read by the panel.
+        self.target_id  = None  # current target id tuple
+        self.annotation = None  # current active annotation name 
 
-        # Extract the flatmap and annotation data
-        self.update_flatmap_annotations()
+        # Cortex geometry (set by update_cortex)
+        self.faces       = None  # (3, N_faces) face indices
+        self.coordinates = None  # (3, N_vertices) blended coordinates
+        self.curvature   = None  # (N_vertices, 3) curvature RGB colors
 
-        # Prepare surface annotations and path 
-        self.update_surface_annotations() 
+        # Overlay data (set by update_overlay)
+        self.overlay = None  # (N_vertices, 3) overlay RGB colors, or None
+
+        # Surface annotations (set by update_surface_annotations)
+        # Dict of annotation_name -> { "addresses", "coordinates", "point_types" }
+        self.surface_annotations = {}
 
 
-    # [Cortex Viwer] fsaverage Method ------------------------------------------
+    # Update Methods -----------------------------------------------------------
 
-    def _get_fsaverage(self):
-        """load fsaverage tesselations and inflated surface coordinates."""
-        # Load the fsaverage object
-        fsa = ny.freesurfer_subject("fsaverage")
+    def update_cortex(self, target_id):
+        """Load cortex geometry from config and compute blended coordinates.
         
-        # Return fsaverage dictionary values
-        return {
-            h: {
-                "tesselation": fsa.hemis[h].tess.faces, 
-                "inflated"   : fsa.hemis[h].surface("inflated").coordinates, 
-                "flatmap"    : fsa.hemis[h].mask_flatmap(
-                    **CortexViewerState.__FLATMAP_KWARGS)
-            } for h in ( "lh", "rh" )
-        }
+        This evaluates the ``config.cortex`` functions (faces, midgray, 
+        inflated) via ``state.cortex_data()`` and computes the blended 
+        coordinates based on the current inflation percentage.
 
-    # [Annotation Tool] Get Active Widget Methods ------------------------------
+        Parameters
+        ----------
+        target_id : tuple
+            The target identifier (e.g., (dataset, participant, hemisphere)).
+        """
+        # Update the target and get the cortex functions.
+        self.target_id = target_id
+        self.target    = self.state.targets[target_id]
 
-    def _get_active_selection_panel(self):
-        """Get the active selection panel widget."""
-        return self.annotation_tool.control_panel.selection_panel
-    
+        # Update faces and coordinates for the mesh.
+        self.faces = self.state.config.cortex_fn["faces"]
+        midgray    = self.state.config.cortex_fn["midgray"]
+        inflated   = self.state.config.cortex_fn["inflated"]
 
-    def _get_active_figure_panel(self):
-        """Get the active figure panel widget."""
-        return self.annotation_tool.figure_panel
-    
-    # [Annotation Tool] Get Selected Information Methods -----------------------    
+        # Compute blended coordinates between midgray and inflated surfaces.
+        inflation_proportion = self.style["inflation_percent"] / 100.0
+        self.coordinates = ((inflated - midgray) * inflation_proportion) + midgray
 
-    def get_targets(self):
-        """Get the active targets from the active annotation tool."""
-        selection_panel = self._get_active_selection_panel()
-        return { 
-            key.lower(): value.value for key, value 
-            in selection_panel.target_dropdowns.items() 
-        }
-    
-    @property
-    def dataset(self):
-        """Get the current dataset selection."""
-        return self.targets.get("dataset", None)
-    
-
-    @property
-    def participant(self):
-        """Get the current participant selection."""
-        return self.targets.get("participant", None)
+        # Store curvature colors (used as the base mesh coloring).
+        self.curvature = self.state.config.cortex_fn["curvature"]
 
 
-    @staticmethod
-    def convert_hemisphere(hemisphere):
-        """Convert hemisphere string to code or vice versa."""
-        str_to_code = { "Left Hemisphere"  : "lh", "Right Hemisphere" : "rh" }
-        code_to_str = { v: k for k, v in str_to_code.items() }
-        if hemisphere in str_to_code.keys():
-            return str_to_code[hemisphere]
-        elif hemisphere in code_to_str.keys():
-            return code_to_str[hemisphere]
-        else: 
-            raise ValueError(f"Invalid hemisphere value: {hemisphere}")
-
-
-    @property
-    def hemisphere(self):
-        """Get the current hemisphere selection."""
-        hemisphere = self.targets.get("hemisphere", None)
-        if hemisphere is not None:
-            return self.convert_hemisphere(hemisphere)
-        return hemisphere
-    
-
-    def get_annotation(self):
-        """Get the annotation from the active annotation tool."""
-        selection_panel = self._get_active_selection_panel()
-        return selection_panel.annotation
-
-
-    def get_style_annotation(self):
-        """Get the current style annotation selection widget."""
-        return self.style_panel.annotation
-    
-    # [Annotation Tool] Update State Methods -----------------------------------
-
-    def update_annot_cfg(self):
-        """Update the annotation configuration based on current state."""
-        self.annot_cfg = self.annotation_tool.state.config.annotations
-
-
-    def update_styler(self):
-        """Update the styler options based on current state."""
-        self.styler = self.annotation_tool.state.style
-
-
-    def update_flatmap_annotations(self):
-        """Get the annotation tool's annotation dictionary"""
-        figure_panel = self._get_active_figure_panel()
-        self.flatmap_annotations = figure_panel.annotations    
-
-    # [Cortex Viewer] Update Participant ---------------------------------------
-
-    def _read_coordinates(self, filename):
-        """Read cortical mesh coordinates from a <hemisphere>.3d.coordinates file."""
-        with open(filename, "rb") as f:
-            values = f.read() # load file content
-            fstr = "e" * (len(values) // 2)
-            coordinates = np.array(unpack(fstr, values)).reshape((3, -1))
-        return coordinates
-    
-
-    def _read_property(self, filename):
-        """Read cortical property data from a <hemisphere>.3d.<property> file."""
-        with open(filename, "rb") as f:
-            values = f.read() # load file content
-            fstr = "e" * (len(values) // 2)
-            prop = np.array(unpack(fstr, values)).reshape((-1, ))
-        return prop
-    
-
-    def update_participant(self): 
-        """Load participant dataset based on current state."""
-        # Locate participant directory and files
-        participant_dir = op.join(
-            self.dataset_directory, self.dataset.lower(), self.participant)
-        filenames = glob.glob(op.join(participant_dir, f"{self.hemisphere}.3d.*"))
-
-        # Load participant midgray coordinates
-        coordinates_file = [x for x in filenames if x.endswith("coordinates")][0]
-        self.midgray = self._read_coordinates(coordinates_file)
-
-        # Load remaining property files
-        property_files = [x for x in filenames if x != coordinates_file]
-        self.properties = {
-            fname.split(".")[-1]: self._read_property(fname)
-            for fname in property_files
-        }
-
-
-    def update_coordinates(self):
-        """Update the cortical mesh coordinates based on the inflation value."""
-        inflated_coordinates = self.fsaverage[self.hemisphere]["inflated"]
-        self.coordinates = ((inflated_coordinates - self.midgray) * \
-             (self.style["inflation_percent"] / 100.0)) + self.midgray
-
-
-    def update_mesh(self):
-        """Update the cortical mesh object based on the current state."""
-        # Update the mesh with current coordinates and properties
-        self.mesh = ny.geometry.Mesh(
-            faces       = self.fsaverage[self.hemisphere]["tesselation"],
-            coordinates = self.coordinates,
-            properties  = self.properties
-        )
-
-        # Assign curvature color (for default coloring)
-        self.curvature = ny.graphics.cortex_plot_colors(self.mesh)[:, :3]    
-
-    
     def update_overlay(self):
-        """Update the cortical mesh color based on curvature."""
+        """Update overlay colors based on the current overlay selection.
+
+        If the overlay is ``"curvature"``, no separate overlay is needed (the
+        curvature colors are used as the base mesh coloring). Otherwise, the
+        overlay color array is fetched from ``state.cortex_data()``.
+        """
         if self.style["overlay"] == "curvature":
             self.overlay = None
-        else: # Get property kwargs and values 
-            overlay_style = self.style["overlay"]
-            prop_kwargs   = CortexViewerState.__PROPERTY_KWARGS[overlay_style]
-            prop_values   = self.mesh.properties[overlay_style]
-            prop_color    = prop_kwargs["func"](prop_values, self.hemisphere)
-            self.overlay  = ny.graphics.cortex_plot_colors(self.mesh, 
-                color = prop_color, **prop_kwargs["kwargs"])[:, :3]
+        else:
+            overlay_name = self.style["overlay"]
+            overlay_fn   = self.state.config.cortex_fn[overlay_name]
+            self.overlay = overlay_fn(self.target, overlay_name)
 
-    # [Cortex Viewer] Update Surface Coordinates -------------------------------
+   # Cortex Annotations Methods -----------------------------------------------
+
+    #TODO: this ssection is a complete mess
 
     @staticmethod
     def _flatmap_to_surface(flatmap_address, mesh_coordinates):
@@ -335,7 +191,7 @@ class CortexViewerState:
 
             # If no flatmap coordinates, set surface annotation to None
             if flatmap_coordinates is None or flatmap_coordinates.shape[0] == 0: 
-                self.surface_annotations[key] = {
+                self.cortex_annotations[key] = {
                     "addresses"   : None,
                     "coordinates" : None,
                     "point_types" : None,
@@ -360,7 +216,7 @@ class CortexViewerState:
             flatmap_address = fsa_flatmap.address(flatmap_coordinates.T)
         
             # Store surface annotation addresses
-            self.surface_annotations[key] = {
+            self.cortex_annotations[key] = {
                 "addresses"   : flatmap_address,
                 "coordinates" : None,
                 "point_types" : point_types,
@@ -380,7 +236,7 @@ class CortexViewerState:
         # Update surface coordinates for each annotation
         for key in annotations:
             # Get the current annotation's surface addresses
-            surface_annotation = self.surface_annotations.get(key, {})
+            surface_annotation = self.cortex_annotations.get(key, {})
             flatmap_address = surface_annotation.get("addresses", None)
 
             # If no surface addresses, set surface annotation coordinates to None
@@ -390,45 +246,17 @@ class CortexViewerState:
                     self._flatmap_to_surface(flatmap_address, self.coordinates))
                 
                 # Store surface annotation coordinates
-                self.surface_annotations[key]["coordinates"] = surface_coordinates
+                self.cortex_annotations[key]["coordinates"] = surface_coordinates
 
-        
+
     def update_surface_annotations(self, annotations = None):
-        """Update cortical surface annotations based on current state."""
+        """Update cortical annotations based on current state."""
         # Initialize surface annotations dictionary if not present
-        if annotations is None: self.surface_annotations = {} 
+        if annotations is None: self.cortex_annotations = {} 
 
         # Get the list of annotations to update
         self.update_surface_addresses(annotations)
         self.update_surface_coordinates(annotations)
-
-    # [Cortex Viewer] Observer Methods -----------------------------------------
-
-    def observe_targets(self, callback):
-        """Assign a callback function to target value changes."""
-        selection_panel = self.annotation_tool.control_panel.selection_panel
-        for target_dropdown in selection_panel.target_dropdowns.values():
-            target_dropdown.observe(callback, names = "value")
-
-
-    def observe_annotation(self, callback):
-        """Assign a callback function to annotation data changes."""
-        selection_panel = self.annotation_tool.control_panel.selection_panel
-        annotations_dropdown = selection_panel.annotations_dropdown
-        annotations_dropdown.observe(callback, names = "value")
-
-
-    def observe_annotation_change(self, callback):
-        """Assign a callback function to annotation data changes."""
-        annotation_figure = self.annotation_tool.figure_panel
-        annotation_figure.observe(callback, names = "_annotation_change")
-
-
-    def observe_annotation_styles(self, callback):
-        """Assign a callback function to style option changes."""
-        style_panel = self.annotation_tool.control_panel.style_panel
-        style_panel.visible_checkbox.observe(callback, names = "value")
-        style_panel.color_picker.observe(callback, names = "value")
 
 
 # Cortex Viewer Figure Panel ---------------------------------------------------
@@ -440,8 +268,12 @@ class CortexViewerPanel(ipw.VBox):
     """
     
     def __init__(self, state, width = 512, height = 512):
-        # Store the state.
-        self.state = state
+        # Store the viewer state
+        self.viewer_state = CortexViewerState(state)
+
+        # Track the current active annotation and all annotations for rendering.
+        self.active     = None   # current active annotation name
+        self.annot_data = None   # current flatmap annotations dict
 
         # Create a figure background (k3d plot)
         self.figure = k3d.plot(
@@ -454,21 +286,15 @@ class CortexViewerPanel(ipw.VBox):
             camera_zoom_speed = 1.5,
         )
 
-        # Create and add the cortex mesh to the figure
-        self.k3dmesh_cortex = self._init_cortex()
+        # Initialize all k3d layers (start empty/invisible).
+        self.k3dmesh_cortex       = self._init_mesh()
+        self.k3dmesh_overlay      = self._init_mesh()
+        self.k3dline_active       = self._init_line()
+        self.k3dpoints_active     = self._init_points()
+        self.k3dline_background   = self._init_line()
+        self.k3dpoints_background = self._init_points()
 
-        # Create and add the overlay mesh to the figure
-        self.k3dmesh_overlay = self._init_overlay()
-        
-        # Create active annotation to figure 
-        self.k3dline_active, self.k3dpoints_active = \
-            self._init_active_annotation()
-
-        # Create background annotations to figure
-        self.k3dline_background, self.k3dpoints_background = \
-            self._init_background_annotations()
-
-        # Add the meshes and points to the figure and initial render
+        # Add all layers to the figure.
         self.figure += self.k3dmesh_cortex
         self.figure += self.k3dmesh_overlay 
         self.figure += self.k3dline_active
@@ -489,6 +315,26 @@ class CortexViewerPanel(ipw.VBox):
             }
         )
 
+    # Public Interface ---------------------------------------------------------
+
+    def update_state(self, target_id, annotation, flatmap_annotations):
+        """Update viewer state and refresh the 3D figure.
+
+        This is the main interface called by `AnnotationTool.refresh_figure()`.
+        It updates the cortex geometry, overlay, and surface annotations, then
+        redraws the entire 3D figure.
+        """
+        self.active     = annotation
+        self.annot_data = flatmap_annotations
+
+        # Update the viewer state with new cortex data and annotations.
+        self.viewer.update_cortex(target_id)
+        self.viewer.update_overlay()
+        self.viewer.update_surface_annotations(
+            target_id, annotation, flatmap_annotations)
+
+        # Refresh the full 3D figure.
+        self.refresh_figure(clear = True, cortex = True, points = True)
 
     # k3d Color Helper Method --------------------------------------------------
 
@@ -636,29 +482,27 @@ class CortexViewerPanel(ipw.VBox):
     # Prepare Cortex Methods ---------------------------------------------------
 
     def _prep_cortex(self):
-        """Prepare the data for the cortex mesh."""
-        vertices  = self.state.coordinates.T # (n_vertices, 3)
-        indices   = self.state.fsaverage[self.state.hemisphere]["tesselation"]
-        curvature = self._rgb_to_k3dcolor(self.state.curvature)
+        """Prepare the data dict for the cortex mesh k3d object."""
+        vertices  = self.viewer.coordinates.T
+        indices   = self.viewer.faces
+        curvature = self._rgb_to_k3dcolor(self.viewer.curvature)
         return { 
             "vertices" : vertices.astype(np.float32), 
             "indices"  : indices.T.astype(np.uint32), 
             "colors"   : curvature.astype(np.uint32) 
         }
     
+
     # Prepare Overlay Methods --------------------------------------------------
 
     def _prep_overlay(self):
-        """Prepare the data for the cortex overlay mesh."""
-        # If no overlay, return None
-        if self.state.style["overlay"] == "curvature":
+        """Prepare the data dict for the cortex overlay mesh k3d object."""
+        if self.viewer.style["overlay"] == "curvature":
             return None
-
-        # Else return the overlay mesh keyword arguments
         return {
-            **self._prep_cortex(), # same vertices + indices
-            "colors"   : self._rgb_to_k3dcolor(self.state.overlay),
-            "opacity"  : float(self.state.style["overlay_alpha"])
+            **self._prep_cortex(),
+            "colors"  : self._rgb_to_k3dcolor(self.viewer.overlay),
+            "opacity" : float(self.viewer.style["overlay_alpha"])
         }
     
     # Prepare Active Points Methods ---------------------------------------------------
@@ -799,76 +643,69 @@ class CortexViewerPanel(ipw.VBox):
     # Figure Refresh Methods ---------------------------------------------------
 
     def refresh_cortex(self):
-        """Refresh the cortex mesh."""
-        # Update the cortex mesh values
+        """Refresh the cortex mesh and overlay layers."""
+        # Update the cortex mesh.
         cortex_kwargs = self._prep_cortex()
-        for key in cortex_kwargs.keys():
-            setattr(self.k3dmesh_cortex, key, cortex_kwargs[key])
+        for key, val in cortex_kwargs.items():
+            setattr(self.k3dmesh_cortex, key, val)
         self.k3dmesh_cortex.visible = True
 
-        # Update the overlay mesh values 
+        # Update the overlay mesh.
         overlay_kwargs = self._prep_overlay()
-        if self.state.style["overlay"] == "curvature":
+        if overlay_kwargs is None:
             self.k3dmesh_overlay.visible = False
         else:
-            for key in overlay_kwargs.keys():
-                setattr(self.k3dmesh_overlay, key, overlay_kwargs[key])
+            for key, val in overlay_kwargs.items():
+                setattr(self.k3dmesh_overlay, key, val)
             self.k3dmesh_overlay.visible = True
-
     
+
     def refresh_points(self):
-        """Refresh the annotation points."""
-        # Update the surface active annotation
+        """Refresh the active and background annotation layers."""
+        # Active annotation.
         active_kwargs = self._prep_active_annotation()
         if active_kwargs is None:
             self.k3dline_active.visible   = False
             self.k3dpoints_active.visible = False
         else:
-            # Update the active line layer (interpolated between points)
-            line_kwargs = active_kwargs["line"]
-            for key in line_kwargs.keys(): 
-                setattr(self.k3dline_active, key, line_kwargs[key])
+            # Active annotation lines
+            for key, val in active_kwargs["line"].items(): 
+                setattr(self.k3dline_active, key, val)
             self.k3dline_active.visible = True
 
-            # Update the active points layer (fixed + user points)
-            points_kwargs = active_kwargs["points"]
-            for key in points_kwargs.keys():
-                setattr(self.k3dpoints_active, key, points_kwargs[key])
+            # Active annotation points
+            for key, val in active_kwargs["points"].items():
+                setattr(self.k3dpoints_active, key, val)
             self.k3dpoints_active.visible = True
     
-        # Update the surface background annotation
+        # Background annotations.
         background_kwargs = self._prep_background_annotations()
         if background_kwargs is None:
             self.k3dline_background.visible   = False
             self.k3dpoints_background.visible = False
         else:
-            # Update the background line layer (interpolated between points)
-            line_kwargs = background_kwargs["line"]
-            for key in line_kwargs.keys():
-                setattr(self.k3dline_background, key, line_kwargs[key])
+            # Background annotation lines
+            for key, val in background_kwargs["line"].items():
+                setattr(self.k3dline_background, key, val)
             self.k3dline_background.visible = True
 
-            # Update the background points layer (fixed + user points)
-            points_kwargs = background_kwargs["points"]
-            for key in points_kwargs.keys():
-                setattr(self.k3dpoints_background, key, points_kwargs[key])
+            # Background annotation points
+            for key, val in background_kwargs["points"].items():
+                setattr(self.k3dpoints_background, key, val)
             self.k3dpoints_background.visible = True
-            
+
 
     def refresh_figure(self, clear = False, cortex = True, points = True):
-        """Refresh the entire figure."""
-        # Disable auto rendering for performance
+        """Refresh the 3D figure."""
+        # Disable auto-rendering to batch updates and avoid intermediate renders.
         self.figure.auto_rendering = False
 
-        # Figure refresh, dependent on which layers need to be updated
-        if clear:
-            self.clear_figure()
-        if cortex:
-            self.refresh_cortex()
-        if points:
-            self.refresh_points()
+        # Apply updates to the figure layers based on the specified flags.
+        if clear:  self.clear_figure()
+        if cortex: self.refresh_cortex()
+        if points: self.refresh_points()
         
-        # Re-enable auto rendering after cortex and overlay values
+        # Re-enable auto-rendering and trigger a single render after all updates are applied.
         self.figure.auto_rendering = True
         self.figure.render()
 

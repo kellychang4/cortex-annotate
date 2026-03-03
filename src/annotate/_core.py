@@ -22,14 +22,15 @@ import os.path as op
 import matplotlib as mpl
 import ipywidgets as ipw
 import imageio.v3 as iio
-from warnings import warn
+from warnings import warn 
 import matplotlib.pyplot as plt
+from neuropythy.geometry.util import barycentric_to_cartesian
 
 from ._util    import (ldict, delay)
 from ._config  import Config
 from ._control import ControlPanel
-from ._canvas import CanvasPanel
-from ._viewer import CortexViewerState, CortexViewerPanel
+from ._canvas  import CanvasPanel
+from ._viewer  import CortexViewerPanel
 
 # The State Manager ############################################################
 
@@ -58,8 +59,8 @@ class AnnotationState:
 
     __slots__ = (
         "config", "cache_path", "save_path", "git_path", "username",
-        "annotations", "preferences", "loading_context", "save_hooks", 
-        "locked"
+        "annotations", "cortex_annotations", "preferences", "loading_context", 
+        "save_hooks", "locked"
     )
     
     def __init__(
@@ -99,6 +100,9 @@ class AnnotationState:
 
         # (Lazily) load the annotations.
         self.annotations = self.load_annotations()
+
+        # (Lazily) load the surface annotations.
+        self.cortex_annotations = self.load_cortex_annotations()
 
         # And (lazily) load the preferences.
         self.preferences = self.load_preferences()
@@ -410,7 +414,7 @@ class AnnotationState:
             # Skip lazy keys; these targets have not even been loaded yet.
             if not annotations.is_lazy(target_id):
                 self.save_target_annotations(target_id)
-    
+
     # Preferences Methods ------------------------------------------------------
 
     def load_preferences(self):
@@ -565,6 +569,13 @@ class AnnotationTool(ipw.HBox):
     images for the `cortex-annotate` project.
     """
 
+    _HORIZONTAL_LAYOUT = ipw.Layout(
+        display = "flex", flex_flow = "row", align_items = "stretch")
+
+    _VERTICAL_LAYOUT = ipw.Layout(
+        display = "flex", flex_flow = "column", align_items = "stretch")
+
+
     def __init__(
             self,
             config_path  = "/config/config.yaml",
@@ -572,7 +583,6 @@ class AnnotationTool(ipw.HBox):
             save_path    = "/save",
             git_path     = "/git",
             username     = None,
-            dataset_path = None, # only cortex viewer needs this
             control_panel_background_color = "#f0f0f0",
             button_color = "#e0e0e0",
         ):        
@@ -597,36 +607,21 @@ class AnnotationTool(ipw.HBox):
             button_color      = button_color,
         )
         
-        # Make the figure panel.
-        self.figure_panel = CanvasPanel(self.state)
+        # Make the canvas panel.
+        self.canvas_panel = CanvasPanel(self.state)
         
         # Pass the loading context over to the state.
-        self.state.loading_context = self.figure_panel.loading_context
+        self.state.loading_context = self.canvas_panel.loading_context
 
         # Make the cortex viewer panel. 
-
-        # Initialize the Cortex Viewer state
-        #TODO: this requires a serious overhaul with overlapping references
-        self.cortex_state = CortexViewerState(
-            annotation_tool   = self,
-            dataset_directory = dataset_path,
+        self.viewer_panel = CortexViewerPanel(
+            self.state, width = 512, height = 512
         )
-
-        # Initialize the Cortex Viewer panel 
-        # self.cortex_viewer_panel = CortexViewerPanel(
-        #     self.cortex_state, width = 512, height = 512
-        # )
-
-        self.horizontal_layout = ipw.Layout(
-            display = "flex", flex_flow = "row", align_items = "stretch")
-
-        self.vertical_layout = ipw.Layout(
-            display = "flex", flex_flow = "column", align_items = "stretch")
 
         # Create the HBox/VBox figure area
         self.figure_wrapper = ipw.Box(
-            children = [self.figure_panel, ], #self.cortex_viewer_panel],
-            layout   = self.horizontal_layout
+            children = [self.canvas_panel, ], #self.viewer_panel],
+            layout   = self._HORIZONTAL_LAYOUT
         )
 
         # Go ahead and initialize the HBox component.
@@ -684,9 +679,10 @@ class AnnotationTool(ipw.HBox):
 
     def refresh_figure(self):
         # Get the target and annotation.
-        target_id     = self.control_panel.target
-        annotation    = self.control_panel.annotation
-        target_annots = self.state.annotations[target_id]
+        target_id      = self.control_panel.target
+        annotation     = self.control_panel.annotation
+        target_annots  = self.state.annotations[target_id]
+        # surface_annots = self.state.surface_annotations[target_id]
 
         # Check that the selected annotation has valid fixed annotations. 
         error = None
@@ -717,7 +713,7 @@ class AnnotationTool(ipw.HBox):
             # If there is data for this fixed point, we need to make sure that 
             # the figure panel can calculate the fixed point based on the current data.
             try:
-                self.figure_panel.calc_fixed_point(annotation, target_annots, fp_type)
+                self.canvas_panel.calc_fixed_point(annotation, target_annots, fp_type)
             except Exception as e:
                 error = f"Annotation '{annotation}' requires fixed point '{fp}' " \
                         f"which cannot be calculated for target: {target_id} " \
@@ -731,19 +727,20 @@ class AnnotationTool(ipw.HBox):
             self._lock_tool()
 
             # Write the error message. 
-            self.figure_panel.write_message(error)
+            self.canvas_panel.write_message(error)
         else:
             # Unlock the annotation tool, so user can interact with the figure.
             self._unlock_tool()
             
             # Clear any messages that might be up from before.
-            self.figure_panel.clear_message()
+            self.canvas_panel.clear_message()
 
             # Update the figure panel state variables.
-            self.figure_panel.update_state(target_id, annotation, target_annots)
+            self.canvas_panel.update_state(target_id, annotation, target_annots)
+            self.viewer_panel.update_state(target_id, annotation, target_annots)
 
             # Redraw the figure. 
-            self.figure_panel.redraw_canvas()
+            self.canvas_panel.redraw_canvas()
 
     # Event Handler Methods ----------------------------------------------------
 
@@ -776,7 +773,7 @@ class AnnotationTool(ipw.HBox):
         self.state.figure_size(change.new)
 
         # Resize the figure panel. 
-        self.figure_panel.resize_canvas(change.new)
+        self.canvas_panel.resize_canvas(change.new)
 
 
     def on_style_change(self, annotation, key, change):
@@ -788,7 +785,7 @@ class AnnotationTool(ipw.HBox):
         self.state.style(annotation, { key: change.new })
         
         # Then redraw the annotation.
-        self.figure_panel.redraw_canvas(redraw_image = False)
+        self.canvas_panel.redraw_canvas(redraw_image = False)
 
 
     def on_clear(self, button):
@@ -811,7 +808,7 @@ class AnnotationTool(ipw.HBox):
             target_id = self.control_panel.target
             for annotation in self.state.annotations[target_id].keys():
                 self.state.annotations[target_id][annotation] = (
-                    self.figure_panel.empty_point_matrix())
+                    self.canvas_panel.empty_point_matrix())
 
             # Refresh the figure to show the cleared annotations.
             self.refresh_figure()
@@ -828,11 +825,14 @@ class AnnotationTool(ipw.HBox):
         self.state.save_preferences()
 
     
-    def on_layout_change(self, change):
-        print(self.control_panel.layout_button.value)
+    def on_layout_change(self, _):
+        """This method runs when the control panel's layout toggle button is toggled."""
+        # If the button is toggled on, we want the horizontal layout. 
         if self.control_panel.layout_button.value: 
             self.control_panel.layout_button.description = "Horizontal Layout"
-            self.figure_wrapper.layout = self.horizontal_layout
+            self.figure_wrapper.layout = self._HORIZONTAL_LAYOUT
+
+        # If the button is toggled off, we want the vertical layout.
         else:
             self.control_panel.layout_button.description = "Vertical Layout"
-            self.figure_wrapper.layout = self.vertical_layout
+            self.figure_wrapper.layout = self._VERTICAL_LAYOUT

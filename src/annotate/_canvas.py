@@ -59,10 +59,8 @@ class CanvasPanel(ipw.HBox):
                 self.canvas.clear()
                 del count[idc]
 
-
     # A traitlet that increments whenever the annotations change.
     _annotation_change = Int(default_value = 0)
-
 
     def __init__(self, state):
         # Store the state.
