@@ -271,10 +271,6 @@ class CortexViewerPanel(ipw.VBox):
         # Store the viewer state
         self.viewer_state = CortexViewerState(state)
 
-        # Track the current active annotation and all annotations for rendering.
-        self.active     = None   # current active annotation name
-        self.annot_data = None   # current flatmap annotations dict
-
         # Create a figure background (k3d plot)
         self.figure = k3d.plot(
             height            = height, 
@@ -305,36 +301,56 @@ class CortexViewerPanel(ipw.VBox):
         # Set initial camera values
         self.figure.camera = [-160, -10, -6, 15, -30, 0, 0, 0, 1]
 
+        # Initialize the cortex variables
+        self.target = None
+        self.active = None
+        self.annotations = {} 
+        self.cortex_annotations = {}
+        self.fixed_head = {} 
+        self.fixed_tail = {} 
+        self.editable   = {} 
+        self.cursor     = None
+
         # Initialize the VBox with the figure as the child 
         super().__init__(
             children = [ self.figure ], 
             layout = {
-                "width" : f"{width}px", 
-                "height": f"{height}px", 
-                "border": "1px solid magenta"
+                "width"   : f"{width}px", 
+                "height"  : f"{height}px", 
+                "border"  : "1px solid magenta",
+                "overflow": "hidden"
             }
         )
 
-    # Public Interface ---------------------------------------------------------
+    # Update State Method ------------------------------------------------------
 
     def update_state(self, target_id, annotation, flatmap_annotations):
-        """Update viewer state and refresh the 3D figure.
+        """Updates the state to reflect the given target and annotation."""
 
-        This is the main interface called by `AnnotationTool.refresh_figure()`.
-        It updates the cortex geometry, overlay, and surface annotations, then
-        redraws the entire 3D figure.
-        """
-        self.active     = annotation
-        self.annot_data = flatmap_annotations
+        # If neither the target nor the annotation is changing, we can skip the update.
+        if self.target == target_id and self.active == annotation: return
 
-        # Update the viewer state with new cortex data and annotations.
-        self.viewer.update_cortex(target_id)
-        self.viewer.update_overlay()
-        self.viewer.update_surface_annotations(
-            target_id, annotation, flatmap_annotations)
+        # Store the previous state.
+        prev_target     = self.target
+        prev_annotation = self.active
+
+        # Update the target, active annotation, and annotations.
+        self.target      = target_id
+        self.active      = annotation
+
+        # Update the flatmap annotation, fixed heads, and fixed tails
+        self.annotations = flatmap_annotations
+        self.fixed_head  = self.fixed_head
+        self.fixed_tail  = self.fixed_tail
+        self.editable    = self.editable
+        self.cursor      = self.cursor
+
+        # Update the cortex annotations based on the updated flatmap annotations
+        self.cortex_annotations = self.viewer_state.surface_annotations
 
         # Refresh the full 3D figure.
         self.refresh_figure(clear = True, cortex = True, points = True)
+    
 
     # k3d Color Helper Method --------------------------------------------------
 

@@ -566,11 +566,18 @@ class AnnotationTool(ipw.HBox):
     """
 
     _HORIZONTAL_LAYOUT = ipw.Layout(
-        display = "flex", flex_flow = "row", align_items = "stretch")
+        display = "flex", 
+        flex_flow = "row", 
+        align_items = "stretch",
+        overflow = "hidden"
+    )
 
     _VERTICAL_LAYOUT = ipw.Layout(
-        display = "flex", flex_flow = "column", align_items = "stretch")
-
+        display = "flex", 
+        flex_flow = "column", 
+        align_items = "stretch",
+        overflow = "hidden"
+    )
 
     def __init__(
             self,
@@ -610,13 +617,13 @@ class AnnotationTool(ipw.HBox):
         self.state.loading_context = self.canvas_panel.loading_context
 
         # Make the cortex viewer panel. 
-        # self.viewer_panel = CortexViewerPanel(
-        #     self.state, width = 512, height = 512
-        # )
+        self.viewer_panel = CortexViewerPanel(
+            self.state, width = 512, height = 512
+        )
 
         # Create the HBox/VBox figure area
         self.figure_wrapper = ipw.Box(
-            children = [ self.canvas_panel, self.canvas_panel ], #self.viewer_panel],
+            children = [ self.canvas_panel, self.viewer_panel ],
             layout   = self._HORIZONTAL_LAYOUT
         )
 
@@ -631,13 +638,13 @@ class AnnotationTool(ipw.HBox):
             self.refresh_figure()
 
         # And a listener for the selection change.
-        self.control_panel.observe_selection(self.on_selection_change)
+        # self.control_panel.observe_selection(self.on_selection_change)
 
         # Add a listener for the figure size change.
-        self.control_panel.observe_figure_size(self.on_figure_size_change)
+        # self.control_panel.observe_figure_size(self.on_figure_size_change)
 
         # And a listener for the style change.
-        self.control_panel.observe_style(self.on_style_change)
+        # self.control_panel.observe_style(self.on_style_change)
 
         # # Add a listener for the clear all button.
         # self.control_panel.observe_clear(self.on_clear)
