@@ -599,7 +599,7 @@ class AnnotationTool(ipw.HBox):
         self.figure_panel = FigurePanel(self.state)
         
         # Pass the loading context over to the state.
-        self.state.loading_context = self.figure_panel.canvas_panel.loading_context
+        self.state.loading_context = self.figure_panel.loading_context
 
         # Go ahead and initialize the HBox component.
         super().__init__(

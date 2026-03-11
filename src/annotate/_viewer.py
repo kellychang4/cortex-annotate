@@ -12,252 +12,6 @@ import k3d
 import numpy as np
 import ipywidgets as ipw
 from matplotlib.colors import to_rgb
-from neuropythy.geometry.util import barycentric_to_cartesian
-
-# The Cortex Viewer State ------------------------------------------------------
-
-class CortexViewerState:
-    """Viewer-specific state for the 3D cortex viewer.
-    
-    This class manages the data that is specific to the 3D viewer but not 
-    relevant to the 2D canvas or the broader annotation tool. It consumes 
-    cortex geometry and overlay data from `AnnotationState.cortex_data()` and
-    converts flatmap annotations into 3D surface coordinates.
-    """
-
-    # Point type constants (used for annotation rendering)
-    POINT_FIXED  = 2  # fixed head/tail point
-    POINT_USER   = 1  # user-placed point
-    POINT_INTERP = 0  # interpolated point (between user/fixed points)
-
-
-    def __init__(self, state):
-        """Initialize the cortex viewer state.
-        
-        Parameters
-        ----------
-        annotation_state : AnnotationState
-            The shared annotation state that provides cortex data, annotation
-            coordinates, annotation config, and style preferences.
-        """
-        # Store the state.
-        self.state = state
-
-        # Cortex viewer-specific (only) display style options.
-        self.style = {
-            "inflation_percent" : 100,
-            "overlay"           : "curvature",
-            "overlay_alpha"     : 1.0, 
-            "point_size"        : 1.5, 
-            "line_width"        : 0.25,
-            "line_interp"       : 10,
-        }
-
-        # Current viewer data — populated by update methods, read by the panel.
-        self.target_id  = None  # current target id tuple
-        self.annotation = None  # current active annotation name 
-
-        # Cortex geometry (set by update_cortex)
-        self.faces       = None  # (3, N_faces) face indices
-        self.coordinates = None  # (3, N_vertices) blended coordinates
-        self.curvature   = None  # (N_vertices, 3) curvature RGB colors
-
-        # Overlay data (set by update_overlay)
-        self.overlay = None  # (N_vertices, 3) overlay RGB colors, or None
-
-        # Surface annotations (set by update_surface_annotations)
-        # Dict of annotation_name -> { "addresses", "coordinates", "point_types" }
-        self.surface_annotations = {}
-
-
-    # Update Methods -----------------------------------------------------------
-
-    def update_cortex(self, target_id):
-        """Load cortex geometry from config and compute blended coordinates.
-        
-        This evaluates the ``config.cortex`` functions (faces, midgray, 
-        inflated) via ``state.cortex_data()`` and computes the blended 
-        coordinates based on the current inflation percentage.
-
-        Parameters
-        ----------
-        target_id : tuple
-            The target identifier (e.g., (dataset, participant, hemisphere)).
-        """
-        # Update the target and get the cortex functions.
-        self.target_id = target_id
-        self.target    = self.state.targets[target_id]
-
-        # Update faces and coordinates for the mesh.
-        self.faces = self.state.config.cortex_fn["faces"]
-        midgray    = self.state.config.cortex_fn["midgray"]
-        inflated   = self.state.config.cortex_fn["inflated"]
-
-        # Compute blended coordinates between midgray and inflated surfaces.
-        inflation_proportion = self.style["inflation_percent"] / 100.0
-        self.coordinates = ((inflated - midgray) * inflation_proportion) + midgray
-
-        # Store curvature colors (used as the base mesh coloring).
-        self.curvature = self.state.config.cortex_fn["curvature"]
-
-
-    def update_overlay(self):
-        """Update overlay colors based on the current overlay selection.
-
-        If the overlay is ``"curvature"``, no separate overlay is needed (the
-        curvature colors are used as the base mesh coloring). Otherwise, the
-        overlay color array is fetched from ``state.cortex_data()``.
-        """
-        if self.style["overlay"] == "curvature":
-            self.overlay = None
-        else:
-            overlay_name = self.style["overlay"]
-            overlay_fn   = self.state.config.cortex_fn[overlay_name]
-            self.overlay = overlay_fn(self.target, overlay_name)
-
-   # Cortex Annotations Methods -----------------------------------------------
-
-    #TODO: this ssection is a complete mess
-
-    @staticmethod
-    def _flatmap_to_surface(flatmap_address, mesh_coordinates):
-        """Convert flatmap annotation coordinates to surface coordinates."""
-        bary_faces  = flatmap_address["faces"]       # (3, n_faces)
-        bary_coords = flatmap_address["coordinates"] # (2, n_points)
-        tx = np.transpose(mesh_coordinates[:, bary_faces], (1, 0, 2)) # (3, 3, n_points)
-        return barycentric_to_cartesian(tx, bary_coords) # (3, n_points)
-
-    
-    def _interpolate_coordinates(self, coordinates, point_types):
-        """Interpolate coordinates along the path."""
-        # Get number of interpolated points
-        n = self.style["line_interp"] + 2
-
-        # Intialize ararys to store interpolated coordinates
-        x_interp = []; y_interp = []; ptype_interp = []
-
-        # Initialize point type interpolation filler
-        ptype_filler = [self.POINT_INTERP] * self.style["line_interp"]
-
-        # Iterate over each segment and interpolate points  
-        n_interp = coordinates.shape[0] - 1 
-        for i in np.arange(n_interp): # for each pair of coordinates
-            # Extract start and end coordinates and point types for the segment
-            xs, xe = coordinates[i, 0], coordinates[i+1, 0]
-            ys, ye = coordinates[i, 1], coordinates[i+1, 1]
-            ps, pe = point_types[i], point_types[i+1]
-
-            # Interpolate x and y coordinates and point types for the segment
-            xn = np.linspace(xs, xe, n)
-            yn = np.linspace(ys, ye, n)
-            pn = [ps, *ptype_filler, pe]
-
-            if i == 0: # for the first segment, include the starting point
-                x_interp.append(xn)
-                y_interp.append(yn)
-                ptype_interp.append(pn)
-            else: # for subsequent segments, exclude the starting point to avoid duplicates
-                x_interp.append(xn[1:])
-                y_interp.append(yn[1:])
-                ptype_interp.append(pn[1:])
-
-        # Concatenate and prepare interpolated points
-        x_interp = np.concatenate(x_interp)
-        y_interp = np.concatenate(y_interp)
-        ptype_interp = np.concatenate(ptype_interp)
-
-        # Return interpolated coordinates (as matrix) and point types (as int)
-        interp_coordinates = np.vstack((x_interp, y_interp, ptype_interp)).T
-        return interp_coordinates[:,:-1], interp_coordinates[:,-1].astype(int)
-
-
-    def update_surface_addresses(self, annotations = None): 
-        """Update cortical surface addresses for each annotation."""
-        # Get the list of annotations to update
-        if annotations is None:
-            annotations = list(self.flatmap_annotations.keys())
-        elif isinstance(annotations, str):
-            annotations = [annotations, ]
-        else:
-            raise ValueError(f"Invalid annotations value: {annotations}")
-
-        # Get current fsaverage hemisphere flatmap
-        fsa_flatmap = self.fsaverage[self.hemisphere]["flatmap"]
-
-        # Convert each flatmap annotation to surface coordinates
-        for key in annotations: # for each annotation to update
-            # Get the current annotaitons flatmap coordinates
-            flatmap_coordinates = self.flatmap_annotations[key]
-
-            # If no flatmap coordinates, set surface annotation to None
-            if flatmap_coordinates is None or flatmap_coordinates.shape[0] == 0: 
-                self.cortex_annotations[key] = {
-                    "addresses"   : None,
-                    "coordinates" : None,
-                    "point_types" : None,
-                }
-                continue
-            
-            # If there are flatmap coordinates, figure out each point type
-            n_points    = flatmap_coordinates.shape[0]
-            point_types = np.full(n_points, self.POINT_USER)
-            fixed_head  = bool(self.annot_cfg.fixed_head[key])
-            fixed_tail  = bool(self.annot_cfg.fixed_tail[key])
-            if fixed_head: point_types[0]  = self.POINT_FIXED
-            if fixed_tail: point_types[-1] = self.POINT_FIXED
-
-            # Interpolate coordinate if there are more than 1 point (to make a 
-            # segment) and if the points are NOT all fixed points.
-            if n_points > 1 and not np.all(point_types == self.POINT_FIXED):
-                flatmap_coordinates, point_types = \
-                    self._interpolate_coordinates(flatmap_coordinates, point_types)
-            
-            # Convert flatmap coordinates to addresses
-            flatmap_address = fsa_flatmap.address(flatmap_coordinates.T)
-        
-            # Store surface annotation addresses
-            self.cortex_annotations[key] = {
-                "addresses"   : flatmap_address,
-                "coordinates" : None,
-                "point_types" : point_types,
-            }
-
-
-    def update_surface_coordinates(self, annotations = None):
-        """Update cortical surface coordinates for each annotation."""
-        # Get the list of annotations to update
-        if annotations is None:
-            annotations = list(self.flatmap_annotations.keys())
-        elif isinstance(annotations, str):
-            annotations = [annotations, ]
-        else:
-            raise ValueError(f"Invalid annotations value: {annotations}")
-
-        # Update surface coordinates for each annotation
-        for key in annotations:
-            # Get the current annotation's surface addresses
-            surface_annotation = self.cortex_annotations.get(key, {})
-            flatmap_address = surface_annotation.get("addresses", None)
-
-            # If no surface addresses, set surface annotation coordinates to None
-            if flatmap_address is not None:
-                # Calculate surface coordinates
-                surface_coordinates = (
-                    self._flatmap_to_surface(flatmap_address, self.coordinates))
-                
-                # Store surface annotation coordinates
-                self.cortex_annotations[key]["coordinates"] = surface_coordinates
-
-
-    def update_surface_annotations(self, annotations = None):
-        """Update cortical annotations based on current state."""
-        # Initialize surface annotations dictionary if not present
-        if annotations is None: self.cortex_annotations = {} 
-
-        # Get the list of annotations to update
-        self.update_surface_addresses(annotations)
-        self.update_surface_coordinates(annotations)
-
 
 # Cortex Viewer Figure Panel ---------------------------------------------------
 
@@ -268,8 +22,8 @@ class CortexViewerPanel(ipw.VBox):
     """
     
     def __init__(self, state, width = 512, height = 512):
-        # Store the viewer state
-        self.viewer_state = CortexViewerState(state)
+        # Store the state (figure state).
+        self.state = state
 
         # Create a figure background (k3d plot)
         self.figure = k3d.plot(
@@ -301,16 +55,6 @@ class CortexViewerPanel(ipw.VBox):
         # Set initial camera values
         self.figure.camera = [-160, -10, -6, 15, -30, 0, 0, 0, 1]
 
-        # Initialize the cortex variables
-        self.target = None
-        self.active = None
-        self.annotations = {} 
-        self.cortex_annotations = {}
-        self.fixed_head = {} 
-        self.fixed_tail = {} 
-        self.editable   = {} 
-        self.cursor     = None
-
         # Initialize the VBox with the figure as the child 
         super().__init__(
             children = [ self.figure ], 
@@ -321,35 +65,6 @@ class CortexViewerPanel(ipw.VBox):
                 "overflow": "hidden"
             }
         )
-
-    # Update State Method ------------------------------------------------------
-
-    def update_state(self, target_id, annotation, flatmap_annotations):
-        """Updates the state to reflect the given target and annotation."""
-
-        # If neither the target nor the annotation is changing, we can skip the update.
-        if self.target == target_id and self.active == annotation: return
-
-        # Store the previous state.
-        prev_target     = self.target
-        prev_annotation = self.active
-
-        # Update the target, active annotation, and annotations.
-        self.target      = target_id
-        self.active      = annotation
-
-        # Update the flatmap annotation, fixed heads, and fixed tails
-        self.annotations = flatmap_annotations
-        self.fixed_head  = self.fixed_head
-        self.fixed_tail  = self.fixed_tail
-        self.editable    = self.editable
-        self.cursor      = self.cursor
-
-        # Update the cortex annotations based on the updated flatmap annotations
-        self.cortex_annotations = self.viewer_state.surface_annotations
-
-        # Refresh the full 3D figure.
-        self.refresh_figure(clear = True, cortex = True, points = True)
     
 
     # k3d Color Helper Method --------------------------------------------------
@@ -726,13 +441,6 @@ class CortexViewerPanel(ipw.VBox):
         self.figure.render()
 
 
-# The Cortex Viewer Widget -----------------------------------------------------
-
-
-
-    #     # Assign information box observers
-    #     for key in self._infobox_observers.keys():
-    #         self._infobox_observers[key](partial(self.on_selection_change, key))
 
     #     # Assign user annotation input observers
     #     self.state.observe_annotation_change(self.on_annotation_change)
@@ -740,16 +448,6 @@ class CortexViewerPanel(ipw.VBox):
     #     # Assign style option observers
     #     for key in self._style_observers.keys():
     #         self._style_observers[key](partial(self.on_style_change, key)) 
-
-
-    # @property
-    # def _infobox_observers(self):
-    #     """Return a list of observer functions for the Cortex Viewer state."""
-    #     return {
-    #         "targets"    : self.state.observe_targets,
-    #         "annotation" : self.state.observe_annotation,
-    #     } 
-
 
     # @property
     # def _style_observers(self):
