@@ -31,7 +31,7 @@ class SelectionPanel(ipw.VBox):
     )
     
     def __init__(self, state):
-        # Store the state
+        # Store the state.
         self.state = state
 
         # We have to manage an "updating" state to avoid firing observers while
@@ -49,7 +49,7 @@ class SelectionPanel(ipw.VBox):
         for key in state.config.targets.concrete_keys:
             dropdown_values = state.config.targets.items[key]
 
-            # If dynamic target (dcit), dropdown values depend on the parent 
+            # If dynamic target (dict), dropdown values depend on the parent 
             # key's dropdown selection.
             if isinstance(dropdown_values, dict):        
                 # Look up the parent key that this target depends on.
@@ -117,6 +117,7 @@ class SelectionPanel(ipw.VBox):
         # Initialize the annotations menu.
         self.refresh_annotations()
 
+    # Property Methods ---------------------------------------------------------
 
     @property
     def target(self):
@@ -135,9 +136,10 @@ class SelectionPanel(ipw.VBox):
         """Compute the current selection (target + annotation)."""
         return self.target + (self.annotation, )
 
+    # Refresh Methods ----------------------------------------------------------
 
     def refresh_annotations(self):
-        """Refreshes the annotations dropdown menu based on the current target selection."""
+        """Refreshes the annotations menus based on the current target selection."""
         # Get the new target selection entirely.
         target_id = self.target
     
@@ -153,6 +155,7 @@ class SelectionPanel(ipw.VBox):
         self.annotations_dropdown.options = annotation_options
         self.annotations_dropdown.value   = annotation_options[0]
 
+    # Handler Methods ----------------------------------------------------------
 
     def on_parent_change(self, key, change):
         """Handles the change in a parent dropdown for a dynamic target."""
@@ -177,10 +180,16 @@ class SelectionPanel(ipw.VBox):
         # Prevent firing observers if we are updating dependent dropdowns.
         if self._updating: return
 
-        # Refresh the annotations menu.
-        self.refresh_annotations()
+        # Set "updating" state to avoid annotation dropdown observers.
+        self._updating = True
+        try: 
+            # Refresh the annotations menu.
+            self.refresh_annotations()
+        finally:
+            # Undo "updating" state.
+            self._updating = False
 
-        # Alert our other observers, now that our updates are finished.
+        # Alert our target observers, now that our updates are finished.
         for fn in self.target_observers:
             fn(key, change)
 
@@ -191,6 +200,8 @@ class SelectionPanel(ipw.VBox):
         for fn in self.annotation_observers:
             fn(change)
 
+
+    # Observer Methods ---------------------------------------------------------
 
     def observe_target(self, fn):
         """Registers the given function to be called when the target changes.
@@ -243,17 +254,18 @@ class SelectionPanel(ipw.VBox):
 class LegendPanel(ipw.VBox):
     """The subpanel of the control panel containing the legend controls."""
 
-    slots = ( "state", "hemisphere_index", "image_dir", "image_widget" )
+    slots = ( "state", "image_dir", "hemisphere_index", "image_widget" )
 
     def __init__(self, state):
         # Store the state
         self.state = state
 
-        # Store the hemisphere index for later use in legend updates.
-        self.hemisphere_index = state.config.targets.concrete_keys.index("Hemisphere")
-
         # Set up the path to the annotation legend images.
         self.image_dir = op.join(op.dirname(__file__), "annotation-legends")
+
+        # Store the hemisphere index for later use in legend updates.
+        concrete_keys = state.config.targets.concrete_keys
+        self.hemisphere_index = concrete_keys.index("Hemisphere")
 
         # Create the image widget
         self.image_widget = ipw.Image(
@@ -267,13 +279,13 @@ class LegendPanel(ipw.VBox):
                 make_section_title("Annotation Legend"), 
                 self.image_widget 
             ],
-            layout   = { "margin": "0% 0% 3% 0%" }
+            layout = { "margin": "0% 0% 3% 0%" }
         )
 
         # Update the legend with the initial image
-        target_id  = list(state.config.targets.keys())[0]
-        annotation = list(state.config.annotations.keys())[0]
-        self.update_legend(target_id, annotation)
+        target_id  = state.config.targets.target_keys[0]
+        annotation = state.config.annotations.names[0]
+        self.update(target_id, annotation)
 
 
     def _read_image(self, image_path):
@@ -284,7 +296,7 @@ class LegendPanel(ipw.VBox):
         return image_data
     
 
-    def update_legend(self, target_id, annotation):
+    def update(self, target_id, annotation):
         """Updates the legend image to the given legend name."""
         hemisphere = target_id[self.hemisphere_index]
         image_path = op.join(self.image_dir, hemisphere, f"{annotation}.png")
@@ -379,7 +391,7 @@ class StylePanel(ipw.VBox):
         for (key, value) in self.style_widgets.items():
             value.observe(partial(self.on_style_change, key), names = "value")
 
-        self.cortex_style_widgets = {
+        self.viewer_style_widgets = {
             "inflation"     : self.inflation_slider,
             "overlay"       : self.overlay_dropdown,
             "overlay_alpha" : self.overlay_slider,
@@ -784,7 +796,7 @@ class ControlPanel(ipw.VBox):
     # Observe Methods ----------------------------------------------------------
 
     def observe_target(self, fn):
-        """Registers the given function to be called when the taget changes.
+        """Registers the given function to be called when the target changes.
 
         The selection target refers to the selection of all the concrete keys in
         the `config.yaml` file's `targets` section. In other words, the
@@ -797,6 +809,20 @@ class ControlPanel(ipw.VBox):
         object typically used in the `ipywidget` `observe` pattern.
         """
         self.selection_panel.observe_target(fn)
+
+
+    def observe_annotation(self, fn):
+        """Registers the argument to be called when the annotation changes.
+
+        The annotation selection is the currently selected annotation in the
+        annotations dropdown menu of the `SelectionPanel` component of the
+        `ControlPanel`.
+
+        When the annotation selection changes, the given function is called with
+        the argument `change` where `change` is the `change` object typically
+        used in the `ipywidget` `observe` pattern.
+        """
+        self.selection_panel.observe_annotation(fn)
 
 
     def observe_selection(self, fn):
@@ -813,20 +839,6 @@ class ControlPanel(ipw.VBox):
         has changed, then the `key` will be `None`.
         """
         self.selection_panel.observe_selection(fn)
-
-
-    def observe_annotation(self, fn):
-        """Registers the argument to be called when the annotation changes.
-
-        The annotation selection is the currently selected annotation in the
-        annotations dropdown menu of the `SelectionPanel` component of the
-        `ControlPanel`.
-
-        When the annotation selection changes, the given function is called with
-        the argument `change` where `change` is the `change` object typically
-        used in the `ipywidget` `observe` pattern.
-        """
-        self.selection_panel.observe_annotation(fn)
 
 
     def observe_figure_size(self, fn):

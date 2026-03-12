@@ -250,7 +250,7 @@ class TargetsConfig(ldict):
     for the ordered concrete key `id1, id2...`.
     """
     
-    __slots__ = ( "items", "concrete_keys" )    
+    __slots__ = ( "items", "concrete_keys", "target_keys" )    
 
     def __init__(self, targets_yaml, init):
         # The targets section is required.
@@ -268,13 +268,13 @@ class TargetsConfig(ldict):
             self._parse_target(key, value, init)
 
         # Second, we build the product of all concrete keys
-        targets_keys = self._build_targets_keys()
+        self.target_keys = self._build_targets_keys()
 
         # Third, we then fill these out into a lazy dict that reifies each target
         # individually. We start with a dict but put the delays into this object
         # (which is a lazy dict itself).
         targets_dict = {} 
-        for target_id in targets_keys:
+        for target_id in self.target_keys:
             targets_dict[target_id] = delay(
                 TargetsConfig._reify_target, 
                 self.items, 

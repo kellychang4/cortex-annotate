@@ -19,7 +19,6 @@ import yaml
 import numpy as np
 import pandas as pd
 import os.path as op
-import matplotlib as mpl
 import ipywidgets as ipw
 import imageio.v3 as iio
 from warnings import warn 
@@ -50,7 +49,7 @@ class AnnotationState:
     __slots__ = (
         "config", "cache_path", "save_path", "git_path", "username",
         "annotations", "cortex_annotations", "preferences", "loading_context", 
-        "save_hooks", "locked"
+        "locked"
     )
     
     def __init__(
@@ -68,7 +67,6 @@ class AnnotationState:
         self.cache_path = cache_path
         self.save_path  = save_path
         self.git_path   = git_path
-        self.save_hooks = None
 
         # We add the git username to the save path if needed here.
         if username is None:
@@ -491,7 +489,7 @@ class AnnotationState:
         return preferences[annotation]
     
     
-# The Annotation Tool ##########################################################
+# The Annotation Tool ----------------------------------------------------------
 
 class AnnotationTool(ipw.HBox):
     """The core annotation tool for the `cortex-annotate` project.
@@ -548,7 +546,7 @@ class AnnotationTool(ipw.HBox):
             self.refresh_figure()
 
         # And a listener for the selection change.
-        # self.control_panel.observe_selection(self.on_selection_change)
+        self.control_panel.observe_selection(self.on_selection_change)
 
         # Add a listener for the figure size change.
         # self.control_panel.observe_figure_size(self.on_figure_size_change)
@@ -592,10 +590,9 @@ class AnnotationTool(ipw.HBox):
 
     def refresh_figure(self):
         # Get the target and annotation.
-        target_id      = self.control_panel.target
-        annotation     = self.control_panel.annotation
-        target_annots  = self.state.annotations[target_id]
-        # surface_annots = self.state.surface_annotations[target_id]
+        target_id     = self.control_panel.target
+        annotation    = self.control_panel.annotation
+        target_annots = self.state.annotations[target_id]
 
         # Check that the selected annotation has valid fixed annotations. 
         error = None
@@ -626,7 +623,8 @@ class AnnotationTool(ipw.HBox):
             # If there is data for this fixed point, we need to make sure that 
             # the figure panel can calculate the fixed point based on the current data.
             try:
-                self.figure_panel.canvas_panel.calc_fixed_point(annotation, target_annots, fp_type)
+                self.figure_panel.figure_state.calc_fixed_point(
+                    annotation, target_annots, fp_type)
             except Exception as e:
                 error = f"Annotation '{annotation}' requires fixed point '{fp}' " \
                         f"which cannot be calculated for target: {target_id} " \
@@ -640,16 +638,17 @@ class AnnotationTool(ipw.HBox):
             self._lock_tool()
 
             # Write the error message. 
-            # self.figure_panel.write_message(error)
+            self.figure_panel.write_message(error)
         else:
             # Unlock the annotation tool, so user can interact with the figure.
             self._unlock_tool()
             
             # Clear any messages that might be up from before.
-            # self.figure_panel.clear_message()
+            self.figure_panel.clear_message()
 
             # Update the figure panel state variables.
-            self.figure_panel.state.update(target_id, annotation, target_annots)
+            self.figure_panel.figure_state.update(
+                target_id, annotation, target_annots)
             
             # Redraw the canvas and viewer.
             self.figure_panel.redraw_canvas()
@@ -660,15 +659,11 @@ class AnnotationTool(ipw.HBox):
 
     def on_selection_change(self, key, change):
         """This method runs when the control panel's selection changes."""
-        if change.name != "value": return
         # First, things first: save the annotations.
         self.state.save_annotations()
-        
-        # Clear the save hooks if there are any.
-        self.state.save_hooks = None
 
         # Update the control panel legend. 
-        self.control_panel.legend_panel.update_legend(
+        self.control_panel.legend_panel.update(
             target_id  = self.control_panel.target,
             annotation = self.control_panel.annotation, 
         )

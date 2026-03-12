@@ -8,8 +8,11 @@ Implementation code for the Figure Panel.
 
 # Imports ----------------------------------------------------------------------
 
+import threading
 import numpy as np
+import ipycanvas as ipc
 import ipywidgets as ipw
+from traitlets import Int
 from neuropythy.geometry.util import barycentric_to_cartesian
 
 from ._canvas import CanvasPanel
@@ -43,9 +46,9 @@ class FigurePanelState:
             self._coordinates = None # list of (n_vertices, 3), 1 = no interp, 2 = interp
             self.overlays     = {}   # (n_vertices, 3) array of overlay RGB colors
 
-            # Surface annotations (set by update_surface_annotations).
+            # Viewer annotations (set by update_viewer_annotations).
             # Dict of annotation_name → { "addresses", "coordinates", "point_types" }
-            self.surface_annotations = {}
+            self.viewer_annotations = {}
 
             self.style = {
                 "inflation_percent" : 100,
@@ -74,7 +77,6 @@ class FigurePanelState:
         # Store the state (from the annotation tool).
         self.annot_state = annot_state
         self.annot_cfg   = annot_state.config.annotations
-        self.locked      = annot_state.locked
 
         # Initialize the (shared = canvas & viewer) variables.
         self.target      = None # current target id tuple
@@ -253,6 +255,9 @@ class FigurePanelState:
                 key: overlay_fn(target, key)
                 for key, overlay_fn in cortex_dict["overlays"].items()
             } 
+
+        # always update viewer_annotation
+        # self.viewer.viewer_annotations[self.active] = update
         
         # # Store the flatmap mesh for address computation.
         # # TODO: The exact access pattern for the flatmap depends on the config
@@ -282,18 +287,187 @@ class FigurePanelState:
 
             # Recalculate and update the fixed head for the dependent annotation.        
             fixed_head = self.calc_fixed_point(fd, self.annotations, "fixed_head")
-            if fixed_head is not None:
-                points[0,:] = fixed_head
+            if fixed_head is not None: points[0,:] = fixed_head
 
             # Recalculate and update the fixed tail for the dependent annotation.        
             fixed_tail = self.calc_fixed_point(fd, self.annotations, "fixed_tail")
-            if fixed_tail is not None:
-                points[-1,:] = fixed_tail
+            if fixed_tail is not None: points[-1,:] = fixed_tail
 
             # Update the annotation with the new points.
             self.annotations[fd] = points
+
+    # Push Point Method --------------------------------------------------------
+
+    def push_point(self, new_point):
+        """Pushes a new point to the active annotation dependent on cursor position."""
+        # We can only push points if there is an active annotation.
+        if self.active is None: return None
+
+        # Get the current points for this annotation. If None, initialize empty.
+        points = self.annotations[self.active]
+        if points is None: points = self.empty_point_matrix()
+
+        # Get the annotation type for this annotation.
+        atype = self.annot_cfg.type[self.active]
+        
+        # Depending on the annotation type, we add the newest point to the
+        # annotation in different ways.
+        if atype == "point":
+            # For a point annotation, replace the current point with the new point.
+            points        = new_point
+            self.editable = self._init_editable(0)
+            self.cursor   = 0
+
+        else: # atype in ( "contour", "boundary" )
+            # If there are no points, we just add the new point.
+            if points.shape[0] == 0:
+                self.editable = self._init_editable(0)
+                self.cursor   = 0
+
+            # If there are no editable points, we add the new point to the head
+            # or tail depending on which one is fixed.                
+            elif self.editable.shape[0] == 0:
+                if self.fixed_heads[self.active] is not None:
+                    self.editable = self._init_editable(1)
+                elif self.fixed_tails[self.active] is not None:
+                    self.editable = self._init_editable(0)
+                self.cursor = self.editable[0]   
+
+            # If there are editable points, we add the new point after the 
+            # current cursor position and move the cursor to the new point.
+            else: 
+                # Because we are inserting a point, all the editable points 
+                # after the cursor need to be shifted by one index.
+                self.editable[self.editable > self.cursor] += 1
+
+                # We add the new cursor position to the editable points.
+                self.editable = np.sort(np.append(self.editable, self.cursor + 1))
+                
+                # Finally, we increment the cursor to move it to the next position.
+                self.cursor += 1
+
+            # Insert the new point at the cursor position.
+            points = np.insert(points, self.cursor, new_point, axis = 0)
+ 
+        # Update the annotation with the new points.
+        self.annotations[self.active] = points
+
+        # Update dependent annotations, if this active annotation has them.
+        fixed_deps = self.annot_cfg.fixed_dependencies[self.active]
+        has_deps   = len(fixed_deps) > 0
+        if has_deps: self._recalculate_deps(self.active)
+
+        # Return if there were dependencies
+        return has_deps
+
+
+    # Toggle Cursor Method -----------------------------------------------------
     
-    # Surface Annotation Methods -----------------------------------------------
+    def toggle_cursor(self):
+        """Toggles the cursor position of the active annotation."""
+        # Extract current annotation type.
+        atype = self.annot_cfg.type[self.active]
+
+        # For a point annotation, there is only one point. Toggling the 
+        # cursor position does not do anything, so we can skip it.
+        if atype == "point": return
+
+        # If there are less than two editable points, we cannot toggle the cursor.
+        if self.editable.shape[0] < 2: return
+
+        # For contour or boundary annotations, we toggle the cursor position by 
+        # moving it to the next editable point in the annotation.
+        if atype in ( "contour", "boundary" ):
+            # Get the index of the current cursor position in the editable points.
+            current_index = np.where(self.editable == self.cursor)[0][0]
+
+            # Calculate the index of the next editable point with wraparound.
+            next_index = np.mod(current_index + 1, self.editable.shape[0])
+
+            # Update the cursor to the next editable point.
+            self.cursor = self.editable[next_index]
+
+    
+    # Pop Point Method ---------------------------------------------------------
+    
+    def pop_point(self):
+        """Removes the point at the current cursor position of the active annotation."""
+        # We can only push points if there is an active annotation.
+        if self.active is None: return None
+
+        # Get the current annotation and annotation type.
+        points = self.annotations[self.active]
+        atype  = self.annot_cfg.type[self.active]
+
+        # If there are no points, we cannot delete anything. Skip.
+        if points is None or points.shape[0] == 0 or \
+            self.editable.shape[0] == 0: return
+        
+        # Check if there are any LIVE dependencies on this annotation. If so, 
+        # we cannot delete the last point of this annotation because the 
+        # dependent annotations rely on it. 
+        fixed_deps = self.annot_cfg.fixed_dependencies[self.active]
+        has_deps   = len(fixed_deps) > 0
+        if has_deps and self.editable.shape[0] == 1:
+            # Determine the number of fixed points for each dependent 
+            # annotation. This number is the minimum number of points that the 
+            # annotation must have be considered LIVE.
+            n_fixed = [ len(self.annot_cfg.fixed_points[fd]) for fd in fixed_deps ]
+
+            live_deps = [
+                fd for fd, n in zip(fixed_deps, n_fixed) 
+                if self.annotations[fd] is not None
+                and self.annotations[fd].shape[0] > n
+            ]
+        
+            if live_deps:
+                # Write a warning message to the user about live dependencies. 
+                self.write_message(
+                    f"Cannot delete: '{self.active}'. It is required by "
+                    f"'{', '.join(live_deps)}'. Clear those annotations first."
+                )
+                # Clear the message after 3 seconds. 
+                threading.Timer(3.0, self.clear_message).start()
+                return
+        
+        # If there are points, we delete based on annotation type.
+        if atype == "point":
+            # For a point annotation, we delete the single point.
+            points        = self.empty_point_matrix()
+            self.editable = self._init_editable()
+            self.cursor   = None
+        else: # atype in ( "contour", "boundary" )
+            # If there are points to delete, delete at current position.
+            points = np.delete(points, self.cursor, axis = 0)
+
+            # Remove the current cursor from the editable points.
+            self.editable = self.editable[self.editable != self.cursor]
+            if self.editable.shape[0] == 0:
+                self.cursor = None
+            else:
+                # Removing an index causes all the indices larger than the 
+                # current position to shift down by one, so we need to decrement
+                # the editable points.
+                self.editable[self.editable > self.cursor] -= 1
+
+                # When the cursor is at the head of the editable points, we do
+                # not need to decrement the cursor because it will just move 
+                # down with the shift of the points. However, if the cursor is
+                # anywhere else, we need to decrement the cursor.
+                if self.cursor != self.editable[0]: 
+                    self.cursor -= 1
+
+        # Update the annotation with the new points.
+        self.annotations[self.active] = points
+
+        # Update dependent annotations, if this active annotation has them.
+        if has_deps: self._recalculate_deps(self.active)
+
+        # Return if there were dependencies
+        return has_deps
+    
+
+    # Viewer Annotation Methods ------------------------------------------------
 
     # @staticmethod
     # def _flatmap_to_surface(flatmap_address, mesh_coordinates):
@@ -377,7 +551,7 @@ class FigurePanelState:
 
     #         # If no flatmap coordinates, set surface annotation to None
     #         if flatmap_coordinates is None or flatmap_coordinates.shape[0] == 0:
-    #             self.surface_annotations[key] = {
+    #             self.viewer_annotations[key] = {
     #                 "addresses"   : None,
     #                 "coordinates" : None,
     #                 "point_types" : None,
@@ -403,7 +577,7 @@ class FigurePanelState:
 
     #         # Store surface annotation addresses
     #         # TODO: gotta make sure that the addressing structure is stored?
-    #         self.surface_annotations[key] = {
+    #         self.viewer_annotations[key] = {
     #             "addresses"   : flatmap_address,
     #             "coordinates" : None,
     #             "point_types" : point_types,
@@ -426,7 +600,7 @@ class FigurePanelState:
     #     # Update surface coordinates for each annotation
     #     for key in annotations: # for each annotation to update
     #         # Get the current annotation's surface addresses
-    #         surface_annotation = self.surface_annotations.get(key, {})
+    #         surface_annotation = self.viewer_annotations.get(key, {})
     #         flatmap_address = surface_annotation.get("addresses", None)
 
     #         # If surface addresses, calculate the surface annotation coordinates 
@@ -436,10 +610,10 @@ class FigurePanelState:
     #                 flatmap_address, self.coordinates)
 
     #             # Store surface annotation coordinates
-    #             self.surface_annotations[key]["coordinates"] = surface_coordinates
+    #             self.viewer_annotations[key]["coordinates"] = surface_coordinates
 
 
-    # def update_surface_annotations(self, annotations = None):
+    # def update_viewer_annotations(self, annotations = None):
     #     """Update cortical annotations based on current state."""
     #     # Initialize surface annotations dictionary if not present
     #     if annotations is None: self.cortex_annotations = {} 
@@ -518,25 +692,79 @@ class FigurePanel(ipw.Box):
             layout   = self._HORIZONTAL_LAYOUT
         )
 
+        # Canvas-specific observers (mouse clicks and key presses)
+        self.canvas_panel.observe_mouse(self.on_mouse_click)
+        self.canvas_panel.observe_key(self.on_key_press)
 
-        # Set up event observers for mouse clicks and key presses.
-        # self.multicanvas.on_mouse_down(self.on_mouse_click)
-        # self.multicanvas.on_key_down(self.on_key_press)
+        # figure resize!
 
+
+    # Redraw Multicanvas Method ------------------------------------------------
+
+    def redraw_canvas(
+            self, 
+            redraw_image = True, 
+            redraw_active_annotation = True, 
+            redraw_background_annotations = True
+        ):
+        """Redraw the entire canvas panel."""
+        # If there is no image to draw, skip
+        if self.figure_state.canvas.image is None: return
+        
+        # Redraw the loading canvas.
+        if redraw_image or redraw_active_annotation or \
+            redraw_background_annotations:
+            self.canvas_panel.loading_canvas.restore()
+
+        # Redraw layers.
+        with ipc.hold_canvas():
+            if redraw_image:
+                self.canvas_panel.redraw_image()
+            if redraw_active_annotation or redraw_background_annotations:
+                self.canvas_panel.redraw_annotations(
+                    active     = redraw_active_annotation, 
+                    background = redraw_background_annotations
+                )
+
+    # Redraw Viewer Method -----------------------------------------------------
+
+    def draw_viewer(self, clear = False, cortex = True, points = True):
+        """Redraw the entire canvas panel."""
+        # Disable auto-rendering to batch updates and avoid intermediate renders.
+        self.viewer_panel.figure.auto_rendering = False
+
+        # Apply updates to the figure layers based on the specified flags.
+        if clear:  self.viewer_panel.clear_figure()
+        if cortex: self.viewer_panel.refresh_cortex()
+        if points: self.viewer_panel.refresh_points()
+        
+        # Re-enable auto-rendering and trigger a single render after all updates are applied.
+        self.viewer_panel.figure.auto_rendering = True
+        self.viewer_panel.figure.render()
 
     # Mouse Event Handler Methods ----------------------------------------------
 
-    def on_mouse_click(self, x, y):
+    def on_mouse_click(self, points):
         """Handle a mouse click on the canvas."""
         # If the figure is locked, we do not allow events.
         if self.annot_state.locked: return
 
-        # Convert canvas pixel coordinates to figure coordinates.
-        point = np.array([[x, y]]) # must be (N, 2) matrix
-        figure_point = self.canvas_panel.canvas_to_figure(point)
+        # Push points (in figure coordinates) to the state. 
+        hasdeps = self.figure_state.push_point(points)
 
-        # Push annotation to the state. 
-        self.figure_state.push_point(figure_point)
+        # Redraw canvas and viewer.
+        self.redraw_canvas(
+            redraw_image = False, 
+            redraw_active_annotation = True, 
+            redraw_background_annotations = hasdeps
+        )
+
+        self.redraw_viewer(
+            redraw_cortex = False, 
+            redraw_overlay = False, 
+            redraw_active_annotation = True, 
+            redraw_background_annotations = hasdeps
+        )
 
     # Key Press Event Handler Methods ------------------------------------------
 
@@ -548,74 +776,75 @@ class FigurePanel(ipw.Box):
         # Handle the key press.
         key = key.lower()
         if key == "tab":
-            # Toggle the cursor (active) position.
-            self.state.toggle_cursor()
+            # Toggle the cursor (active) position. 
+            self.figure_state.toggle_cursor()
+            # Toggling does not modify annotations, so no dependencies.
+            hasdeps = False 
         elif key == "backspace":
             # Delete current cursor (active) point.
-            self.state.pop_point()
+            hasdeps = self.figure_state.pop_point()
         else: 
-            pass
+            # Unrecognized key press, can skip redrawing
+            return 
+
+        # Redraw canvas because of annotation change 
+        self.redraw_canvas(
+            redraw_image = False, 
+            redraw_active_annotation = True, 
+            redraw_background_annotations = hasdeps            
+        )
+        
+        self.redraw_viewer(
+            redraw_cortex = False, 
+            redraw_overlay = False, 
+            redraw_active_annotation = True, 
+            redraw_background_annotations = hasdeps
+        )
+
+    # Canvas Resizing Method ---------------------------------------------------
+
+    # def resize_canvas(self, new_figure_size = None):
+    #     """Resize the canvas so that each grid cell has the given pixel size.
+
+    #     Triggers a full redraw because resizing clears the canvas.
+    #     """
+    #     # If there is no new_figure_size give, we just use the current figure size.
+    #     if new_figure_size is None:
+    #         new_figure_size = self.figure_size
+
+    #     # Update the figure size (pixels per grid cell).
+    #     self.figure_size = np.array([new_figure_size, new_figure_size])
+
+    #     # The canvas size is a product of the figure size and the grid shape.
+    #     self.canvas_size = self.figure_size * np.array(self.state.grid_shape)
+    #     canvas_width, canvas_height = self.canvas_size.astype(int)
+
+    #     # Resize the multicanvas (this clears it).
+    #     self.multicanvas.width         = canvas_width
+    #     self.multicanvas.height        = canvas_height
+    #     self.multicanvas.layout.width  = f"{canvas_width}px"
+    #     self.multicanvas.layout.height = f"{canvas_height}px"
+
+    #     # Redraw everything.
+    #     self.redraw_canvas()
+
+    # Internal Helpers ---------------------------------------------------------
+
+    # def _increment_annotation_change(self):
+    #     """Increments the annotation change traitlet after redraw triggers."""
+    #     self.figure_state._annotation_change += 1        
+
 
     @property
     def loading_context(self):
         """Expose the canvas loading context for AnnotationTool."""
         return self.canvas_panel.loading_context
-    
 
+    #TODO; these are temporary until i figure out a nicer way to do this...
+    def write_message(self, message):
+        """Writes a message to the figure panel."""
+        self.canvas_panel.write_message(message)
 
-
-    # Canvas Resizing Method ---------------------------------------------------
-
-    def resize_canvas(self, new_figure_size = None):
-        """Resize the canvas so that each grid cell has the given pixel size.
-
-        Triggers a full redraw because resizing clears the canvas.
-        """
-        # If there is no new_figure_size give, we just use the current figure size.
-        if new_figure_size is None:
-            new_figure_size = self.figure_size
-
-        # Update the figure size (pixels per grid cell).
-        self.figure_size = np.array([new_figure_size, new_figure_size])
-
-        # The canvas size is a product of the figure size and the grid shape.
-        self.canvas_size = self.figure_size * np.array(self.state.grid_shape)
-        canvas_width, canvas_height = self.canvas_size.astype(int)
-
-        # Resize the multicanvas (this clears it).
-        self.multicanvas.width         = canvas_width
-        self.multicanvas.height        = canvas_height
-        self.multicanvas.layout.width  = f"{canvas_width}px"
-        self.multicanvas.layout.height = f"{canvas_height}px"
-
-        # Redraw everything.
-        self.redraw_canvas()
-
-    # Redraw Multicanvas Method ------------------------------------------------
-
-    def redraw_canvas(self, redraw_image = True, redraw_annotations = True):
-        """Redraw the entire canvas."""
-        print("Redrawing canvas...")
-        print(self.state.canvas)
-        # If there is no image to draw, skip
-        if self.state.canvas.image is None: return
-        
-
-        # Redraw the loading canvas.
-        if redraw_image or redraw_annotations:
-            self.loading_canvas.restore()
-
-        # Redraw layers.
-        with ipc.hold_canvas():
-            if redraw_image:
-                self.redraw_image()
-            if redraw_annotations:
-                self.redraw_annotations()
-                self._increment_annotation_change()
-
-    # Internal Helpers ---------------------------------------------------------
-
-    def _increment_annotation_change(self):
-        """Increments the annotation change traitlet after redraw triggers."""
-        self._annotation_change += 1        
-
+    def clear_message(self):
+        """Clears the message from the figure panel."""
+        self.canvas_panel.clear_message()
