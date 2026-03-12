@@ -10,10 +10,7 @@ Implementation code for the Figure Panel.
 
 import threading
 import numpy as np
-import ipycanvas as ipc
 import ipywidgets as ipw
-from traitlets import Int
-from neuropythy.geometry.util import barycentric_to_cartesian
 
 from ._canvas import CanvasPanel
 from ._viewer import CortexViewerPanel
@@ -29,14 +26,13 @@ class FigurePanelState:
     POINT_INTERP = 0  # interpolated point (between user/fixed points)
 
     class CanvasState:
-        def __init__(self, annot_state):
+        def __init__(self):
             """Initialize the canvas state."""
             self.image      = None # ipw.Image (background image)
             self.grid       = None # figure_grid layout
             self.grid_shape = None # (rows, cols) tuple
             self.xlim       = None # x-axis figure limits
             self.ylim       = None # y-axis figure limits
-            self.style      = annot_state.style # get/set canvas style method
 
 
     class ViewerState:
@@ -46,17 +42,20 @@ class FigurePanelState:
             self._coordinates = None # list of (n_vertices, 3), 1 = no interp, 2 = interp
             self.overlays     = {}   # (n_vertices, 3) array of overlay RGB colors
 
-            # Viewer annotations (set by update_viewer_annotations).
-            # Dict of annotation_name → { "addresses", "coordinates", "point_types" }
-            self.viewer_annotations = {}
+            # Viewer annotations (surface!!!)
+            # TODO not really happy with what is expected of thsi function
+            self.canvas_to_viewer = None # function to convert canvas coordinates to viewer coordinates
+            self.annotations = {}             # Dict of annotation_name → { "coordinates", "point_types" }
 
+
+            # Style settings for the viewer.
             self.style = {
-                "inflation_percent" : 100,
-                "overlay"           : "curvature",
-                "overlay_alpha"     : 1.0, 
-                "point_size"        : 1.5, 
-                "line_width"        : 0.25,
-                "line_interp"       : 10,
+                "morph_percent" : 0,
+                "overlay"       : "curvature",
+                "overlay_alpha" : 1.0, 
+                "point_size"    : 1.5, 
+                "line_width"    : 0.25,
+                "line_interp"   : 10,
             }
 
 
@@ -66,10 +65,10 @@ class FigurePanelState:
             # If only one set of coordinates, return without interpolation
             if len(self._coordinates) == 1: return self._coordinates[0]
 
-            # Else two set of coordinates, return blended coordinates
+            # Else: there two set of coordinates, return blended coordinates
             start_coords, end_coords = self._coordinates
-            inflation_proportion = self.style["inflation_percent"] / 100.0
-            return ((end_coords - start_coords) * inflation_proportion) + start_coords
+            morph_proportion = self.style["morph_percent"] / 100.0
+            return ((end_coords - start_coords) * morph_proportion) + start_coords
 
 
     def __init__(self, annot_state):
@@ -77,6 +76,7 @@ class FigurePanelState:
         # Store the state (from the annotation tool).
         self.annot_state = annot_state
         self.annot_cfg   = annot_state.config.annotations
+        self.style       = annot_state.style # get/set style method
 
         # Initialize the (shared = canvas & viewer) variables.
         self.target      = None # current target id tuple
@@ -88,14 +88,9 @@ class FigurePanelState:
         self.cursor      = None # cursor index into active annotation
 
         # Canvas and Viewer specific variables
-        self.canvas = self.CanvasState(annot_state)
+        self.canvas = self.CanvasState()
         self.viewer = self.ViewerState()
        
-        # Flatmap mesh for address computation (set by update_cortex).
-        # This is the fsaverage flatmap for the current hemisphere, used to 
-        # convert 2D flatmap coordinates into barycentric addresses.
-        self.flatmap = None # TODO
-    
     # Fixed Point Methods ------------------------------------------------------
 
     @staticmethod
@@ -147,6 +142,109 @@ class FigurePanelState:
 
         # Return the indices of the editable points (i.e., non-fixed points).
         return np.where(~fixed_index)[0] 
+
+
+    # Cortex Viewer Annotation Methods -----------------------------------------
+
+    
+    def _interpolate_coordinates(self, coordinates, point_types):
+        """Interpolate coordinates along the annotation path."""
+        # Get number of interpolated points
+        n = self.viewer.style["line_interp"] + 2
+
+        # Intialize ararys to store interpolated coordinates
+        x_interp = []; y_interp = []; ptype_interp = []
+        
+        # Initialize point type interpolation filler
+        ptype_filler = [self.POINT_INTERP] * self.viewer.style["line_interp"]
+        
+        # Iterate over each segment and interpolate points  
+        n_interp = coordinates.shape[0] - 1
+        for i in np.arange(n_interp):
+            # Extract start and end coordinates and point types for the segment
+            xs, xe = coordinates[i, 0], coordinates[i + 1, 0]
+            ys, ye = coordinates[i, 1], coordinates[i + 1, 1]
+            ps, pe = point_types[i], point_types[i + 1]
+            
+            # Interpolate x and y coordinates and point types for the segment\
+            xn = np.linspace(xs, xe, n)
+            yn = np.linspace(ys, ye, n)
+            pn = [ps, *ptype_filler, pe]
+
+            if i == 0:
+                # for the first segment, include the starting point
+                x_interp.append(xn)
+                y_interp.append(yn)
+                ptype_interp.append(pn)
+            else:
+                # for subsequent segments, exclude the starting point to avoid duplicates
+                x_interp.append(xn[1:])
+                y_interp.append(yn[1:])
+                ptype_interp.append(pn[1:])
+
+        # Concatenate and prepare interpolated points
+        x_interp     = np.concatenate(x_interp)
+        y_interp     = np.concatenate(y_interp)
+        ptype_interp = np.concatenate(ptype_interp)
+
+        # Return interpolated coordinates (as matrix) and point types (as int)
+        interp_coordinates = np.vstack((x_interp, y_interp, ptype_interp)).T
+        return interp_coordinates[:, :-1], interp_coordinates[:, -1].astype(int)
+
+
+    def update_viewer_annotations(self, annotations = None):
+        """Update cortical viewer annotations for each annotation."""
+        #TODO: this function is outta control
+        if annotations is None: annotations = self.annot_cfg.names
+
+        # Convert each canvas (2d) annotation to viewer (3d) coordinates
+        for key in annotations: # for each annotation to update
+            # Get the current canvas points
+            canvas_points = self.annotations.get(key, None)
+            print(f"working on: {key}")
+            print(f"canvas_points: {canvas_points}")
+
+            # If no points, set viewer annotation to None
+            if canvas_points is None or canvas_points.shape[0] == 0:
+                self.viewer.annotations[key] = {
+                    "coordinates" : None,
+                    "point_types" : None,
+                }
+                continue
+
+            # Determine point types (fixed vs user points).
+            n_points    = canvas_points.shape[0]
+            point_types = np.full(n_points, self.POINT_USER)
+            fixed_head  = bool(self.annot_cfg.fixed_heads[key])
+            fixed_tail  = bool(self.annot_cfg.fixed_tails[key])
+            if fixed_head: point_types[0]  = self.POINT_FIXED
+            if fixed_tail: point_types[-1] = self.POINT_FIXED
+
+            print(f"n_points: {n_points}")
+            print(f"before interp: {canvas_points.shape}")
+
+            # Interpolate coordinate if there are more than one point (to make a 
+            # segment) and if the points are NOT all fixed points.
+            if n_points > 1 and not np.all(point_types == self.POINT_FIXED):
+                canvas_points, point_types = self._interpolate_coordinates(
+                    canvas_points, point_types)
+            
+            print(f"after interp: {canvas_points.shape}")
+            print(f"point_types: {point_types}")
+
+            # Calculate viewer coordinates from canvas (interpolated) coordinates
+            viewer_coordinates = self.viewer.canvas_to_viewer(
+                canvas_points.T, self.viewer.coordinates.T)
+    
+            # NOTE: canvas_points (2, n_points), viewer_coordinates (3, n_points)
+            # need to edit so that this is clearer
+
+            # Store viewer annotations coordinates and point types
+            self.viewer.annotations[key] = {
+                "coordinates": viewer_coordinates,
+                "point_types": point_types
+            }
+
 
     # Update Method ------------------------------------------------------------
 
@@ -242,13 +340,17 @@ class FigurePanelState:
             # Prepare the viewer faces values
             self.viewer.faces = cortex_dict["faces"](target, None)
 
-            # Prepare the internal coordinates, depends on inflate_between
-            inflate_between = cortex_dict.get("inflate_between", None)
-            if inflate_between is None: inflate_between = [ "_default" ]
+            # Prepare the internal coordinates, depends on morph_between
+            morph_between = cortex_dict.get("morph_between", None)
+            if morph_between is None: morph_between = [ "_default" ]
             self.viewer._coordinates = [
                 cortex_dict["coordinates"][coordinate_name](target, None)
-                for coordinate_name in inflate_between
+                for coordinate_name in morph_between
             ]
+
+            # Prepare the canvas to viewer function
+            self.viewer.canvas_to_viewer = cortex_dict["canvas_to_viewer"](target, None)
+            print(f"self.viewer.canvas_to_viewer: {self.viewer.canvas_to_viewer}")
             
             # Prepare the overlay values 
             self.viewer.overlays = {
@@ -256,15 +358,11 @@ class FigurePanelState:
                 for key, overlay_fn in cortex_dict["overlays"].items()
             } 
 
-        # always update viewer_annotation
+        # Update the viewer annotatations TODO: i do not think this is the correct condition
+        # if self.viewer.annotations == {} or prev_annotation != self.active:
+        self.update_viewer_annotations()
         # self.viewer.viewer_annotations[self.active] = update
         
-        # # Store the flatmap mesh for address computation.
-        # # TODO: The exact access pattern for the flatmap depends on the config
-        # # structure. This may need to be adjusted based on how config.cortex_fn
-        # # or config.targets provides the fsaverage flatmap for the hemisphere.
-        # if "flatmap" in cortex_fn:
-        #     self.flatmap = cortex_fn["flatmap"]
 
     # Recalculate Dependencies -------------------------------------------------
 
@@ -467,161 +565,6 @@ class FigurePanelState:
         return has_deps
     
 
-    # Viewer Annotation Methods ------------------------------------------------
-
-    # @staticmethod
-    # def _flatmap_to_surface(flatmap_address, mesh_coordinates):
-    #     """Convert flatmap annotation coordinates to surface coordinates."""
-    #     bary_faces  = flatmap_address["faces"]       # (3, n_faces)
-    #     bary_coords = flatmap_address["coordinates"] # (2, n_points)
-    #     tx = np.transpose(mesh_coordinates[:, bary_faces], (1, 0, 2)) # (3, 3, n_points)
-    #     return barycentric_to_cartesian(tx, bary_coords) # (3, n_points)
-
-    
-    # def _interpolate_coordinates(self, coordinates, point_types):
-    #     """Interpolate coordinates along the annotation path."""
-    #     # Get number of interpolated points
-    #     n = self.style["line_interp"] + 2
-
-    #     # Intialize ararys to store interpolated coordinates
-    #     x_interp = [];  y_interp = [];  ptype_interp = []
-        
-    #     # Initialize point type interpolation filler
-    #     ptype_filler = [self.POINT_INTERP] * self.style["line_interp"]
-        
-    #     # Iterate over each segment and interpolate points  
-    #     n_interp = coordinates.shape[0] - 1
-    #     for i in np.arange(n_interp):
-    #         # Extract start and end coordinates and point types for the segment
-    #         xs, xe = coordinates[i, 0], coordinates[i + 1, 0]
-    #         ys, ye = coordinates[i, 1], coordinates[i + 1, 1]
-    #         ps, pe = point_types[i], point_types[i + 1]
-            
-    #         # Interpolate x and y coordinates and point types for the segment\
-    #         xn = np.linspace(xs, xe, n)
-    #         yn = np.linspace(ys, ye, n)
-    #         pn = [ps, *ptype_filler, pe]
-
-    #         if i == 0:
-    #             # for the first segment, include the starting point
-    #             x_interp.append(xn)
-    #             y_interp.append(yn)
-    #             ptype_interp.append(pn)
-    #         else:
-    #             # for subsequent segments, exclude the starting point to avoid duplicates
-    #             x_interp.append(xn[1:])
-    #             y_interp.append(yn[1:])
-    #             ptype_interp.append(pn[1:])
-
-    #     # Concatenate and prepare interpolated points
-    #     x_interp     = np.concatenate(x_interp)
-    #     y_interp     = np.concatenate(y_interp)
-    #     ptype_interp = np.concatenate(ptype_interp)
-
-    #     # Return interpolated coordinates (as matrix) and point types (as int)
-    #     interp_coordinates = np.vstack((x_interp, y_interp, ptype_interp)).T
-    #     return interp_coordinates[:, :-1], interp_coordinates[:, -1].astype(int)
-
-
-    # def update_surface_addresses(self, annotations = None):
-    #     """Update cortical surface addresses for each annotation.
-
-    #     Converts 2D flatmap coordinates from FigurePanelState.annotations 
-    #     into barycentric addresses on the cortical surface mesh.
-    #     """
-    #     # Read flatmap annotations from the shared figure state.
-    #     #TODO:!!!!
-    #     flatmap_annotations = self.figure_state.annotations
-
-    #     # Get the list of annotations to update
-    #     if annotations is None:
-    #         annotations = list(flatmap_annotations.keys())
-    #     elif isinstance(annotations, str):
-    #         annotations = [annotations]
-    #     else:
-    #         raise ValueError(f"Invalid annotations value: {annotations}")
-
-    #     # We need a flatmap mesh to compute addresses.
-    #     if self.flatmap is None: return
-
-    #     # Convert each flatmap annotation to surface coordinates
-    #     for key in annotations: # for each annotation to update
-    #         # Get the current annotaitons flatmap coordinates
-    #         flatmap_coordinates = flatmap_annotations.get(key, None)
-
-    #         # If no flatmap coordinates, set surface annotation to None
-    #         if flatmap_coordinates is None or flatmap_coordinates.shape[0] == 0:
-    #             self.viewer_annotations[key] = {
-    #                 "addresses"   : None,
-    #                 "coordinates" : None,
-    #                 "point_types" : None,
-    #             }
-    #             continue
-
-    #         # Determine point types (fixed vs user points).
-    #         n_points    = flatmap_coordinates.shape[0]
-    #         point_types = np.full(n_points, self.POINT_USER)
-    #         fixed_head  = bool(self.annot_cfg.fixed_head[key])
-    #         fixed_tail  = bool(self.annot_cfg.fixed_tail[key])
-    #         if fixed_head: point_types[0]  = self.POINT_FIXED
-    #         if fixed_tail: point_types[-1] = self.POINT_FIXED
-
-    #         # Interpolate coordinate if there are more than one point (to make a 
-    #         # segment) and if the points are NOT all fixed points.
-    #         if n_points > 1 and not np.all(point_types == self.POINT_FIXED):
-    #             flatmap_coordinates, point_types = \
-    #                 self._interpolate_coordinates(flatmap_coordinates, point_types)
-
-    #         # Convert flatmap coordinates to barycentric addresses.
-    #         flatmap_address = self.flatmap.address(flatmap_coordinates.T)
-
-    #         # Store surface annotation addresses
-    #         # TODO: gotta make sure that the addressing structure is stored?
-    #         self.viewer_annotations[key] = {
-    #             "addresses"   : flatmap_address,
-    #             "coordinates" : None,
-    #             "point_types" : point_types,
-    #         }
-
-
-    # def update_surface_coordinates(self, annotations = None):
-    #     """Update cortical surface coordinates for each annotation."""
-    #     #TODO: !!!!
-    #     flatmap_annotations = self.figure_state.annotations
-
-    #     # Get the list of annotations to update
-    #     if annotations is None:
-    #         annotations = list(flatmap_annotations.keys())
-    #     elif isinstance(annotations, str):
-    #         annotations = [annotations]
-    #     else:
-    #         raise ValueError(f"Invalid annotations value: {annotations}")
-        
-    #     # Update surface coordinates for each annotation
-    #     for key in annotations: # for each annotation to update
-    #         # Get the current annotation's surface addresses
-    #         surface_annotation = self.viewer_annotations.get(key, {})
-    #         flatmap_address = surface_annotation.get("addresses", None)
-
-    #         # If surface addresses, calculate the surface annotation coordinates 
-    #         if flatmap_address is not None:
-    #             # Calculate surface coordinates from flatmap addresses and store in surface annotations
-    #             surface_coordinates = self._flatmap_to_surface(
-    #                 flatmap_address, self.coordinates)
-
-    #             # Store surface annotation coordinates
-    #             self.viewer_annotations[key]["coordinates"] = surface_coordinates
-
-
-    # def update_viewer_annotations(self, annotations = None):
-    #     """Update cortical annotations based on current state."""
-    #     # Initialize surface annotations dictionary if not present
-    #     if annotations is None: self.cortex_annotations = {} 
-
-    #     # Get the list of annotations to update
-    #     self.update_surface_addresses(annotations)
-    #     self.update_surface_coordinates(annotations)
-
     # Figure Size Methods ------------------------------------------------------
 
     # def figure_size(self, new_figure_size = None):
@@ -696,51 +639,35 @@ class FigurePanel(ipw.Box):
         self.canvas_panel.observe_mouse(self.on_mouse_click)
         self.canvas_panel.observe_key(self.on_key_press)
 
-        # figure resize!
+    
+    # Property Methods ------------------------------------------------------------
 
+    @property
+    def loading_context(self):
+        """Expose the canvas loading context."""
+        return self.canvas_panel.loading_context
+    
+    # Redraw Method ------------------------------------------------------------
 
-    # Redraw Multicanvas Method ------------------------------------------------
-
-    def redraw_canvas(
-            self, 
-            redraw_image = True, 
-            redraw_active_annotation = True, 
-            redraw_background_annotations = True
+    def redraw(
+            self, clear = False, base = False, active = True, 
+            background = False
         ):
-        """Redraw the entire canvas panel."""
-        # If there is no image to draw, skip
-        if self.figure_state.canvas.image is None: return
+        """Redraw both the canvas and viewer panels."""
+        # Redraw the viewer panel.
+        self.canvas_panel.redraw_canvas(
+            image      = base, 
+            active     = active,
+            background = background
+        )
         
-        # Redraw the loading canvas.
-        if redraw_image or redraw_active_annotation or \
-            redraw_background_annotations:
-            self.canvas_panel.loading_canvas.restore()
-
-        # Redraw layers.
-        with ipc.hold_canvas():
-            if redraw_image:
-                self.canvas_panel.redraw_image()
-            if redraw_active_annotation or redraw_background_annotations:
-                self.canvas_panel.redraw_annotations(
-                    active     = redraw_active_annotation, 
-                    background = redraw_background_annotations
-                )
-
-    # Redraw Viewer Method -----------------------------------------------------
-
-    def draw_viewer(self, clear = False, cortex = True, points = True):
-        """Redraw the entire canvas panel."""
-        # Disable auto-rendering to batch updates and avoid intermediate renders.
-        self.viewer_panel.figure.auto_rendering = False
-
-        # Apply updates to the figure layers based on the specified flags.
-        if clear:  self.viewer_panel.clear_figure()
-        if cortex: self.viewer_panel.refresh_cortex()
-        if points: self.viewer_panel.refresh_points()
-        
-        # Re-enable auto-rendering and trigger a single render after all updates are applied.
-        self.viewer_panel.figure.auto_rendering = True
-        self.viewer_panel.figure.render()
+        # Redraw the viewer panel.
+        self.viewer_panel.redraw_viewer(
+            clear      = clear, 
+            cortex     = base, 
+            active     = active,
+            background = background
+        )
 
     # Mouse Event Handler Methods ----------------------------------------------
 
@@ -753,18 +680,7 @@ class FigurePanel(ipw.Box):
         hasdeps = self.figure_state.push_point(points)
 
         # Redraw canvas and viewer.
-        self.redraw_canvas(
-            redraw_image = False, 
-            redraw_active_annotation = True, 
-            redraw_background_annotations = hasdeps
-        )
-
-        self.redraw_viewer(
-            redraw_cortex = False, 
-            redraw_overlay = False, 
-            redraw_active_annotation = True, 
-            redraw_background_annotations = hasdeps
-        )
+        self.redraw(active = True, background = hasdeps) 
 
     # Key Press Event Handler Methods ------------------------------------------
 
@@ -788,18 +704,7 @@ class FigurePanel(ipw.Box):
             return 
 
         # Redraw canvas because of annotation change 
-        self.redraw_canvas(
-            redraw_image = False, 
-            redraw_active_annotation = True, 
-            redraw_background_annotations = hasdeps            
-        )
-        
-        self.redraw_viewer(
-            redraw_cortex = False, 
-            redraw_overlay = False, 
-            redraw_active_annotation = True, 
-            redraw_background_annotations = hasdeps
-        )
+        self.redraw(active = True, background = hasdeps) 
 
     # Canvas Resizing Method ---------------------------------------------------
 
@@ -835,10 +740,6 @@ class FigurePanel(ipw.Box):
     #     self.figure_state._annotation_change += 1        
 
 
-    @property
-    def loading_context(self):
-        """Expose the canvas loading context for AnnotationTool."""
-        return self.canvas_panel.loading_context
 
     #TODO; these are temporary until i figure out a nicer way to do this...
     def write_message(self, message):

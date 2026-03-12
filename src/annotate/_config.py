@@ -859,13 +859,17 @@ class CortexConfig(dict):
             cortex_dict["coordinates"] = self._init_coordinates(
                 cortex_yaml.copy(), init)
             
-            # Prepare the inflate_between field, optional.
-            cortex_dict["inflate_between"] = self._init_inflate_between(
+            # Prepare the morph_between field, optional.
+            cortex_dict["morph_between"] = self._init_morph_between(
                 cortex_yaml.copy(), cortex_dict["coordinates"], init)
 
             # Prepare the overlays field.
             cortex_dict["overlays"] = self._init_overlays(
                 cortex_yaml.copy(), figure_names, init)
+
+            # Prepare the canvas_to_viewer field
+            cortex_dict["canvas_to_viewer"] = self._init_canvas_to_viewer(
+                cortex_yaml.copy(), init)
         
         # Update CortexConfig class dictionary.
         self.update(cortex_dict)
@@ -925,27 +929,27 @@ class CortexConfig(dict):
 
 
     @staticmethod
-    def _init_inflate_between(cortex_yaml, coordinates, init):
-        """Initialize the `inflate_between` from the cortex yaml."""
+    def _init_morph_between(cortex_yaml, coordinates, init):
+        """Initialize the `morph_between` from the cortex yaml."""
         # Extract the coordinates field from the yaml.
-        inflate_between = cortex_yaml.get("inflate_between", None)
+        morph_between = cortex_yaml.get("morph_between", None)
 
         # This is an optioanl field, so if None, return None.
-        if inflate_between is None: return None
+        if morph_between is None: return None
         
         # If provided, must be a list of length two.
-        if not isinstance(inflate_between, list) or len(inflate_between) != 2:
-            raise ConfigError("cortex.inflate_between", 
-                "`inflate_between` must be a list of length two.")
+        if not isinstance(morph_between, list) or len(morph_between) != 2:
+            raise ConfigError("cortex.morph_between", 
+                "`morph_between` must be a list of length two.")
 
         # If provided, both surfaces must be available in the coordinates dict.
-        for surface_name in inflate_between: 
+        for surface_name in morph_between: 
             if surface_name not in coordinates:
-                raise ConfigError("cortex.inflate_between", 
+                raise ConfigError("cortex.morph_between", 
                     f"Unable to find `{surface_name}` coordinates.")
         
         # Return inflate between list.
-        return inflate_between
+        return morph_between
         
     
     @staticmethod
@@ -994,6 +998,26 @@ class CortexConfig(dict):
                 key_fn = CortexConfig._compile_fn(init, overlays[key])
             overlays_dict[key] = key_fn
         return overlays_dict
+
+
+    @staticmethod
+    def _init_canvas_to_viewer(cortex_yaml, init):
+        """Initialize the `canvas_to_viewer` from the cortex yaml."""
+        # Extract the canvas_to_viewer field from the yaml.
+        canvas_to_viewer = cortex_yaml.get("canvas_to_viewer", None)
+
+        # Check that canvas_to_viewer is a string/code
+        if not isinstance(canvas_to_viewer, str):
+            raise ConfigError("cortex.canvas_to_viewer", 
+                "`canvas_to_viewer` must be a code string."
+            )
+    
+        # Compile the faces code string into a function.
+        canvas_to_viewer = CortexConfig._compile_fn(init, canvas_to_viewer)
+         
+        # Return the compiled function.
+        return canvas_to_viewer
+
 
 
 # Config Object ----------------------------------------------------------------

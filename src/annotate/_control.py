@@ -343,7 +343,7 @@ class StylePanel(ipw.VBox):
         self.linestyle_dropdown = self._init_linestyle_dropdown()
 
         # Initialize the style controls (cortex).
-        self.inflation_slider   = self._init_inflation_slider()
+        self.morph_slider       = self._init_morph_slider()
         self.overlay_dropdown   = self._init_overlay_dropdown()
         self.overlay_slider     = self._init_overlay_alpha_slider()
         self.point_size_slider  = self._init_point_size_slider()
@@ -358,15 +358,15 @@ class StylePanel(ipw.VBox):
             make_section_title("Style Options"),
             self.style_dropdown,
             make_hline(),
-            make_section_title("Annotation Options"),
+            make_section_title("Annotation Canvas Options"),
             self.visible_checkbox,
             self.color_picker,
             self.markersize_slider,
             self.linewidth_slider,
             self.linestyle_dropdown,
             make_hline(),
-            make_section_title("Cortex Options"),
-            self.inflation_slider,
+            make_section_title("Cortex Viewer Options"),
+            self.morph_slider,
             self.overlay_dropdown,
             self.overlay_slider, 
             self.point_size_slider, 
@@ -392,20 +392,35 @@ class StylePanel(ipw.VBox):
             value.observe(partial(self.on_style_change, key), names = "value")
 
         self.viewer_style_widgets = {
-            "inflation"     : self.inflation_slider,
+            "morph_percent" : self.morph_slider,
             "overlay"       : self.overlay_dropdown,
             "overlay_alpha" : self.overlay_slider,
             "point_size"    : self.point_size_slider,
             "line_width"    : self.line_width_slider,
             "line_interp"   : self.line_interp_slider,
         }
-        # TODO: will add observers later!!!
+        for (key, value) in self.viewer_style_widgets.items():
+            value.observe(partial(self.on_style_change, key), names = "value")
         
         # We need to make sure that we update things when the style dropdown
         # changes also.
         self.style_dropdown.observe(self.refresh_style, names = "index")
         self.refresh_style()
 
+    # Property Methods ---------------------------------------------------------
+
+    @property
+    def annotation(self):
+        """Compute the currently selected annotation for styling."""
+        dd = self.style_dropdown
+        return dd.value if dd.index > 0 else None
+    
+    
+    @property
+    def preferences(self):
+        """Compute the current style preferences based on the current style controls."""
+        return { key: widget.value for (key, widget) in self.style_widgets.items() }
+    
     # Annotation Style Widgets -------------------------------------------------
 
     def _init_style_dropdown(self):
@@ -467,29 +482,35 @@ class StylePanel(ipw.VBox):
             layout      = self._WIDGET_LAYOUT
         )
 
-    # Cortex Style Widgets -----------------------------------------------------
+    # Cortex Viewer Style Widgets ----------------------------------------------
 
-    def _init_inflation_slider(self):
-        """Initialize the cortex inflation slider widget."""
+    def _init_morph_slider(self):
+        """Initialize the cortex morph slider widget."""
         return ipw.IntSlider(
             **self._SLIDER_KWARGS,
-            value       = 100,
+            value       = 0,
             min         = 0,
             max         = 100,
             step        = 1,
-            description = "Inflation %:",
+            description = "Morph %:",
         )
 
 
     def _init_overlay_dropdown(self):
         """Initialize the cortex overlay dropdown widget."""
+        # Get the overlay names from the config. 
+        overlay_names = list(self.state.config.cortex["overlays"].keys())
+        overlay_names.remove("curvature") # remove curvature, it is default
+        overlay_names = sorted(overlay_names) # sort the rest alphabetically
+
+        # Format the overlay names for the dropdown menu options.
+        dd_options = [ ("None", "curvature") ] # initialize
+        for overlay in overlay_names: 
+            dd_options.append(( overlay.replace("_", " ").title(), overlay ))
+
+        # Return the dropdown widget.
         return ipw.Dropdown(
-            options     = [
-                ( "None", "curvature" ), 
-                ( "Polar Angle", "angle" ), 
-                ( "Eccentricity", "eccen" ), 
-                ( "Variance Explained", "vexpl" )
-            ],
+            options    = dd_options,
             value       = "curvature",    
             description = "Overlay:",
         )
@@ -553,20 +574,7 @@ class StylePanel(ipw.VBox):
             layout      = self._WIDGET_LAYOUT
         )
 
-    # Property Methods and Observer Registration -------------------------------
-
-    @property
-    def annotation(self):
-        """Compute the currently selected annotation for styling."""
-        dd = self.style_dropdown
-        return dd.value if dd.index > 0 else None
-    
-    
-    @property
-    def preferences(self):
-        """Compute the current style preferences based on the current style controls."""
-        return { key: widget.value for (key, widget) in self.style_widgets.items() }
-    
+    # Handler Methods ----------------------------------------------------------
     
     def on_style_change(self, key, change):
         """Handles a change in one of the style controls and alerts our observers."""
@@ -609,6 +617,7 @@ class StylePanel(ipw.VBox):
          * `"markersize"`: the marker size has changed.
         """
         self.style_observers.append(fn)
+
 
 # The Control Panel Widget -----------------------------------------------------
 
@@ -901,4 +910,4 @@ class ControlPanel(ipw.VBox):
         The function is called with a single argument, which is the layout toggle
         button instance.
         """
-        self.style_panel.layout_toggle.observe(fn, names = "value")
+        self.layout_toggle.observe(fn, names = "value")

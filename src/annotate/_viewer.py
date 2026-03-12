@@ -30,8 +30,7 @@ class CortexViewerPanel(ipw.VBox):
     def __init__(self, figure_state, width = 512, height = 512):
         """Initialize the cortex viewer panel."""
         # Store figure state.
-        self.state     = figure_state 
-        self.annot_cfg = figure_state.annot_cfg
+        self.state = figure_state 
 
         # Create a figure background (k3d plot)
         self.figure = k3d.plot(
@@ -187,10 +186,10 @@ class CortexViewerPanel(ipw.VBox):
 
     def _prep_cortex(self):
         """Prepare the data dict for the cortex mesh k3d object."""
-        curvature = self._rgb_to_k3dcolor(self.viewer.overlays["curvature"])
+        curvature = self._rgb_to_k3dcolor(self.state.viewer.overlays["curvature"])
         return { 
-            "vertices" : self.viewer.coordinates.astype(np.float32), 
-            "indices"  : self.viewer.faces.astype(np.uint32), 
+            "vertices" : self.state.viewer.coordinates.astype(np.float32), 
+            "indices"  : self.state.viewer.faces.astype(np.uint32), 
             "colors"   : curvature.astype(np.uint32) 
         }
     
@@ -199,38 +198,38 @@ class CortexViewerPanel(ipw.VBox):
     def _prep_overlay(self):
         """Prepare the data dict for the cortex overlay mesh k3d object."""
         # If overlay style is curvature, no additional overlay
-        overlay_name = self.viewer.style["overlay"]
+        overlay_name = self.state.viewer.style["overlay"]
         if overlay_name == "curvature": return None
 
         # Else, get overlay values and return with opactity.
-        overlay_values = self.viewer.overlays[overlay_name]
+        overlay_values = self.state.viewer.overlays[overlay_name]
         return {
             **self._prep_cortex(),
             "colors"  : self._rgb_to_k3dcolor(overlay_values),
-            "opacity" : float(self.viewer.style["overlay_alpha"])
+            "opacity" : float(self.state.viewer.style["overlay_alpha"])
         }
     
     # Prepare Active Points Methods ---------------------------------------------------
 
     def _prep_active_annotation(self):
         """Prepare the data for the active annotation."""
-        # Get the current active surface annotation
-        annotation         = self.state.annotation
-        surface_annotation = self.state.surface_annotations[annotation]
+        # Get the current active viewer annotation
+        annotation        = self.state.active
+        viewer_annotation = self.state.viewer.annotations[annotation]
 
         # If no coordinates, return None to skip plotting.
-        coordinates = surface_annotation.get("coordinates", None)
+        coordinates = viewer_annotation.get("coordinates", None)
         if coordinates is None or coordinates.shape[1] == 0: return None
 
         # Get the annotation style from the styler (active = None)
         # If not visible, return None to skip plotting.
-        annotation_style = self.state.styler(None)
+        annotation_style = self.state.style(None)
         if not annotation_style["visible"]: return None
 
         # Get number of annotation vertex (line) coordinates and point types
         vertices    = coordinates.astype(np.float32)
         positions   = vertices.copy() # copy!
-        point_types = surface_annotation.get("point_types", None)
+        point_types = viewer_annotation.get("point_types", None)
 
         # Check if vertices are all fixed points, skip lines if so. 
         if np.all(point_types == self.state.POINT_FIXED):
@@ -267,8 +266,8 @@ class CortexViewerPanel(ipw.VBox):
     def _prep_background_annotations(self):
         """Prepare the data for the background annotations."""
         # Get the list of annotations excluding the selected one
-        annotation      = self.state.annotation
-        annotation_list = list(self.state.surface_annotations.keys())
+        annotation      = self.state.active
+        annotation_list = self.state.annot_cfg.names
         annotation_list.remove(annotation)
         
         # Initialize empty arrays for all coordinates and colors
@@ -283,23 +282,23 @@ class CortexViewerPanel(ipw.VBox):
 
         for annotation in annotation_list: # for each annotation
             # Get the surface annotation and style for the annotation
-            surface_annotation = self.state.surface_annotations[annotation]
+            viewer_annotation = self.state.viewer.annotations[annotation]
 
             # If no coordinates, skip processing.
-            coordinates = surface_annotation.get("coordinates", None)
+            coordinates = viewer_annotation.get("coordinates", None)
             if coordinates is None or coordinates.shape[1] == 0: continue
 
             # Get the annotation style from the styler (active = None)
             # If not visible, return None to skip plotting.
-            annotation_style = self.state.styler(annotation)
+            annotation_style = self.state.style(annotation)
             if not annotation_style["visible"]: continue
 
             # Get annotation color and point types for the current annotation
             annotation_color = self._rgb_to_k3dcolor(annotation_style["color"])
-            point_types = surface_annotation.get("point_types", None)
+            point_types = viewer_annotation.get("point_types", None)
 
             # Get number of annotation vertex (line) coordinates and point types
-            vertices  = coordinates.T.astype(np.float32)
+            vertices  = coordinates.astype(np.float32)
             positions = vertices.copy() # copy!
 
             # Check if not all vertices are all fixed points, all to lines.
@@ -365,39 +364,59 @@ class CortexViewerPanel(ipw.VBox):
             self.k3dmesh_overlay.visible = True
     
 
-    def refresh_points(self):
+    def refresh_points(self, active = True, background = False):
         """Refresh the active and background annotation layers."""
         # Active annotation.
-        active_kwargs = self._prep_active_annotation()
-        if active_kwargs is None:
-            self.k3dline_active.visible   = False
-            self.k3dpoints_active.visible = False
-        else:
-            # Active annotation lines
-            for key, val in active_kwargs["line"].items(): 
-                setattr(self.k3dline_active, key, val)
-            self.k3dline_active.visible = True
+        if active:
+            active_kwargs = self._prep_active_annotation()
+            if active_kwargs is None:
+                self.k3dline_active.visible   = False
+                self.k3dpoints_active.visible = False
+            else:
+                # Active annotation lines
+                for key, val in active_kwargs["line"].items(): 
+                    setattr(self.k3dline_active, key, val)
+                self.k3dline_active.visible = True
 
-            # Active annotation points
-            for key, val in active_kwargs["points"].items():
-                setattr(self.k3dpoints_active, key, val)
-            self.k3dpoints_active.visible = True
+                # Active annotation points
+                for key, val in active_kwargs["points"].items():
+                    setattr(self.k3dpoints_active, key, val)
+                self.k3dpoints_active.visible = True
     
         # Background annotations.
-        background_kwargs = self._prep_background_annotations()
-        if background_kwargs is None:
-            self.k3dline_background.visible   = False
-            self.k3dpoints_background.visible = False
-        else:
-            # Background annotation lines
-            for key, val in background_kwargs["line"].items():
-                setattr(self.k3dline_background, key, val)
-            self.k3dline_background.visible = True
+        if background: 
+            background_kwargs = self._prep_background_annotations()
+            if background_kwargs is None:
+                self.k3dline_background.visible   = False
+                self.k3dpoints_background.visible = False
+            else:
+                # Background annotation lines
+                for key, val in background_kwargs["line"].items():
+                    setattr(self.k3dline_background, key, val)
+                self.k3dline_background.visible = True
 
-            # Background annotation points
-            for key, val in background_kwargs["points"].items():
-                setattr(self.k3dpoints_background, key, val)
-            self.k3dpoints_background.visible = True
+                # Background annotation points
+                for key, val in background_kwargs["points"].items():
+                    setattr(self.k3dpoints_background, key, val)
+                self.k3dpoints_background.visible = True
+
+
+    # Redraw Viewer Method -----------------------------------------------------
+
+    def redraw_viewer(self, clear = False, cortex = False, active = True, background = False):
+        """Redraw the entire canvas panel."""
+        # Disable auto-rendering to batch updates and avoid intermediate renders.
+        self.figure.auto_rendering = False
+
+        # Apply updates to the figure layers based on the specified flags.
+        if clear:  self.clear_figure()
+        if cortex: self.refresh_cortex()
+        if active or background:
+            self.refresh_points(active = active, background = background)
+
+        # Re-enable auto-rendering and trigger a single render after all updates are applied.
+        self.figure.auto_rendering = True
+        self.figure.render()
 
 
     #     # Assign user annotation input observers
@@ -423,13 +442,7 @@ class CortexViewerPanel(ipw.VBox):
 
     # def on_selection_change(self, key, change):
     #     """Handle changes to the dataset selection."""
-    #     # Update the control panel information
-    #     if key == "targets":
-    #         self.state.targets    = self.state.get_targets()
-    #         self.state.annotation = self.state.get_annotation()
-    #     else: # key == "annotation":
-    #         self.state.annotation = self.state.get_annotation()
-    #     # Update the cortex viewer state based on selection change
+    # # Update the cortex viewer state based on selection change
     #     if key == "targets":
     #         self.state.update_flatmap_annotations()
     #         self.state.update_surface_annotations()

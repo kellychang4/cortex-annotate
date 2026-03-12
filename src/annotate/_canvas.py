@@ -227,7 +227,7 @@ class CanvasPanel(ipw.HBox):
             fixed_tail = self.state.fixed_tails.get(annotation, None) is not None
 
             # Get the style for this annotation.
-            style = self.state.canvas.style(styletag)
+            style = self.state.style(styletag)
 
             # Skip, if the annotation is not visible.
             if not style["visible"]: continue
@@ -423,9 +423,29 @@ class CanvasPanel(ipw.HBox):
         self.message_canvas.clear()
 
 
+    # Redraw Multicanvas Method ------------------------------------------------
+
+    def redraw_canvas(self, image = False, active = True, background = False):
+        """Redraw the entire canvas panel."""
+        # If there is no image to draw, skip
+        if self.state.canvas.image is None: return
+        
+        # Redraw the loading canvas.
+        if image or active or background:
+            self.loading_canvas.restore()
+
+        # Redraw layers.
+        with ipc.hold_canvas():
+            # Redraw the image layer, if there is an image to draw.
+            if image: self.redraw_image()
+
+            # Redraw the annotation layers, if there are annotations to draw.
+            if active or background:
+                self.redraw_annotations(active = active, background = background)
+
     # Observer Methods ---------------------------------------------------------
 
-    def observe_mouse(self, callback):
+    def observe_mouse(self, fn):
         """Expose multicanvas mouse event listener."""
         # Define a function to convert canvas pixel to figure coordinates. 
         # Then call the callback with the converted points.
@@ -433,12 +453,12 @@ class CanvasPanel(ipw.HBox):
             # Convert canvas pixel coordinates to figure coordinates.
             canvas_point = np.array([[x, y]]) # must be (N, 2) matrix
             figure_point = self.canvas_to_figure(canvas_point)
-            callback(figure_point) # callback must take fn(points)
+            fn(figure_point) # form: fn(points)
         
         # Expose the mouse event listener (with conversion!)
         self.multicanvas.on_mouse_down(_convert_xy_to_points)
 
 
-    def observe_key(self, callback):
+    def observe_key(self, fn):
         """Expose multicanvas key press event listener."""
-        self.multicanvas.on_key_down(callback)
+        self.multicanvas.on_key_down(fn)

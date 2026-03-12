@@ -557,11 +557,11 @@ class AnnotationTool(ipw.HBox):
         # # Add a listener for the clear all button.
         # self.control_panel.observe_clear(self.on_clear)
 
-        # # And a listener for the save button.
+        # And a listener for the save button.
         # self.control_panel.observe_save(self.on_save)
 
         # Add a listener for the layout button.
-        # self.control_panel.observe_layout(self.on_layout_change)
+        self.control_panel.observe_layout(self.on_layout_change)
 
     # Tool Locking Methods -----------------------------------------------------
 
@@ -651,8 +651,10 @@ class AnnotationTool(ipw.HBox):
                 target_id, annotation, target_annots)
             
             # Redraw the canvas and viewer.
-            self.figure_panel.redraw_canvas()
-            # self.figure_panel.redraw_viewer()
+            #TODO: might need to change which are active for what
+            self.figure_panel.redraw(
+                clear = True, base = True, active = True, background = True
+            )
             
 
     # Event Handler Methods ----------------------------------------------------
@@ -673,71 +675,71 @@ class AnnotationTool(ipw.HBox):
         self.refresh_figure()
 
 
-    def on_figure_size_change(self, change):
-        """This method runs when the control panel's figure size slider changes."""
-        # Only respond to changes in the value of the style elements, 
-        if change.name != "value": return
+    # def on_figure_size_change(self, change):
+    #     """This method runs when the control panel's figure size slider changes."""
+    #     # Only respond to changes in the value of the style elements, 
+    #     if change.name != "value": return
 
-        # Update the state.
-        self.state.figure_size(change.new)
+    #     # Update the state.
+    #     self.state.figure_size(change.new)
 
-        # Resize the figure panel. 
-        self.figure_panel.canvas_panel.resize_canvas(change.new)
+    #     # Resize the figure panel. 
+    #     self.figure_panel.canvas_panel.resize_canvas(change.new)
 
 
-    def on_style_change(self, annotation, key, change):
-        """This method runs when the control panel's style elements change."""
-        # Only respond to changes in the value of the style elements, 
-        if change.name != "value": return
+    # def on_style_change(self, annotation, key, change):
+    #     """This method runs when the control panel's style elements change."""
+    #     # Only respond to changes in the value of the style elements, 
+    #     if change.name != "value": return
         
-        # Update the state.
-        self.state.style(annotation, { key: change.new })
+    #     # Update the state.
+    #     self.state.style(annotation, { key: change.new })
         
-        # Then redraw the annotation.
-        self.figure_panel.canvas_panel.redraw_canvas(redraw_image = False)
+    #     # Then redraw the annotation.
+    #     self.figure_panel.redraw(base = False)
 
 
-    def on_clear(self, button):
-        """This method runs when the control panel's clear all button is clicked."""
-        # The clear all button has a confirmation process. When the user first 
-        # clicks it, it changes to a "Confirm Clear" button. If they click it
-        # again, then the annotations are cleared. The button then resets to the
-        # original "Clear All" state.
-        if button.description == "Clear All":
-            # Update the button to the confirmation state.
-            button.description  = "Confirm Clear"
-            button.button_style = "danger"
+    # def on_clear(self, button):
+    #     """This method runs when the control panel's clear all button is clicked."""
+    #     # The clear all button has a confirmation process. When the user first 
+    #     # clicks it, it changes to a "Confirm Clear" button. If they click it
+    #     # again, then the annotations are cleared. The button then resets to the
+    #     # original "Clear All" state.
+    #     if button.description == "Clear All":
+    #         # Update the button to the confirmation state.
+    #         button.description  = "Confirm Clear"
+    #         button.button_style = "danger"
             
-        elif button.description == "Confirm Clear":
-            # Update the button back to the original state.
-            button.description  = "Clear All"
-            button.button_style = "warning"
+    #     elif button.description == "Confirm Clear":
+    #         # Update the button back to the original state.
+    #         button.description  = "Clear All"
+    #         button.button_style = "warning"
 
-            # Clear the annotations for the current target.
-            target_id = self.control_panel.target
-            for annotation in self.state.annotations[target_id].keys():
-                self.state.annotations[target_id][annotation] = (
-                    self.figure_panel.canvas_panel.empty_point_matrix())
+    #         # Clear the annotations for the current target.
+    #         target_id = self.control_panel.target
+    #         for annotation in self.state.annotations[target_id].keys():
+    #             self.state.annotations[target_id][annotation] = (
+    #                 self.figure_panel.canvas_panel.empty_point_matrix())
 
-            # Refresh the figure to show the cleared annotations.
-            self.refresh_figure()
-        else:
-            # If the button is in some unexpected state, we just reset it to the
-            # original state.
-            button.description  = "Clear All"
-            button.button_style = "warning"
+    #         # Refresh the figure to show the cleared annotations.
+    #         self.refresh_figure()
+    #     else:
+    #         # If the button is in some unexpected state, we just reset it to the
+    #         # original state.
+    #         button.description  = "Clear All"
+    #         button.button_style = "warning"
 
         
-    def on_save(self, button):
-        """This method runs when the control panel's save button is clicked."""
-        self.state.save_annotations()
-        self.state.save_preferences()
+    # def on_save(self):
+    #     """This method runs when the control panel's save button is clicked."""
+    #     self.state.save_annotations()
+    #     self.state.save_preferences()
 
     
-    def on_layout_change(self, _):
+    def on_layout_change(self, change):
         """This method runs when the control panel's layout toggle button is toggled."""
         # If the button is toggled on, we want the horizontal layout. 
-        if self.control_panel.layout_toggle.value: 
+        if change.new:
             self.control_panel.layout_toggle.description = "Horizontal Layout"
             self.figure_panel.layout = FigurePanel._HORIZONTAL_LAYOUT
 
