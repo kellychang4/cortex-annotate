@@ -14,7 +14,7 @@ from functools import partial
 from collections import namedtuple
 from numbers import Real, Integral
 
-from ._util import delay, ldict
+from ._util import delay, ldict, fix_style
 
 # Configuration Error ----------------------------------------------------------
 
@@ -37,7 +37,7 @@ class ConfigError(Exception):
 
 # Display Configuration --------------------------------------------------------
 
-class DisplayConfig(dict):
+class DisplayConfig():
     """An object that tracks the configuration of the tool's image display.
 
     The `DisplayConfig` type keeps track of the `display` section of the
@@ -49,10 +49,8 @@ class DisplayConfig(dict):
     )
     
     def __init__(self, display_yaml):
-        
         # The display section is optional. If None, we use default values.
-        if display_yaml is None: 
-            display_yaml = {}
+        if display_yaml is None: display_yaml = {}
         
         # Initialize the figure size.
         self.figsize = self._init_figsize(display_yaml, default = [4, 4])
@@ -71,19 +69,10 @@ class DisplayConfig(dict):
         self.default_style = self._init_style(
             display_yaml, parameter = "default_style", default = {})
         
-        # Update the dictionary with the display data.
-        self.update({
-            "figsize": self.figsize,
-            "dpi": self.dpi,
-            "image_size": self.image_size,
-            "active_style": self.active_style,
-            "default_style": self.default_style,
-        })
 
-
-    def _init_figsize(self, display_yaml, default = [4, 4]):
+    @staticmethod
+    def _init_figsize(display_yaml, default = [4, 4]):
         """Initializes the figure size from the display yaml."""
-
         # Prepare ConfigError arguments for any errors that may arise in this function.
         err = partial(ConfigError, "display.figsize")
 
@@ -117,7 +106,8 @@ class DisplayConfig(dict):
         return tuple(figsize)
 
 
-    def _init_dpi(self, display_yaml, default = 128):
+    @staticmethod
+    def _init_dpi(display_yaml, default = 128):
         """Initializes the DPI from the display yaml."""
 
         # Prepare ConfigError arguments for any errors that may arise in this function.
@@ -134,7 +124,8 @@ class DisplayConfig(dict):
         return dpi
     
 
-    def _init_style(self, display_yaml, parameter, default = {}):
+    @staticmethod
+    def _init_style(display_yaml, parameter, default = {}):
         """Initializes a style from the display yaml."""
         # Import for style checking.
         from ._core import AnnotationState
@@ -150,10 +141,15 @@ class DisplayConfig(dict):
             raise err(f"{parameter} must be a mapping")
         
         # Try to make sure the style keys are valid
-        try: AnnotationState.fix_style(style)
+        try: fix_style(style)
         except RuntimeError as e: raise err(e) from e
 
         return style
+
+
+    def as_dict(self):
+        """Returns the display configuration as a dictionary."""
+        return { key: getattr(self, key) for key in self.__slots__ }
 
 
 # Init Configuration -----------------------------------------------------------
@@ -182,9 +178,9 @@ class InitConfig:
         exec(self.code, self.env, self.env)
 
 
-    def _init_code(self, code):
+    @ staticmethod
+    def _init_code(code):
         """Initializes the given code string by executing it in the context of the init code."""
-
         # Prepare ConfigError arguments for any errors that may arise in this function.
         err = partial(ConfigError, "init")
 
@@ -198,7 +194,8 @@ class InitConfig:
         return code
 
 
-    def _init_env(self, globals, locals):
+    @staticmethod
+    def _init_env(globals, locals):
         """Initializes the environment by merging the given locals and globals with the init environment."""
         base_globals = {} if globals is None else globals
         base_locals  = {} if locals is None else locals
@@ -494,12 +491,11 @@ class TargetsConfig(ldict):
 
 # Annotation Configuration -----------------------------------------------------
 
-
+#NOTE: might want to add `style` back in at some point.
 Annotation = namedtuple(
     typename    = "Annotation",
-    field_names = ( "type", "fixed_head", "fixed_tail", "figure_grid", 
-                    "style_options", "filter" ),
-    defaults    = ( "contour", None, None, None, {}, None )
+    field_names = ( "type", "fixed_head", "fixed_tail", "figure_grid", "filter" ),
+    defaults    = ( "contour", None, None, None, None )
 )
 
 
@@ -511,8 +507,9 @@ class AnnotationsConfig(dict):
     """
     
     __slots__ = ( 
-        "types", "figure_grid", "grid_shape", "fixed_head", "fixed_tail", 
-        "fixed_points", "fixed_dependencies", "figure_names", 
+        "names", "type", "figure_grid", "grid_shape", 
+        "fixed_head", "fixed_tail", "fixed_heads", "fixed_tails",
+        "fixed_points", "fixed_dependencies", "figure_names"
     )
     
     def __init__(self, annotations_yaml, init):
@@ -541,37 +538,42 @@ class AnnotationsConfig(dict):
         # And now all the annotations are processed, update the dictionary.
         self.update(annotations_dict)
 
-        # Extract annotation information into separate dictionaries for easy access.
-        self.types       = { k: v.type for (k, v) in self.items() }
-        self.figure_grid = { k: v.figure_grid for (k, v) in self.items() }
-        self.grid_shape  = { k: np.shape(v.figure_grid) for (k, v) in self.items() }
-
-        # Calculate the annotation dependency tree
-        self.fixed_head, self.fixed_tail = self._calc_fixed_deps()
+        # Prepare annotation attribute information for easy access later.
+        self.names       = list(self.keys())
+        self.type        = self._get_type()
+        self.figure_grid = self._get_figure_grid()
+        self.grid_shape  = self._get_grid_shape()
+        self.fixed_head  = self._get_fixed_info("fixed_head")
+        self.fixed_tail  = self._get_fixed_info("fixed_tail")
+        self.fixed_heads = self._get_fixed_names("fixed_head")
+        self.fixed_tails = self._get_fixed_names("fixed_tail")
 
         # Combine the fixed head and tails into one dictionary for ease.
         # <key> : [ <fixed_head>, <fixed_tail> ] needed to have valid points.
         self.fixed_points = {
-            k: [ *self.fixed_head[k], *self.fixed_tail[k] ] for k in self.keys()
+            k: [ *self.fixed_heads[k], *self.fixed_tails[k] ] for k in self.keys()
         }
 
         # Create the fixed dependencies dictionary, which is the reverse of the 
         # fixed points dictionary.
         # <key> : [ <annotations that have downstream dependencies> ]
-        self.fixed_dependencies = {k: [] for k in self.keys()}
+        self.fixed_dependencies = { k: [] for k in self.keys() }
         for key in self.fixed_dependencies.keys():
             for src, value in self.fixed_points.items():
                 if key in value: self.fixed_dependencies[key].append(src)
 
         # Finally, we get all the unique figure names.
         self.figure_names = set([
-            x for annotation in self.values()
-            for row in annotation.figure_grid 
+            x 
+            for annotation in self.values()
+            for row in annotation.figure_grid
             for x in row if x is not None
         ])
-                
-    
-    def _init_figure_grid(self, figure_grid, err):
+
+    # Initialization Methods ---------------------------------------------------
+
+    @staticmethod
+    def _init_figure_grid(figure_grid, err):
         """Initializes the figure grid from the annotation specification."""
         # Check that the figure grid is a list.
         if not isinstance(figure_grid, list):
@@ -606,7 +608,8 @@ class AnnotationsConfig(dict):
         return figure_grid
     
 
-    def _init_fixed_points(self, key, fixed_point, err, init):
+    @staticmethod
+    def _init_fixed_points(key, fixed_point, err, init):
         """Initializes the fixed points from the annotation specification."""
         # If the fixed point is None, then we just return None.
         if fixed_point is None: return None
@@ -649,9 +652,6 @@ class AnnotationsConfig(dict):
 
     def _init_annotation(self, annotation_name, annotation_spec, init):
         """Initializes the annotation from the annotation specification."""
-        # Import for style checking.
-        from ._core import AnnotationState
-
         # Prepare ConfigError arguments for any errors that may arise in this loop.
         err = partial(ConfigError, f"annotations.`{annotation_name}`")
 
@@ -665,7 +665,6 @@ class AnnotationsConfig(dict):
         fixed_head    = annotation_spec.get("fixed_head", None)
         fixed_tail    = annotation_spec.get("fixed_tail", None)
         figure_grid   = annotation_spec.get("figure_grid", None)
-        style_options = annotation_spec.get("style_options", {}) #TODO: I think this is unused
         filter        = annotation_spec.get("filter", None)
         
         # Check that the annotation type is valid.
@@ -679,14 +678,6 @@ class AnnotationsConfig(dict):
         # Prepare and check the figure grid.
         figure_grid = self._init_figure_grid(figure_grid, err)
 
-        # Check that the background style is a yaml mapping (dictionary)
-        if not isinstance(style_options, dict):
-            raise err(f"style_options must be a mapping.")
-        
-        # Try to make sure the style options keys are valid
-        try: AnnotationState.fix_style(style_options)
-        except RuntimeError as e: raise err(e) from e
-
         # Check that the filter is a string or None.
         if filter is not None and not isinstance(filter, str):
             raise err(f"filter must be null or a Python code string.")
@@ -697,26 +688,55 @@ class AnnotationsConfig(dict):
 
         # Return the annotation as an Annotation object.    
         return Annotation(
-            type          = ctype,
-            fixed_head    = fixed_head,
-            fixed_tail    = fixed_tail,
-            figure_grid   = figure_grid,
-            style_options = style_options,
-            filter        = filter,
+            type        = ctype,
+            fixed_head  = fixed_head,
+            fixed_tail  = fixed_tail,
+            figure_grid = figure_grid,
+            filter      = filter,
         )
 
+    # Get Methods --------------------------------------------------------------
 
-    def _calc_fixed_deps(self):
-        """Calculates the fixed dependencies for each annotation."""
-        fixed_head = { k: [] for k in self.keys() } 
-        fixed_tail = { k: [] for k in self.keys() } 
-        for annotation, annot_data in self.items(): # for each annotation
-            if annot_data.fixed_head is not None:
-                fixed_head[annotation] = annot_data.fixed_head["requires"]
-            if annot_data.fixed_tail is not None:
-                fixed_tail[annotation] = annot_data.fixed_tail["requires"]
-        return fixed_head, fixed_tail
+    def _get_type(self):
+        """Returns a dictionary mapping annotation names to their types."""
+        return { key: value.type for (key, value) in self.items() }
 
+
+    def _get_figure_grid(self):
+        """Returns a dictionary mapping annotation names to their figure grids."""
+        return { key: value.figure_grid for (key, value) in self.items() }
+
+
+    def _get_grid_shape(self):
+        """Returns a dictionary mapping annotation names to their figure grid shapes."""
+        return { key: np.shape(value.figure_grid) for (key, value) in self.items() }
+    
+
+    def _get_fixed_info(self, fixed_point):
+        """Returns a dictionary mapping annotation names to their fixed point info."""
+        # Ensure that the name is either "fixed_head" or "fixed_tail".
+        if fixed_point not in ("fixed_head", "fixed_tail"):
+            raise ValueError(f"Invalid fixed point: {fixed_point}")
+            
+        # Returns a dict mapping annotation names to their fixed point information.
+        return { 
+            key: getattr(value, fixed_point) for (key, value) in self.items() 
+        }
+    
+
+    def _get_fixed_names(self, fixed_point):
+        """Returns a dictionary mapping annotation names to their fixed point name."""
+        # Ensure that the name is either "fixed_head" or "fixed_tail".
+        if fixed_point not in ("fixed_head", "fixed_tail"):
+            raise ValueError(f"Invalid fixed point: {fixed_point}")
+            
+        # Returns a dict mapping annotation names to their fixed point name.
+        return { 
+            key: [] if getattr(value, fixed_point) is None 
+            else getattr(value, fixed_point)["requires"]
+            for (key, value) in self.items() 
+        }
+        
 
 # Figures Configuration --------------------------------------------------------
 
@@ -818,117 +838,163 @@ class CortexConfig(dict):
     """An object that stores configuration information for the cortex viewer.
 
     The `CortexConfig` type stores information from the `cortex` section of
-    the `config.yaml` file for the `cortex-annotate` project. It resembles a
-    Python `dict` object TODO.
+    the `config.yaml` file for the `cortex-annotate` project. It is a dictionary.
     """
     
-    __slots__ = ( "yaml", )    
-    
     def __init__(self, cortex_yaml, figure_names, init):
-        # The cortex section is optional. TODO
-        if cortex_yaml is None:
-            cortex_yaml = {}
+        # The cortex section is optional.
+        if cortex_yaml is None: cortex_yaml = {}
         
         # If cortex section is provided, it must be a dictionary.
         if not isinstance(cortex_yaml, dict):
             raise ConfigError("cortex", "cortex section must contain a mapping.")
         
-        # Store the original cortex section yaml.
-        self.yaml = cortex_yaml
-        
-        # If cortex section is not empty, then we prepare the cortex data.
+        # If cortex section is not empty, then we prepare the cortex dictionary.
         cortex_dict = {} # initialize
         if cortex_yaml != {}: 
-            # Prepare the cortex yaml and the cortex compiling functions.
-            cortex_yaml, compile_fn, wildfn = CortexConfig._prep_yaml(
-                self.yaml.copy(), init)
+            # Prepare the faces field.
+            cortex_dict["faces"] = self._init_faces(cortex_yaml.copy(), init)
+
+            # Prepare the coordinates field.
+            cortex_dict["coordinates"] = self._init_coordinates(
+                cortex_yaml.copy(), init)
             
-            # Prepare the required cortex section fields.
-            required_dict = self._init_required_dict(cortex_yaml, compile_fn, wildfn)
+            # Prepare the inflate_between field, optional.
+            cortex_dict["inflate_between"] = self._init_inflate_between(
+                cortex_yaml.copy(), cortex_dict["coordinates"], init)
 
-            # Prepare the cortex overlay dictionary.
-            overlay_dict = self._init_overlay_dict(
-                cortex_yaml, figure_names, compile_fn, wildfn)
-
-            # Combine the required and overlay dictionaries into one dictionary.
-            cortex_dict = { **required_dict, **overlay_dict }
+            # Prepare the overlays field.
+            cortex_dict["overlays"] = self._init_overlays(
+                cortex_yaml.copy(), figure_names, init)
         
         # Update CortexConfig class dictionary.
         self.update(cortex_dict)
 
 
     @staticmethod
-    def _compile_fn(init, initcode, termcode, code):
+    def _compile_fn(init, code):
         """Compiles the code strings as a cortex function in the `init` environment."""
-        return init.compile_fn("target, key", f"{initcode}\n{code}\n{termcode}")
-    
+        return init.compile_fn("target, key", f"{code}")
 
-    @classmethod
-    def _prep_yaml(cls, cortex_yaml, init):
-        # Check that the all fields are code strings if they are not None.
-        for key, value in cortex_yaml.items():
-            if not isinstance(value, str):
-                raise ConfigError(
-                    f"cortex.{key}", 
-                    f"'{key}' value must be a code string."
-                )
 
-        # Prepare the special fields (init, term, and wildcard).
-        special_dict = {
-            k: cortex_yaml.pop(k, None) 
-            for k in ( "init", "term", "_" )
-        }
+    @staticmethod
+    def _init_faces(cortex_yaml, init):
+        """Initialize the `faces` from the cortex yaml."""
+        # Extract the faces field from the yaml.
+        faces = cortex_yaml.get("faces", None)
+
+        # Check that faces is a string/code
+        if not isinstance(faces, str):
+            raise ConfigError("cortex.faces", "faces must be a code string.")
+
+        # Compile the faces code string into a function.
+        faces = CortexConfig._compile_fn(init, faces)
+
+        # Return the compiled function.
+        return faces
+
+
+    @staticmethod
+    def _init_coordinates(cortex_yaml, init):
+        """Initialize the `coordinates` from the cortex yaml."""
+        # Extract the coordinates field from the yaml.
+        coordinates = cortex_yaml.get("coordinates", None)
+
+        # Check that coordinates is a string/code
+        if not isinstance(coordinates, (str, dict)):
+            raise ConfigError("cortex.coordinates", 
+                "`coordinates` must be a code string or mapping."
+            )
         
-        # Prepare the cortex compiling code.
-        compile_fn = partial(
-            cls._compile_fn, init, 
-            special_dict["init"], special_dict["term"]
-        )
-
-        # Compile the wildcard field if not None.
-        wildfn = None
-        if special_dict["_"] is not None:
-            wildfn = compile_fn(special_dict["_"])
-
-        return ( cortex_yaml, compile_fn, wildfn )
-
-
-    @staticmethod
-    def _init_required_dict(cortex_yaml, compile_fn, wildfn):
-        """Initializes the required fields dictionary from the cortex yaml."""
-        required_dict = {}
-        for key in ( "faces", "midgray", "inflated" ):
-            if key not in cortex_yaml:
-                raise ConfigError(
-                    f"cortex.{key}", f"Missing code for required field '{key}'"
-                )
-            else: 
-                code = cortex_yaml.get(key, None)
-                if code is not None:
-                    required_dict[key] = compile_fn(code)
-        return required_dict
+        # If coordinates is a string, then conform to dictionary mapping.
+        if isinstance(coordinates, str):
+            coordinates = { "_default" : coordinates }
+    
+        # If coordinates is a dict, then we compile the code for each key.
+        # Check that all mappings are strings/code.
+        for key, value in coordinates.items():
+            if not isinstance(value, str):
+                raise ConfigError(f"cortex.coordinates.{key}", 
+                    "Coordinate mapping values must be code strings.")
+         
+        # return dictionary of compile functions per coordinates
+        return {
+            key: CortexConfig._compile_fn(init, value) 
+            for key, value in coordinates.items()
+        }
 
 
     @staticmethod
-    def _init_overlay_dict(cortex_yaml, figure_names, compile_fn, wildfn):
-        """Initializes the cortex overlay dictionary from the cortex yaml."""
-        cortex_dict = {}
+    def _init_inflate_between(cortex_yaml, coordinates, init):
+        """Initialize the `inflate_between` from the cortex yaml."""
+        # Extract the coordinates field from the yaml.
+        inflate_between = cortex_yaml.get("inflate_between", None)
+
+        # This is an optioanl field, so if None, return None.
+        if inflate_between is None: return None
+        
+        # If provided, must be a list of length two.
+        if not isinstance(inflate_between, list) or len(inflate_between) != 2:
+            raise ConfigError("cortex.inflate_between", 
+                "`inflate_between` must be a list of length two.")
+
+        # If provided, both surfaces must be available in the coordinates dict.
+        for surface_name in inflate_between: 
+            if surface_name not in coordinates:
+                raise ConfigError("cortex.inflate_between", 
+                    f"Unable to find `{surface_name}` coordinates.")
+        
+        # Return inflate between list.
+        return inflate_between
+        
+    
+    @staticmethod
+    def _init_overlays(cortex_yaml, figure_names, init):
+        """Initialize the `overlays` from the cortex yaml."""
+        # If there is a wildcard key, extract out.
+        overlays = cortex_yaml.get("overlays", None)
+
+        # Check that overlays is a string/code
+        if not isinstance(overlays, (str, dict)):
+            raise ConfigError("cortex.overlays", 
+                "`overlays` must be a code string or mapping."
+            )
+
+        # If overlays is a string, then assuming it is for the curvature.
+        if isinstance(overlays, str):
+            overlays = { "curvature" : overlays }
+
+        # If overlays is a dict, then we compile the code for each key.
+        # Check that all mappings are strings/code.
+        for key, value in overlays.items():
+            if not isinstance(value, str):
+                raise ConfigError(f"cortex.overlays.{key}", 
+                    "Overlay mapping values must be code strings.")
+         
+        # Locate wildcard key, if provided.
+        wildfn = overlays.get("_", None)
+        if wildfn is not None:
+            wildfn = CortexConfig._compile_fn(init, wildfn)
+            
+        # Prepare valid figure names for the overlays, including curvature.
+        figure_names = { "curvature" } | set(figure_names)
+
+        # Prepare and return overlays dictionary
+        overlays_dict = {}
         for key in figure_names:
-            if key not in cortex_yaml:
+            if key not in overlays.keys():
                 if wildfn is None:
                     raise ConfigError(
-                        f"cortex.{key}", 
-                        f"Missing code for cortex '{key}' and "
+                        f"cortex.overlays.{key}", 
+                        f"Missing code for figure '{key}' and "
                         f"no wildcard provided."
                     )
-                else:
-                    cortex_dict[key] = wildfn
+                key_fn = wildfn
             else: 
-                code = cortex_yaml.get(key, None)
-                if code is not None:
-                    cortex_dict[key] = compile_fn(code)
-        return cortex_dict
-    
+                key_fn = CortexConfig._compile_fn(init, overlays[key])
+            overlays_dict[key] = key_fn
+        return overlays_dict
+
 
 # Config Object ----------------------------------------------------------------
 

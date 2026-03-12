@@ -32,6 +32,63 @@ def darken_color(color, amount = 0.10):
     color = [ max(0.0, x * (1 - amount)) for x in color ] # darken the color by the given amount
     return tuple([ int(x * 255) for x in color ]) # convert back to 0-255 range and return as list
 
+# Style utilities ##############################################################
+
+DEFAULT_STYLE = {
+    "color"      : "black",
+    "linestyle"  : "solid",
+    "linewidth"  : 1,
+    "markersize" : 1,
+    "visible"    : True
+}
+
+
+STYLE_KEYS = tuple(DEFAULT_STYLE.keys())
+
+
+def fix_style(style_dict):
+    """Ensures that the given dictionary is valid as a style dictionary."""
+    # Check that all the keys are valid style keys.
+    for key in style_dict.keys():
+        if key not in STYLE_KEYS:
+            raise RuntimeError(f"Invalid style key: {key}")
+        
+    # Check that the linewidth is a valid number.
+    if "linewidth" in style_dict:
+        linewidth = style_dict["linewidth"]
+        if linewidth < 0 or linewidth > 20:
+            raise RuntimeError(f"Invalid linewidth: {linewidth}")
+    
+    # Check that the linestyle is valid.
+    if "linestyle" in style_dict:
+        linestyle = style_dict["linestyle"]
+        if linestyle not in ("solid", "dashed", "dot-dashed", "dotted"):
+            raise RuntimeError(f"Invalid linestyle: {linestyle}")
+        
+    # Check that the color is valid.
+    if "color" in style_dict:
+        color = style_dict["color"]
+        try: color = mpl.colors.to_hex(color)
+        except Exception as e: 
+            raise RuntimeError(f"Invalid color: {color}") from e
+        style_dict["color"] = color # store as hex, if valid
+
+    # Check that the markersize is a valid number.
+    if "markersize" in style_dict:
+        markersize = style_dict["markersize"]
+        if markersize < 0 or markersize > 20:
+            raise RuntimeError(f"Invalid markersize: {markersize}")
+    
+    # Check that the visible is a boolean.
+    if "visible" in style_dict:
+        visible = style_dict["visible"]
+        if not isinstance(visible, bool):
+            raise RuntimeError(f"Invalid visible: {visible}")
+    
+    # Return the style dictionary, if valid.
+    return style_dict
+
+
 # Lazy Dict Type ###############################################################
 # The Lazy Dict type (ldict) is a mutable dictionary whose values may be delay
 # objects (also defined here). Delay objects are automatically undelayed before

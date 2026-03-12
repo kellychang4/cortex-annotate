@@ -25,10 +25,12 @@ import imageio.v3 as iio
 from warnings import warn 
 import matplotlib.pyplot as plt
 
-from ._util    import (ldict, delay)
 from ._config  import Config
 from ._control import ControlPanel
 from ._figure  import FigurePanel
+from ._util    import (
+    ldict, delay, DEFAULT_STYLE
+)
 
 # The State Manager ############################################################
 
@@ -44,16 +46,6 @@ class AnnotationState:
     state includes the cache, the user preferences (style settings), and the
     saved annotations.
     """
-    
-    DEFAULT_STYLE = {
-        "color"      : "black",
-        "linestyle"  : "solid",
-        "linewidth"  : 1,
-        "markersize" : 1,
-        "visible"    : True
-    }
-
-    STYLE_KEYS = tuple(DEFAULT_STYLE.keys())
 
     __slots__ = (
         "config", "cache_path", "save_path", "git_path", "username",
@@ -296,18 +288,12 @@ class AnnotationState:
     def grid(self, target_id, annotation):
         """Returns the grid of figures for the given target and annotation.
 
-        The return value is `(image_data, grid_shape, meta_data)` where the
-        `image_data` is the raw bytes of the file, `grid_shape` is a tuple of
-        the `(row_count, column_count)` of the grid, and the `meta_data` is a
-        `dict`.
+        The return value is `(image_data, meta_data)` where the `image_data` is 
+        the raw bytes of the file, and the `meta_data` is a `dict`.
         """
         # Prepare the image and meta data file paths.
         impath = self.target_grid_path(target_id, annotation)
         mdpath = re.sub(".png$", ".json", impath)
-
-        # Get the annotation information for this annotation.
-        annotation_info = self.config.annotations[annotation]
-        grid_shape = np.shape(annotation_info.figure_grid) 
 
         # If the files aren't here already, we generate them first.
         if not op.isfile(impath) or not op.isfile(mdpath):
@@ -323,7 +309,7 @@ class AnnotationState:
             meta_data = json.load(f)
         
         # And return them.
-        return ( image_data, grid_shape, meta_data )
+        return ( image_data, meta_data )
 
     # Annotation Methods -------------------------------------------------------
 
@@ -409,22 +395,30 @@ class AnnotationState:
             # Skip lazy keys; these targets have not even been loaded yet.
             if not annotations.is_lazy(target_id):
                 self.save_target_annotations(target_id)
+        """Saves the preferences to the save directory."""
+        preferences_yaml = op.join(self.save_path, ".annot-prefs.yaml")
+        with open(preferences_yaml, "wt") as f:
+            yaml.dump(self.preferences, f)
 
     # Preferences Methods ------------------------------------------------------
 
     def load_preferences(self):
-        """Loads the preferences from the save directory and returns them.
-
-        If no preferences file is found, an empty dictionary is returned.
+        """Loads the preferences (figure sizing, annotation colors). 
+        
+        Loads existing preferences filename. Otherwise, returns a default
+        preferences dictionary.
         """
+        # Define the preferences filename.
         preferences_yaml = op.join(self.save_path, ".annot-prefs.yaml")
+        
+        # If there is no preferences file, initailize the preferences
         if not op.isfile(preferences_yaml):
-            # If there is no preferences file, initailize the preferences
+            # Start with default preferences dictionary.
             preferences = { "style": {}, "figure_size": 256 } 
 
             # For each annotation, set the default style dictionary.
             # DEFAULT_STYLE << config.display.default_style
-            styledict = AnnotationState.DEFAULT_STYLE.copy()
+            styledict = DEFAULT_STYLE.copy()
             styledict = { **styledict, **self.config.display.default_style }
             for annotation in self.config.annotations.keys():
                 preferences["style"][annotation] = styledict.copy()
@@ -436,6 +430,8 @@ class AnnotationState:
 
             # Return the preferences.
             return preferences
+        
+        # Else, there is a preference file. Read and return.
         with open(preferences_yaml, "rt") as f:
             return yaml.safe_load(f)
     
@@ -445,72 +441,11 @@ class AnnotationState:
         preferences_yaml = op.join(self.save_path, ".annot-prefs.yaml")
         with open(preferences_yaml, "wt") as f:
             yaml.dump(self.preferences, f)
-    
-    # Figure Size Methods ------------------------------------------------------
-
-    def figure_size(self, new_figure_size = None):
-        """Returns the figure size from the user's preferences.
-
-        `state.figure_size()` returns the current figure size.
-
-        `state.figure_size(new_figure_size)` updates the current figure size.
-        """
-        if new_figure_size is None:
-            # Just return the current figure size, or the default if it is not set.
-            return self.preferences.get("figure_size", 256)
-        else:
-            # Update the figure size in the preferences, and return the new value.
-            self.preferences["figure_size"] = new_figure_size
-            return new_figure_size
 
     # Style Methods ------------------------------------------------------------
 
-    @classmethod
-    def fix_style(cls, style_dict):
-        """Ensures that the given dictionary is valid as a style dictionary."""
-        # Check that all the keys are valid style keys.
-        for key in style_dict.keys():
-            if key not in AnnotationState.STYLE_KEYS:
-                raise RuntimeError(f"Invalid style key: {key}")
-            
-        # Check that the linewidth is a valid number.
-        if "linewidth" in style_dict:
-            linewidth = style_dict["linewidth"]
-            if linewidth < 0 or linewidth > 20:
-                raise RuntimeError(f"Invalid linewidth: {linewidth}")
-        
-        # Check that the linestyle is valid.
-        if "linestyle" in style_dict:
-            linestyle = style_dict["linestyle"]
-            if linestyle not in ("solid", "dashed", "dot-dashed", "dotted"):
-                raise RuntimeError(f"Invalid linestyle: {linestyle}")
-            
-        # Check that the color is valid.
-        if "color" in style_dict:
-            color = style_dict["color"]
-            try: color = mpl.colors.to_hex(color)
-            except Exception as e: 
-                raise RuntimeError(f"Invalid color: {color}") from e
-            style_dict["color"] = color # store as hex, if valid
-
-        # Check that the markersize is a valid number.
-        if "markersize" in style_dict:
-            markersize = style_dict["markersize"]
-            if markersize < 0 or markersize > 20:
-                raise RuntimeError(f"Invalid markersize: {markersize}")
-        
-        # Check that the visible is a boolean.
-        if "visible" in style_dict:
-            visible = style_dict["visible"]
-            if not isinstance(visible, bool):
-                raise RuntimeError(f"Invalid visible: {visible}")
-        
-        # Return the style dictionary, if valid.
-        return style_dict
-    
-
     def style(self, annotation, *args):
-        """Returns the style dict of the given annotation.
+        """Returns the styledict from preferences of the given annotation.
 
         `state.style(annot)` returns the current styledict for the
         annotation named `annot`. This style dictionary is always fully reified
@@ -554,7 +489,8 @@ class AnnotationState:
 
         # And return the updated styledict for the queried annotation.
         return preferences[annotation]
-
+    
+    
 # The Annotation Tool ##########################################################
 
 class AnnotationTool(ipw.HBox):
@@ -627,7 +563,7 @@ class AnnotationTool(ipw.HBox):
         # self.control_panel.observe_save(self.on_save)
 
         # Add a listener for the layout button.
-        self.control_panel.observe_layout(self.on_layout_change)
+        # self.control_panel.observe_layout(self.on_layout_change)
 
     # Tool Locking Methods -----------------------------------------------------
 
@@ -664,10 +600,10 @@ class AnnotationTool(ipw.HBox):
         # Check that the selected annotation has valid fixed annotations. 
         error = None
         fixed_points = self.annot_cfg.fixed_points[annotation]
-        for fp in fixed_points: # for the name of the fixed point
+        for i, fp in enumerate(fixed_points): # for the name of the fixed point
             # Determine if the fixed point is a fixed head or tail. 
             fp_type = ( "fixed_head" if fp in 
-                self.annot_cfg.fixed_head[annotation] else "fixed_tail" )
+                self.annot_cfg.fixed_heads[annotation] else "fixed_tail" )
             
             # If there is no data for this fixed point or if the fixed point is
             # the only data for the annotation, then we have an error.
@@ -679,7 +615,7 @@ class AnnotationTool(ipw.HBox):
             # If there is data for this fixed point, must make sure the fixed 
             # point is valid based on the annotation type. For contours and 
             # boundary, must have data besides their own fixed points (if there).
-            atype = self.annot_cfg.types[fp] 
+            atype = self.annot_cfg.type[fp] 
             if atype != "point": # atype in ( "contour", "boundary" )
                 n_deps = len(self.annot_cfg.fixed_points[fp])
                 if target_annots[fp].shape[0] <= n_deps:
@@ -704,20 +640,21 @@ class AnnotationTool(ipw.HBox):
             self._lock_tool()
 
             # Write the error message. 
-            self.figure_panel.canvas_panel.write_message(error)
+            # self.figure_panel.write_message(error)
         else:
             # Unlock the annotation tool, so user can interact with the figure.
             self._unlock_tool()
             
             # Clear any messages that might be up from before.
-            self.figure_panel.canvas_panel.clear_message()
+            # self.figure_panel.clear_message()
 
             # Update the figure panel state variables.
-            self.figure_panel.canvas_panel.update_state(target_id, annotation, target_annots)
-            # self.figure_panel.viewer_panel.update_state(target_id, annotation, target_annots)
-
-            # Redraw the figure. 
-            self.figure_panel.canvas_panel.redraw_canvas()
+            self.figure_panel.state.update(target_id, annotation, target_annots)
+            
+            # Redraw the canvas and viewer.
+            self.figure_panel.redraw_canvas()
+            # self.figure_panel.redraw_viewer()
+            
 
     # Event Handler Methods ----------------------------------------------------
 

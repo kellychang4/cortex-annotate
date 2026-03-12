@@ -16,14 +16,22 @@ from matplotlib.colors import to_rgb
 # Cortex Viewer Figure Panel ---------------------------------------------------
 
 class CortexViewerPanel(ipw.VBox):
-    """Cortex Figure Panel.
+    """The 3D cortex viewer that displays cortical mesh and annotations.
 
-    The panel that contains the 3D cortex plot for the Cortex Viewer tool.
+    The CortexViewerPanel manages a multi-layer k3d figure for rendering:
+        Layer 0: cortex mesh with curvature
+        Layer 1: cortex overlays (optional)
+        Layer 2: active annotation (lines)
+        Layer 3: active annotation (points)
+        Layer 4: background annotations (lines)
+        Layer 5: background annotations (points)
     """
-    
-    def __init__(self, state, width = 512, height = 512):
-        # Store the state (figure state).
-        self.state = state
+
+    def __init__(self, figure_state, width = 512, height = 512):
+        """Initialize the cortex viewer panel."""
+        # Store figure state.
+        self.state     = figure_state 
+        self.annot_cfg = figure_state.annot_cfg
 
         # Create a figure background (k3d plot)
         self.figure = k3d.plot(
@@ -113,7 +121,7 @@ class CortexViewerPanel(ipw.VBox):
                 dtype = np.uint32
             )
         elif colors.shape[1] == 4: # if RGBA, ignore the alpha channel
-            # NOTE: k3d does not support alpha in the color integer, ignor
+            # NOTE: k3d does not support alpha in the color integer, ignore
             return np.array(
                 [ ((r << 16) | (g << 8) | b) for r, g, b, _ in colors ], 
                 dtype = np.uint32
@@ -136,103 +144,31 @@ class CortexViewerPanel(ipw.VBox):
     def _empty_colors(self):
         """Helper method to create an empty color for initializing empty plots."""
         return np.array([0x000000], dtype = np.uint32)
-    
-    # Initialize Methods -------------------------------------------------------
-
-    def _init_mesh(self):
-        """Initialize an empty and invisible mesh."""
-        mesh = k3d.mesh(
-            vertices     = self._empty_coordinates(), 
-            indices      = self._empty_indices(),
-            colors       = self._empty_colors(),
-            wireframe    = False,
-            flat_shading = False
-        )
-        mesh.visible = False
-        return mesh
-
-
-    def _init_cortex(self):
-        """Initialize the cortex mesh."""
-        cortex_kwargs = self._prep_cortex()
-        return k3d.mesh(**cortex_kwargs, wireframe = False, flat_shading = False)          
-    
-
-    def _init_overlay(self):
-        """Initialize the cortex overlay mesh."""
-        overlay_kwargs = self._prep_overlay()
-        if overlay_kwargs is None:
-            return self._init_mesh()
-        return k3d.mesh(**overlay_kwargs, wireframe = False, flat_shading = False)
-
-
-    def _init_points(self):
-        """Initialize an empty and invisible points plot."""
-        points = k3d.points(
-            positions = self._empty_coordinates(),
-            colors    = self._empty_colors(), 
-            shader    = "3d"
-        )
-        points.visible = False
-        return points
-
-
-    def _init_line(self):
-        """Initialize an empty and invisible line plot."""
-        line = k3d.line(
-            vertices = self._empty_coordinates(),
-            colors   = self._empty_colors(), 
-            width    = 0.1, 
-            shader   = "mesh"
-        )
-        line.visible = False
-        return line
-
-
-    def _init_active_annotation(self):
-        """Initialize the line and points for the active annotation."""
-        active_kwargs = self._prep_active_annotation()
-        if active_kwargs is None:
-            return ( self._init_line(), self._init_points() )
-        return (
-            k3d.line(**active_kwargs["line"], shader = "mesh"),
-            k3d.points(**active_kwargs["points"], shader = "3d"), 
-        )
-
-
-    def _init_background_annotations(self):
-        """Initialize the points plot for the background annotations."""
-        background_kwargs = self._prep_background_annotations()
-        if background_kwargs is None:
-            return ( self._init_line(), self._init_points() )
-        return (
-            k3d.line(**background_kwargs["line"], shader = "mesh"),
-            k3d.points(**background_kwargs["points"], shader = "3d")
-        )
 
     # Prepare Cortex Methods ---------------------------------------------------
 
     def _prep_cortex(self):
         """Prepare the data dict for the cortex mesh k3d object."""
-        vertices  = self.viewer.coordinates.T
-        indices   = self.viewer.faces
-        curvature = self._rgb_to_k3dcolor(self.viewer.curvature)
+        curvature = self._rgb_to_k3dcolor(self.viewer.overlays["curvature"])
         return { 
-            "vertices" : vertices.astype(np.float32), 
-            "indices"  : indices.T.astype(np.uint32), 
+            "vertices" : self.viewer.coordinates.astype(np.float32), 
+            "indices"  : self.viewer.faces.astype(np.uint32), 
             "colors"   : curvature.astype(np.uint32) 
         }
     
-
     # Prepare Overlay Methods --------------------------------------------------
 
     def _prep_overlay(self):
         """Prepare the data dict for the cortex overlay mesh k3d object."""
-        if self.viewer.style["overlay"] == "curvature":
-            return None
+        # If overlay style is curvature, no additional overlay
+        overlay_name = self.viewer.style["overlay"]
+        if overlay_name == "curvature": return None
+
+        # Else, get overlay values and return with opactity.
+        overlay_values = self.viewer.overlays[overlay_name]
         return {
             **self._prep_cortex(),
-            "colors"  : self._rgb_to_k3dcolor(self.viewer.overlay),
+            "colors"  : self._rgb_to_k3dcolor(overlay_values),
             "opacity" : float(self.viewer.style["overlay_alpha"])
         }
     
@@ -240,7 +176,7 @@ class CortexViewerPanel(ipw.VBox):
 
     def _prep_active_annotation(self):
         """Prepare the data for the active annotation."""
-        # Get the currnet active surface annotation
+        # Get the current active surface annotation
         annotation         = self.state.annotation
         surface_annotation = self.state.surface_annotations[annotation]
 
@@ -254,7 +190,7 @@ class CortexViewerPanel(ipw.VBox):
         if not annotation_style["visible"]: return None
 
         # Get number of annotation vertex (line) coordinates and point types
-        vertices    = coordinates.T.astype(np.float32)
+        vertices    = coordinates.astype(np.float32)
         positions   = vertices.copy() # copy!
         point_types = surface_annotation.get("point_types", None)
 
@@ -360,6 +296,81 @@ class CortexViewerPanel(ipw.VBox):
             }
         }
     
+
+    # Initialize Methods -------------------------------------------------------
+
+    def _init_mesh(self):
+        """Initialize an empty and invisible mesh."""
+        mesh = k3d.mesh(
+            vertices     = self._empty_coordinates(), 
+            indices      = self._empty_indices(),
+            colors       = self._empty_colors(),
+            wireframe    = False,
+            flat_shading = False
+        )
+        mesh.visible = False
+        return mesh
+
+
+    def _init_cortex(self):
+        """Initialize the cortex mesh."""
+        cortex_kwargs = self._prep_cortex()
+        return k3d.mesh(**cortex_kwargs, wireframe = False, flat_shading = False)          
+    
+
+    def _init_overlay(self):
+        """Initialize the cortex overlay mesh."""
+        overlay_kwargs = self._prep_overlay()
+        if overlay_kwargs is None: 
+            return self._init_mesh()
+        return k3d.mesh(**overlay_kwargs, wireframe = False, flat_shading = False)
+
+
+    def _init_points(self):
+        """Initialize an empty and invisible points plot."""
+        points = k3d.points(
+            positions = self._empty_coordinates(),
+            colors    = self._empty_colors(), 
+            shader    = "3d"
+        )
+        points.visible = False
+        return points
+
+
+    def _init_line(self):
+        """Initialize an empty and invisible line plot."""
+        line = k3d.line(
+            vertices = self._empty_coordinates(),
+            colors   = self._empty_colors(), 
+            width    = float(self.state.viewer.style["line_width"]),
+            shader   = "mesh"
+        )
+        line.visible = False
+        return line
+
+
+    def _init_annotations(self, layer):
+        """Initialize the line and points for the given annotation layer."""
+        # Validate the annotation layer name.
+        if layer not in ( "active", "background" ): 
+            raise ValueError(f"Invalid annotation layer: {layer}")
+
+        # Initialize the annotations for the given layer.
+        if layer == "active": 
+            k3d_kwargs = self._prep_active_annotation()
+        elif layer == "background": 
+            k3d_kwargs = self._prep_background_annotations()
+    
+        # If None, return empty lines and points layers.
+        if k3d_kwargs is None: 
+            return ( self._init_line(), self._init_points() )
+
+        # If layer, return k3d lines and points for the given annotation layer.
+        return (
+            k3d.line(**k3d_kwargs["line"], shader = "mesh"),
+            k3d.points(**k3d_kwargs["points"], shader = "3d"), 
+        )
+
     # Figure Clear Method ------------------------------------------------------
 
     def clear_figure(self):

@@ -14,7 +14,6 @@ translated into figure-coordinate mutations and forwarded to FigurePanelState.
 
 # Imports ######################################################################
 
-import threading
 import numpy as np
 import ipycanvas as ipc
 import ipywidgets as ipw
@@ -36,10 +35,6 @@ class CanvasPanel(ipw.HBox):
         Layer 2: active annotation (with cursor)
         Layer 3: loading screen
         Layer 4: messages (errors, warnings)
-
-    All annotation state (points, cursor, fixed points, etc.) is read from
-    the shared ``FigurePanelState``. The canvas only owns rendering-specific
-    data: the multicanvas widget, figure pixel size, and coordinate transforms.
     """
 
     class LoadingContext:
@@ -73,19 +68,17 @@ class CanvasPanel(ipw.HBox):
     # A traitlet that increments whenever the annotations change.
     _annotation_change = Int(default_value = 0)
 
-    def __init__(self, state):
+    def __init__(self, figure_state, figure_size = 256):
         """Initialize the canvas panel."""
-
-        # Store state (figure state, not annotation tool).
-        self.state = state 
+        # Store figure state.
+        self.state     = figure_state 
+        self.annot_cfg = figure_state.annot_cfg
 
         # Store the figure size (in pixels, cell in grid). 
-        sz = state.preferences["figure_size"]
-        self.figure_size = np.array([sz, sz])
+        self.figure_size = np.array([figure_size, figure_size])
 
         # Get first grid shape from first annotation in state
-        annot0 = list(self.state.annot_cfg.types.keys())[0]
-        grid_shape0 = self.state.annot_cfg.grid_shape[annot0]
+        grid_shape0 = self.annot_cfg.grid_shape[self.annot_cfg.names[0]]
 
         # Calculate the canvas size (in pixels) from figure size and grid shape.
         self.canvas_size = self.figure_size * grid_shape0
@@ -111,24 +104,11 @@ class CanvasPanel(ipw.HBox):
         self.loading_canvas.save()
         self.loading_context = CanvasPanel.LoadingContext(self.loading_canvas)
 
-        # Set up event observers for mouse clicks and key presses.
-        self.multicanvas.on_mouse_down(self.on_mouse_click)
-        self.multicanvas.on_key_down(self.on_key_press)
-
         # Initialize the HBox.
         super().__init__(
             children = [ self._make_html_header(), self.multicanvas ],
             layout   = { "border": "1px solid blue" }
         )
-
-        # Initial update of the canvas.
-        with self.loading_context:
-            self.redraw_canvas()
-
-        # Register as an observer on the figure state.
-        # TODO: I need to understand this better!
-        self.state.observe(self._on_state_change)
-        self.state.observe_message(self._on_message)
 
 
     @classmethod
@@ -141,33 +121,6 @@ class CanvasPanel(ipw.HBox):
             </style>
         """)
 
-    # Observer Callbacks -------------------------------------------------------
-
-    #TODO:
-    def _on_state_change(self, change_type, **kwargs):
-        """Called by FigurePanelState when annotation state changes."""
-        if change_type == "state":
-            # Full state change: resize if grid changed, then redraw everything.
-            self.redraw_canvas()
-
-        elif change_type == "annotations":
-            redraw_bg = kwargs.get("redraw_background", False)
-            self.redraw_annotations(
-                active     = True,
-                background = redraw_bg
-            )
-            self._increment_annotation_change()
-
-        elif change_type == "cursor":
-            self.redraw_annotations(active = True, background = False)
-
-    #TODO:
-    def _on_message(self, message, duration = None):
-        """Called by FigurePanelState to display a transient warning message."""
-        self.write_message(message)
-        if duration is not None:
-            threading.Timer(duration, self.clear_message).start()
-
     # Image Canvas Methods -----------------------------------------------------
 
     def redraw_image(self):
@@ -175,10 +128,75 @@ class CanvasPanel(ipw.HBox):
         with ipc.hold_canvas():
             self.image_canvas.clear()
             self.image_canvas.draw_image(
-                self.state.image, 0, 0,
+                self.state.canvas.image, 0, 0,
                 self.image_canvas.width,
                 self.image_canvas.height
             )
+
+
+    # Canvas to Figure Coordinate Conversion -----------------------------------
+
+    def canvas_to_figure(self, points):
+        """Convert an (N, 2) matrix of canvas pixel coordinates to figure coordinates."""
+        # Check the shape of the input and convert it into an `N x 2` matrix if necessary.
+        points = np.asarray(points)
+        if len(points.shape) == 1:
+            return self.canvas_to_figure([points])[0]
+
+        # Apply grid mod to wrap points into a single cell.
+        (figure_width, figure_height) = self.figure_size
+        points = points % [figure_width, figure_height]
+
+        # Get figure limits.
+        xlim, ylim = self.state.canvas.xlim, self.state.canvas.ylim
+        xlim = (0, figure_width)  if xlim is None else xlim
+        ylim = (0, figure_height) if ylim is None else ylim
+
+        # We need to invert the y axis.
+        points[:, 1] = figure_height - points[:, 1]
+
+        # Now, make the conversion.
+        points *= [(xlim[1] - xlim[0]) / figure_width,
+                   (ylim[1] - ylim[0]) / figure_height]
+        points += [xlim[0], ylim[0]]
+
+        # Return the converted points.
+        return points
+
+
+    def figure_to_canvas(self, points):
+        """Convert an (N, 2) matrix of figure coordinates to canvas pixel coordinates.
+
+        Returns a list of (N, 2) matrices, one per non-None cell in the grid.
+        """
+        # Check the shape of the input and convert it into an `N x 2` matrix if necessary.
+        points = np.asarray(points)
+        if len(points.shape) == 1: 
+            return self.figure_to_canvas([points])[0]
+
+        # Get the figure limits.
+        (figure_width, figure_height) = self.figure_size
+        xlim, ylim = self.state.canvas.xlim, self.state.canvas.ylim
+        xlim = (0, figure_width)  if xlim is None else xlim
+        ylim = (0, figure_height) if ylim is None else ylim
+
+        # Scale to pixel coordinates.
+        points  = points - [xlim[0], ylim[0]]
+        points *= [figure_width  / (xlim[1] - xlim[0]),
+                figure_height / (ylim[1] - ylim[0])]
+
+        # Invert the y axis.
+        points[:, 1] = figure_height - points[:, 1]
+
+        # And build up the point matrices for each (not None) grid element.
+        (n_rows, n_cols) = self.state.canvas.grid_shape
+        return [
+            points + [ii * figure_width, jj * figure_height]
+            for ii in np.arange(n_cols)
+            for jj in np.arange(n_rows)
+            if self.state.canvas.grid[jj][ii] is not None
+        ]
+
 
     # Annotation Canvas Methods ------------------------------------------------
 
@@ -213,13 +231,13 @@ class CanvasPanel(ipw.HBox):
             fixed_tail = self.state.fixed_tails.get(annotation, None) is not None
 
             # Get the style for this annotation.
-            style = self.state.style(styletag)
+            style = self.state.canvas.style(styletag)
 
             # Skip, if the annotation is not visible.
             if not style["visible"]: continue
 
             # Check if the path is closed (only boundaries are closed).
-            atype  = self.state.annot_cfg.types[annotation]
+            atype  = self.annot_cfg.type[annotation]
             closed = atype == "boundary"
 
             # Convert figure points to canvas coordinates (repeated per panel).
@@ -407,151 +425,5 @@ class CanvasPanel(ipw.HBox):
     def clear_message(self):
         """Clear the current message canvas."""
         self.message_canvas.clear()
-
-    # Canvas Resizing Method ---------------------------------------------------
-
-    def resize_canvas(self, new_figure_size = None):
-        """Resize the canvas so that each grid cell has the given pixel size.
-
-        Triggers a full redraw because resizing clears the canvas.
-        """
-        # If there is no new_figure_size give, we just use the current figure size.
-        if new_figure_size is None:
-            new_figure_size = self.figure_size
-
-        # Update the figure size (pixels per grid cell).
-        self.figure_size = np.array([new_figure_size, new_figure_size])
-
-        # The canvas size is a product of the figure size and the grid shape.
-        self.canvas_size = self.figure_size * np.array(self.state.grid_shape)
-        canvas_width, canvas_height = self.canvas_size.astype(int)
-
-        # Resize the multicanvas (this clears it).
-        self.multicanvas.width         = canvas_width
-        self.multicanvas.height        = canvas_height
-        self.multicanvas.layout.width  = f"{canvas_width}px"
-        self.multicanvas.layout.height = f"{canvas_height}px"
-
-        # Redraw everything.
-        self.redraw_canvas()
-
-    # Redraw Multicanvas Method ------------------------------------------------
-
-    #TODO: we gotta make sure the state is propertly updated
-    def redraw_canvas(self, redraw_image = True, redraw_annotations = True):
-        """Redraw the entire canvas."""
-        
-        # Uhhh....      
-        # TODO: there was a lot of code the updated the image, grid, grid_shape, 
-        # xlim, and ylim in the state. moved elsewhere, but double-check 
-
-        # Redraw the loading canvas.
-        if redraw_image or redraw_annotations:
-            self.loading_canvas.restore()
-
-        # Redraw layers.
-        with ipc.hold_canvas():
-            if redraw_image:
-                self.redraw_image()
-            if redraw_annotations:
-                self.redraw_annotations()
-                self._increment_annotation_change()
-
-    # Canvas to Figure Coordinate Conversion -----------------------------------
-
-    def canvas_to_figure(self, points):
-        """Convert an (N, 2) matrix of canvas pixel coordinates to figure coordinates."""
-        # Check the shape of the input and convert it into an `N x 2` matrix if necessary.
-        points = np.asarray(points)
-        if len(points.shape) == 1:
-            return self.canvas_to_figure([points])[0]
-
-        # Apply grid mod to wrap points into a single cell.
-        (figure_width, figure_height) = self.figure_size
-        points = points % [figure_width, figure_height]
-
-        # Get figure limits.
-        xlim = (0, figure_width)  if self.state.xlim is None else self.state.xlim
-        ylim = (0, figure_height) if self.state.ylim is None else self.state.ylim
-
-        # We need to invert the y axis.
-        points[:, 1] = figure_height - points[:, 1]
-
-        # Now, make the conversion.
-        points *= [(xlim[1] - xlim[0]) / figure_width,
-                   (ylim[1] - ylim[0]) / figure_height]
-        points += [xlim[0], ylim[0]]
-
-        # Return the converted points.
-        return points
-
-
-    def figure_to_canvas(self, points):
-        """Convert an (N, 2) matrix of figure coordinates to canvas pixel coordinates.
-
-        Returns a list of (N, 2) matrices, one per non-None cell in the grid.
-        """
-        # Check the shape of the input and convert it into an `N x 2` matrix if necessary.
-        points = np.asarray(points)
-        if len(points.shape) == 1: 
-            return self.figure_to_canvas([points])[0]
-
-        # Get the figure limits.
-        (figure_width, figure_height) = self.figure_size
-        xlim = (0, figure_width)  if self.state.xlim is None else self.state.xlim
-        ylim = (0, figure_height) if self.state.ylim is None else self.state.ylim
-
-        # Scale to pixel coordinates.
-        points  = points - [xlim[0], ylim[0]]
-        points *= [figure_width  / (xlim[1] - xlim[0]),
-                   figure_height / (ylim[1] - ylim[0])]
-
-        # Invert the y axis.
-        points[:, 1] = figure_height - points[:, 1]
-
-        # And build up the point matrices for each (not None) grid element.
-        (n_rows, n_cols) = self.state.grid_shape
-        return [
-            points + [ii * figure_width, jj * figure_height]
-            for ii in np.arange(n_cols)
-            for jj in np.arange(n_rows)
-            if self.state.grid[jj][ii] is not None
-        ]
-
-    # Mouse Event Handler Methods ----------------------------------------------
-
-    def on_mouse_click(self, x, y):
-        """Handle a mouse click on the canvas."""
-        # If the figure is locked, we do not allow events.
-        if self.state.locked: return
-
-        # Convert canvas pixel coordinates to figure coordinates.
-        point = np.array([[x, y]]) # must be (N, 2) matrix
-        figure_point = self.canvas_to_figure(point)
-
-        # Push annotation to the state. TODO
-        self.state.push_point(figure_point)
-
-    # Key Press Event Handler Methods ------------------------------------------
-
-    def on_key_press(self, key, shift_down, ctrl_down, meta_down):
-        """Handle a key press on the canvas."""
-        # If the figure is locked, we do not allow events.
-        if self.state.locked: return
-
-        # Handle the key press.
-        key = key.lower()
-        if key == "tab":
-            # Toggle the cursor (active) position.
-            self.state.toggle_cursor()
-        elif key == "backspace":
-            # Delete current cursor (active) point.
-            self.state.pop_point()
-        else: 
-            pass
-
-    # Internal Helpers ---------------------------------------------------------
-
-    def _increment_annotation_change(self):
         """Increments the annotation change traitlet after redraw triggers."""
         self._annotation_change += 1
