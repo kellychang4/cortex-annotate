@@ -62,11 +62,11 @@ class AnnotationTool(ipw.HBox):
         )
 
         # Give the figure the initial image to plot.
-        with self.state.loading_context:
-            self.refresh_figure()
+        # with self.state.loading_context:
+        #     self.refresh_figure()
 
         # And a listener for the selection change.
-        self.control_panel.observe_selection(self.on_selection_change)
+        # self.control_panel.observe_selection(self.on_selection_change)
 
         # Add a listener for the figure size change.
         # self.control_panel.observe_figure_size(self.on_figure_size_change)
@@ -81,7 +81,7 @@ class AnnotationTool(ipw.HBox):
         # self.control_panel.observe_save(self.on_save)
 
         # Add a listener for the layout button.
-        self.control_panel.observe_layout(self.on_layout_change)
+        # self.control_panel.observe_layout(self.on_layout_change)
 
     # Tool Locking Methods -----------------------------------------------------
 

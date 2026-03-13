@@ -17,7 +17,7 @@
 # - Figure-generating functions that render panels for each annotation
 #   (`FiguresConfig`).
 # - Cortex viewer configuration, including mesh geometry, coordinates, overlays,
-#   and canvas-to-viewer transforms (`CortexConfig`).
+#   and canvas-to-viewer transforms (`ViewerConfig`).
 # - The top-level `Config` object, which loads `config.yaml` from disk and
 #   exposes each validated section as an attribute.
 # 
@@ -34,7 +34,7 @@ from functools import partial
 from collections import namedtuple
 from numbers import Real, Integral
 
-from ._util import delay, ldict
+from ._util  import delay, ldict
 from ._style import validate_annotation_style
 
 # Configuration Error ----------------------------------------------------------
@@ -148,9 +148,6 @@ class DisplayConfig():
     @staticmethod
     def _init_style(display_yaml, parameter, default = {}):
         """Initializes a style from the display yaml."""
-        # Import for style checking.
-        from ._core import AnnotationState
-
         # Prepare ConfigError arguments for any errors that may arise in this function.
         err = partial(ConfigError, f"display.{parameter}")
 
@@ -201,7 +198,7 @@ class InitConfig:
 
     @ staticmethod
     def _init_code(code):
-        """Initializes the given code string by executing it in the context of the init code."""
+        """Validates and returns the init code string, defaulting to 'None' if omitted."""
         # Prepare ConfigError arguments for any errors that may arise in this function.
         err = partial(ConfigError, "init")
 
@@ -429,7 +426,6 @@ class TargetsConfig(ldict):
             # values and build the values based on the parent key values.
             else:
                 values = concrete_items[parent_value]
-                print(values)
 
             # Check that the values is a list.
             if not isinstance(values, list):
@@ -455,12 +451,11 @@ class TargetsConfig(ldict):
         Each concrete key is resolved in order. Dict-typed keys receive a 
         partial target built from the concrete keys resolved so far.
         """
-
         # Initialize the target keys as a list with one empty tuple.
         targets_keys = [()] 
 
         # For each concrete key, we build up the target keys by taking the
-        # produict of the current target with the previous target keys.
+        # product of the current target with the previous target keys.
         for concrete_key in self.concrete_keys:
             # Initialize the update keys as an empty list. 
             update_keys = [] 
@@ -518,7 +513,15 @@ Annotation = namedtuple(
     field_names = ( "type", "fixed_head", "fixed_tail", "figure_grid", "filter" ),
     defaults    = ( "contour", None, None, None, None )
 )
+Annotation.__doc__ = """A record describing a single annotation specification from config.yaml.
 
+Fields:
+    type: 'contour', 'boundary', or 'point'
+    fixed_head: dict with 'calculate' and 'requires' keys, or None
+    fixed_tail: dict with 'calculate' and 'requires' keys, or None  
+    figure_grid: list of lists of figure name strings (or None)
+    filter: fn(target) → bool, or None
+"""
 
 class AnnotationsConfig(dict):
     """An object that stores the configuration of the annotations to be drawn.
@@ -768,7 +771,7 @@ class FiguresConfig(dict):
     the `config.yaml` file for the `cortex-annotate` project. It resembles a
     Python `dict` object whose keys are the figure names and whose values are
     Python functions (which require the arguments `target`, `key`, `fig`, 
-    `axes`, `figsize`, `dpi`, and `meta_data`) that generate the appropriate 
+    `axes`, `figsize`, `dpi`, and `meta_data`) that generate the appro`pri`ate 
     figure.
     """
     
@@ -805,6 +808,10 @@ class FiguresConfig(dict):
 
     @classmethod
     def _prep_yaml(cls, figures_yaml, init):
+        """Extracts special fields (init, term, wildcard) and prepares the compile function.
+
+        Returns (remaining_yaml, compile_fn, wildcard_fn) where wildcard_fn may be None.
+        """
         # Check that the all fields are code strings if they are not None.
         for key, value in figures_yaml.items():
             if not isinstance(value, str):
@@ -856,12 +863,34 @@ class FiguresConfig(dict):
 # Viewer Configuration ---------------------------------------------------------
 
 class ViewerConfig(dict):
-    """Configuration for the cortex viewer.
+    """Configuration for the 3D cortex viewer, parsed from the `viewer` 
+    section of `config.yaml`.
 
-    - faces: (n_faces, 3) face indices into the vertex array.
-    - coordinates: (n_vertices, 3) vertex coordinates per surface.
-    - overlays: (n_vertices, 3) RGB colors in [0, 1].
-    - canvas_to_viewer: (n_points, 3) function mapping betwen canvas and viewer coordinates.
+    Each field is specified as a Python code string that gets compiled into 
+    a function. The functions are executed lazily when a target is selected.
+
+    Fields
+    ------
+    faces : fn(target) → ndarray, shape (n_faces, 3)
+        Triangle face indices into the vertex array.
+
+    coordinates : dict of {name: fn(target) → ndarray, shape (n_vertices, 3)}
+        Named vertex coordinate sets (e.g. 'midgray', 'inflated'). If a 
+        single code string is given instead of a mapping, it is stored 
+        under the key '_default'.
+
+    morph_between : list of two str, or None
+        Names of two coordinate sets to interpolate between using the 
+        morph slider. Both names must exist in `coordinates`. Optional.
+
+    overlays : dict of {name: fn(target, key) → ndarray, shape (n_vertices, 3)}
+        Per-vertex RGB colors in [0, 1] for surface coloring. Must include
+        a 'curvature' entry (used as the base layer). A wildcard key '_' 
+        provides a fallback for figure names not explicitly listed.
+
+    canvas_to_viewer : fn(target, points, mesh_coordinates) → ndarray, shape (n_points, 3)
+        Converts 2D canvas annotation coordinates (n_points, 2) to 3D 
+        viewer coordinates using the mesh geometry (n_vertices, 3).
     """
     
     def __init__(self, viewer_yaml, figure_names, init):
@@ -884,7 +913,7 @@ class ViewerConfig(dict):
             
             # Prepare the morph_between field, optional.
             viewer_dict["morph_between"] = self._init_morph_between(
-                viewer_yaml.copy(), viewer_dict["coordinates"], init)
+                viewer_yaml.copy(), viewer_dict["coordinates"])
 
             # Prepare the overlays field.
             viewer_dict["overlays"] = self._init_overlays(
@@ -894,7 +923,7 @@ class ViewerConfig(dict):
             viewer_dict["canvas_to_viewer"] = self._init_canvas_to_viewer(
                 viewer_yaml.copy(), init)
         
-        # Update CortexConfig class dictionary.
+        # Update ViewerConfig class dictionary.
         self.update(viewer_dict)
 
 
@@ -915,7 +944,7 @@ class ViewerConfig(dict):
 
         # Check that faces is a string/code
         if not isinstance(faces, str):
-            raise ConfigError("cortex.faces", "faces must be a code string.")
+            raise ConfigError("viewer.faces", "faces must be a code string.")
 
         # Compile the faces code string into a function.
         faces = ViewerConfig._compile_fn(init, "target", faces)
@@ -936,7 +965,7 @@ class ViewerConfig(dict):
 
         # Check that coordinates is a string/code
         if not isinstance(coordinates, (str, dict)):
-            raise ConfigError("cortex.coordinates", 
+            raise ConfigError("viewer.coordinates", 
                 "`coordinates` must be a code string or mapping."
             )
         
@@ -948,7 +977,7 @@ class ViewerConfig(dict):
         # Check that all mappings are strings/code.
         for key, value in coordinates.items():
             if not isinstance(value, str):
-                raise ConfigError(f"cortex.coordinates.{key}", 
+                raise ConfigError(f"viewer.coordinates.{key}", 
                     "Coordinate mapping values must be code strings.")
          
         # return dictionary of compile functions per coordinates
@@ -968,18 +997,18 @@ class ViewerConfig(dict):
         # Extract the coordinates field from the yaml.
         morph_between = viewer_yaml.get("morph_between", None)
 
-        # This is an optioanl field, so if None, return None.
+        # This is an optional field, so if None, return None.
         if morph_between is None: return None
         
         # If provided, must be a list of length two.
         if not isinstance(morph_between, list) or len(morph_between) != 2:
-            raise ConfigError("cortex.morph_between", 
+            raise ConfigError("viewer.morph_between", 
                 "`morph_between` must be a list of length two.")
 
         # If provided, both surfaces must be available in the coordinates dict.
         for surface_name in morph_between: 
             if surface_name not in coordinates:
-                raise ConfigError("cortex.morph_between", 
+                raise ConfigError("viewer.morph_between", 
                     f"Unable to find `{surface_name}` coordinates.")
         
         # Return inflate between list.
@@ -994,15 +1023,15 @@ class ViewerConfig(dict):
         giving per-vertex RGB colors in [0, 1] for the surface used in the
         cortex viewer. 
 
-        If on overlay is give, assumes it is the required curvature. Otherwise, 
-        will search for a curvature field in the mapping.
+        If one overlay is given, assumes it is the required curvature. 
+        Otherwise, will search for a curvature field in the mapping.
         """
         # If there is a wildcard key, extract out.
         overlays = viewer_yaml.get("overlays", None)
 
         # Check that overlays is a string/code
         if not isinstance(overlays, (str, dict)):
-            raise ConfigError("cortex.overlays", 
+            raise ConfigError("viewer.overlays", 
                 "`overlays` must be a code string or mapping."
             )
 
@@ -1014,7 +1043,7 @@ class ViewerConfig(dict):
         # Check that all mappings are strings/code.
         for key, value in overlays.items():
             if not isinstance(value, str):
-                raise ConfigError(f"cortex.overlays.{key}", 
+                raise ConfigError(f"viewer.overlays.{key}", 
                     "Overlay mapping values must be code strings.")
          
         # Locate wildcard key, if provided.
@@ -1031,7 +1060,7 @@ class ViewerConfig(dict):
             if key not in overlays.keys():
                 if wildfn is None:
                     raise ConfigError(
-                        f"cortex.overlays.{key}", 
+                        f"viewer.overlays.{key}", 
                         f"Missing code for figure '{key}' and "
                         f"no wildcard provided."
                     )
@@ -1058,7 +1087,7 @@ class ViewerConfig(dict):
 
         # Check that canvas_to_viewer is a string/code
         if not isinstance(canvas_to_viewer, str):
-            raise ConfigError("cortex.canvas_to_viewer", 
+            raise ConfigError("viewer.canvas_to_viewer", 
                 "`canvas_to_viewer` must be a code string."
             )
     
@@ -1081,11 +1110,14 @@ class Config:
     config item in the `config.yaml` file. Additional top-level items that are
     not recognized by `Config` are not parsed, but they are available in the
     `Config.yaml` member variable.
+
+    Required sections: targets, annotations, figures
+    Optional sections: display, init, viewer
     """
     
     __slots__ = (
         "config_path", "yaml", "display", "init", "targets", "annotations", 
-        "figures", "cortex" 
+        "figures", "viewer" 
     )
     
     def __init__(self, config_path = "/config/config.yaml"):

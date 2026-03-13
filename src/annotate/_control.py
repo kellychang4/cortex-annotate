@@ -1,16 +1,14 @@
 # -*- coding: utf-8 -*-
 ################################################################################
 # annotate/_control.py
-
-"""Core implementation code for the annotation tool's control panel.
-
-This file contains code for managing the panel's widget and window state. The
-design intention is that the `AnnotationTool` (in `_core.py`) creates and
-observes changes from the control panel (such as changes in the selection or
-changes in the style parameters) and passes these on to the `FigurePanel` object
-in `_figure.py` as appropriate.
-"""
-
+#
+# Core implementation code for the annotation tool's control panel.
+# 
+# This file contains code for managing the panel's widget and window state. The
+# design intention is that the `AnnotationTool` (in `_core.py`) creates and
+# observes changes from the control panel (such as changes in the selection or
+# changes in the style parameters) and passes these on to the `FigurePanel` object
+# in `_figure.py` as appropriate.
 
 # Imports ----------------------------------------------------------------------
 
@@ -20,7 +18,7 @@ from functools import partial
 
 from ._widgets import make_section_title, make_hline, darken_color
 
-# The Selection Subpanel Widget ------------------------------------------------
+# The Selection Subpanel -------------------------------------------------------
 
 class SelectionPanel(ipw.VBox):
     """The subpanel of the control panel for target selection."""
@@ -249,7 +247,7 @@ class SelectionPanel(ipw.VBox):
         self.observe_target(fn)
         self.observe_annotation(partial(fn, None))
 
-# The Legend Subpanel Widget ---------------------------------------------------
+# The Legend Subpanel ----------------------------------------------------------
 
 class LegendPanel(ipw.VBox):
     """The subpanel of the control panel containing the legend controls."""
@@ -304,7 +302,7 @@ class LegendPanel(ipw.VBox):
             image_path = op.join(self.image_dir, "empty.png")
         self.image_widget.value = self._read_image(image_path)
 
-# The Style Subpanel Widget ----------------------------------------------------
+# The Style Subpanel -----------------------------------------------------------
 
 class StylePanel(ipw.VBox):
     """The subpanel of the control panel containing the style controls."""
