@@ -18,7 +18,7 @@ import os.path as op
 import ipywidgets as ipw
 from functools import partial
 
-from ._util import make_section_title, make_hline, darken_color
+from ._widgets import make_section_title, make_hline, darken_color
 
 # The Selection Subpanel Widget ------------------------------------------------
 

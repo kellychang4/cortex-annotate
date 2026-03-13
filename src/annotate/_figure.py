@@ -11,6 +11,7 @@ Implementation code for the Figure Panel.
 import threading
 import numpy as np
 import ipywidgets as ipw
+from functools import partial
 
 from ._canvas import CanvasPanel
 from ._viewer import CortexViewerPanel
@@ -24,6 +25,7 @@ class FigurePanelState:
     POINT_FIXED  = 2  # fixed head/tail point
     POINT_USER   = 1  # user-placed point
     POINT_INTERP = 0  # interpolated point (between user/fixed points)
+
 
     class CanvasState:
         def __init__(self):
@@ -43,10 +45,8 @@ class FigurePanelState:
             self.overlays     = {}   # (n_vertices, 3) array of overlay RGB colors
 
             # Viewer annotations (surface!!!)
-            # TODO not really happy with what is expected of thsi function
             self.canvas_to_viewer = None # function to convert canvas coordinates to viewer coordinates
-            self.annotations = {}             # Dict of annotation_name → { "coordinates", "point_types" }
-
+            self.annotations = {} # Dict of annotation_name → { "coordinates", "point_types" }
 
             # Style settings for the viewer.
             self.style = {
@@ -145,7 +145,6 @@ class FigurePanelState:
 
 
     # Cortex Viewer Annotation Methods -----------------------------------------
-
     
     def _interpolate_coordinates(self, coordinates, point_types):
         """Interpolate coordinates along the annotation path."""
@@ -194,8 +193,8 @@ class FigurePanelState:
 
     def update_viewer_annotations(self, annotations = None):
         """Update cortical viewer annotations for each annotation."""
-        #TODO: this function is outta control
-        if annotations is None: annotations = self.annot_cfg.names
+        # Determine the annotations to update. If None, update all annotations.
+        if annotations is None: annotations = self.annot_cfg.names.copy()
 
         # Convert each canvas (2d) annotation to viewer (3d) coordinates
         for key in annotations: # for each annotation to update
@@ -234,10 +233,7 @@ class FigurePanelState:
 
             # Calculate viewer coordinates from canvas (interpolated) coordinates
             viewer_coordinates = self.viewer.canvas_to_viewer(
-                canvas_points.T, self.viewer.coordinates.T)
-    
-            # NOTE: canvas_points (2, n_points), viewer_coordinates (3, n_points)
-            # need to edit so that this is clearer
+                canvas_points, self.viewer.coordinates)
 
             # Store viewer annotations coordinates and point types
             self.viewer.annotations[key] = {
@@ -338,30 +334,31 @@ class FigurePanelState:
             target      = self.annot_state.config.targets[self.target]
 
             # Prepare the viewer faces values
-            self.viewer.faces = cortex_dict["faces"](target, None)
+            self.viewer.faces = cortex_dict["faces"](target)
 
             # Prepare the internal coordinates, depends on morph_between
             morph_between = cortex_dict.get("morph_between", None)
+            print(f"morph_between: {morph_between}")
             if morph_between is None: morph_between = [ "_default" ]
+            print(f"morph_between: {morph_between}")
             self.viewer._coordinates = [
-                cortex_dict["coordinates"][coordinate_name](target, None)
+                cortex_dict["coordinates"][coordinate_name](target)
                 for coordinate_name in morph_between
             ]
 
             # Prepare the canvas to viewer function
-            self.viewer.canvas_to_viewer = cortex_dict["canvas_to_viewer"](target, None)
+            self.viewer.canvas_to_viewer = partial(
+                cortex_dict["canvas_to_viewer"], target)
             print(f"self.viewer.canvas_to_viewer: {self.viewer.canvas_to_viewer}")
+
+            # Update the viewer annotatations (all annotations)
+            self.update_viewer_annotations()
             
             # Prepare the overlay values 
             self.viewer.overlays = {
                 key: overlay_fn(target, key)
                 for key, overlay_fn in cortex_dict["overlays"].items()
             } 
-
-        # Update the viewer annotatations TODO: i do not think this is the correct condition
-        # if self.viewer.annotations == {} or prev_annotation != self.active:
-        self.update_viewer_annotations()
-        # self.viewer.viewer_annotations[self.active] = update
         
 
     # Recalculate Dependencies -------------------------------------------------
@@ -452,11 +449,10 @@ class FigurePanelState:
 
         # Update dependent annotations, if this active annotation has them.
         fixed_deps = self.annot_cfg.fixed_dependencies[self.active]
-        has_deps   = len(fixed_deps) > 0
-        if has_deps: self._recalculate_deps(self.active)
+        if len(fixed_deps) > 0: self._recalculate_deps(self.active)
 
-        # Return if there were dependencies
-        return has_deps
+        # Return fixed dependencies
+        return fixed_deps
 
 
     # Toggle Cursor Method -----------------------------------------------------
@@ -505,8 +501,7 @@ class FigurePanelState:
         # we cannot delete the last point of this annotation because the 
         # dependent annotations rely on it. 
         fixed_deps = self.annot_cfg.fixed_dependencies[self.active]
-        has_deps   = len(fixed_deps) > 0
-        if has_deps and self.editable.shape[0] == 1:
+        if len(fixed_deps) > 0 and self.editable.shape[0] == 1:
             # Determine the number of fixed points for each dependent 
             # annotation. This number is the minimum number of points that the 
             # annotation must have be considered LIVE.
@@ -559,12 +554,12 @@ class FigurePanelState:
         self.annotations[self.active] = points
 
         # Update dependent annotations, if this active annotation has them.
-        if has_deps: self._recalculate_deps(self.active)
+        if len(fixed_deps) > 0: self._recalculate_deps(self.active)
 
-        # Return if there were dependencies
-        return has_deps
+        # Return fixed dependencies
+        return fixed_deps
+
     
-
     # Figure Size Methods ------------------------------------------------------
 
     # def figure_size(self, new_figure_size = None):
@@ -677,10 +672,14 @@ class FigurePanel(ipw.Box):
         if self.annot_state.locked: return
 
         # Push points (in figure coordinates) to the state. 
-        hasdeps = self.figure_state.push_point(points)
+        fixed_deps = self.figure_state.push_point(points)
+        
+        # Update the viewer annotations (active + dependencies).
+        self.figure_state.update_viewer_annotations(
+            annotations = [ self.figure_state.active, *fixed_deps ])
 
         # Redraw canvas and viewer.
-        self.redraw(active = True, background = hasdeps) 
+        self.redraw(active = True, background = len(fixed_deps) > 0)
 
     # Key Press Event Handler Methods ------------------------------------------
 
@@ -690,21 +689,24 @@ class FigurePanel(ipw.Box):
         if self.annot_state.locked: return
 
         # Handle the key press.
+        fixed_deps = []
         key = key.lower()
         if key == "tab":
             # Toggle the cursor (active) position. 
-            self.figure_state.toggle_cursor()
-            # Toggling does not modify annotations, so no dependencies.
-            hasdeps = False 
+            self.figure_state.toggle_cursor()            
         elif key == "backspace":
             # Delete current cursor (active) point.
-            hasdeps = self.figure_state.pop_point()
+            fixed_deps = self.figure_state.pop_point()
+
+            # Update the viewer annotations (active + dependencies).
+            self.figure_state.update_viewer_annotations(
+                annotations = [ self.figure_state.active, *fixed_deps ])
         else: 
             # Unrecognized key press, can skip redrawing
             return 
 
         # Redraw canvas because of annotation change 
-        self.redraw(active = True, background = hasdeps) 
+        self.redraw(active = True, background = len(fixed_deps) > 0) 
 
     # Canvas Resizing Method ---------------------------------------------------
 

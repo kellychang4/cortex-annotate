@@ -219,7 +219,7 @@ class CortexViewerPanel(ipw.VBox):
 
         # If no coordinates, return None to skip plotting.
         coordinates = viewer_annotation.get("coordinates", None)
-        if coordinates is None or coordinates.shape[1] == 0: return None
+        if coordinates is None or coordinates.shape[0] == 0: return None
 
         # Get the annotation style from the styler (active = None)
         # If not visible, return None to skip plotting.
@@ -241,8 +241,9 @@ class CortexViewerPanel(ipw.VBox):
         n_points    = positions.shape[0]
 
         # Prepare scatter sizes by points type (slightly larger fixed points)
-        point_sizes = np.full(n_points, self.state.style["point_size"])
-        point_sizes[point_types == self.state.POINT_FIXED] = self.state.style["point_size"] * 1.25
+        point_sizes = np.full(n_points, self.state.viewer.style["point_size"])
+        point_sizes[point_types == self.state.POINT_FIXED] = \
+            self.state.viewer.style["point_size"] * 1.25
 
         # Prepare colors for each annotation point
         annotation_color = self._rgb_to_k3dcolor(annotation_style["color"])
@@ -251,7 +252,7 @@ class CortexViewerPanel(ipw.VBox):
         return { 
             "line": {
                 "vertices" : vertices.astype(np.float32),
-                "width"    : float(self.state.style["line_width"]),
+                "width"    : float(self.state.viewer.style["line_width"]),
                 "colors"   : np.full(vertices.shape[0], annotation_color, dtype = np.uint32)
             },
             "points": {
@@ -265,9 +266,9 @@ class CortexViewerPanel(ipw.VBox):
 
     def _prep_background_annotations(self):
         """Prepare the data for the background annotations."""
-        # Get the list of annotations excluding the selected one
+        # Get the list of annotations excluding the active one
         annotation      = self.state.active
-        annotation_list = self.state.annot_cfg.names
+        annotation_list = self.state.annot_cfg.names.copy()
         annotation_list.remove(annotation)
         
         # Initialize empty arrays for all coordinates and colors
@@ -281,12 +282,12 @@ class CortexViewerPanel(ipw.VBox):
         color_sep = np.array([0], dtype = np.uint32)
 
         for annotation in annotation_list: # for each annotation
-            # Get the surface annotation and style for the annotation
+            # Get the current viewer annotation.
             viewer_annotation = self.state.viewer.annotations[annotation]
 
             # If no coordinates, skip processing.
             coordinates = viewer_annotation.get("coordinates", None)
-            if coordinates is None or coordinates.shape[1] == 0: continue
+            if coordinates is None or coordinates.shape[0] == 0: continue
 
             # Get the annotation style from the styler (active = None)
             # If not visible, return None to skip plotting.
@@ -323,12 +324,12 @@ class CortexViewerPanel(ipw.VBox):
         return { 
             "line": {
                 "vertices" : all_vertices.astype(np.float32),
-                "width"    : float(self.state.style["line_width"] * 0.5), 
+                "width"    : float(self.state.viewer.style["line_width"] * 0.5), 
                 "colors"   : all_lcolors.astype(np.uint32)
             },
             "points": {
                 "positions"  : all_positions.astype(np.float32), 
-                "point_size" : float(self.state.style["point_size"] * 0.5),
+                "point_size" : float(self.state.viewer.style["point_size"] * 0.5),
                 "colors"     : all_pcolors.astype(np.uint32)
             }
         }
@@ -414,85 +415,6 @@ class CortexViewerPanel(ipw.VBox):
         if active or background:
             self.refresh_points(active = active, background = background)
 
-        # Re-enable auto-rendering and trigger a single render after all updates are applied.
+        # Re-enable auto-rendering and trigger render after all updates are applied.
         self.figure.auto_rendering = True
         self.figure.render()
-
-
-    #     # Assign user annotation input observers
-    #     self.state.observe_annotation_change(self.on_annotation_change)
-
-    #     # Assign style option observers
-    #     for key in self._style_observers.keys():
-    #         self._style_observers[key](partial(self.on_style_change, key)) 
-
-    # @property
-    # def _style_observers(self):
-    #     """Return a list of observer functions for the Cortex Viewer style."""
-    #     return {
-    #         # "inflation_percent" : self.control_panel.observe_inflation_slider, 
-    #         # "overlay"           : self.control_panel.observe_overlay_dropdown, 
-    #         # "overlay_alpha"     : self.control_panel.observe_overlay_slider, 
-    #         # "point_size"        : self.control_panel.observe_point_size_slider, 
-    #         # "line_width"        : self.control_panel.observe_line_width_slider,
-    #         # "line_interp"       : self.control_panel.observe_line_interp_slider, 
-    #         "annotation_style"  : self.state.observe_annotation_styles,
-    #     }
-    
-
-    # def on_selection_change(self, key, change):
-    #     """Handle changes to the dataset selection."""
-    # # Update the cortex viewer state based on selection change
-    #     if key == "targets":
-    #         self.state.update_flatmap_annotations()
-    #         self.state.update_surface_annotations()
-    #         clear, cortex, points = True, True, True
-    #     else: # key == "annotation"
-    #         clear, cortex, points = False, False, True
-
-    #     # Refresh the figure.
-    #     self.figure_panel.refresh_figure(
-    #         clear = clear, cortex = cortex, points = points)
-
-
-    # def on_annotation_change(self, _):
-    #     """Handle update when the user changes the annotation data."""
-    #     # Update the surface annotations based on the new annotation data
-    #     self.state.update_surface_annotations()
-        
-    #     # Refresh the figure with annotation changes
-    #     self.figure_panel.refresh_figure(
-    #         clear = False, cortex = False, points = True)
-        
-
-    # def on_style_change(self, key, change):
-    #     """Handle changes to the style option changes."""
-    #     # Change style based on key value
-    #     if key != "annotation_style":
-    #         self.state.style[key] = change.new
-
-    #     # Update the mesh color based on the new overlay
-    #     if key == "inflation_percent":
-    #         self.state.update_coordinates()
-    #         self.state.update_mesh()
-    #         self.state.update_overlay()
-    #         self.state.update_surface_coordinates()
-    #         clear, cortex, points = False, True, True
-    #     elif key == "overlay":
-    #         self.state.update_overlay()
-    #         clear, cortex, points = False, True, False
-    #     elif key == "overlay_alpha":
-    #         clear, cortex, points = False, True, False
-    #     elif key in ( "point_size", "line_width" ):
-    #         clear, cortex, points = False, False, True
-    #     elif key == "line_interp":
-    #         self.state.update_surface_annotations()
-    #         clear, cortex, points = False, False, True
-    #     elif key == "annotation_style":
-    #         clear, cortex, points = False, False, True
-    #     else: 
-    #         raise ValueError(f"Invalid style key: {key}")
-            
-    #     # Update the figure with updated state
-    #     self.figure_panel.refresh_figure(
-    #         clear = clear, cortex = cortex, points = points)

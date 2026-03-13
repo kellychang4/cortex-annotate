@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 ################################################################################
-# annotate/_util.py
+# annotate/_config.py
 #
-# Utility types and functions used in the annotation toolkit.
+# DOCSTRING
 
 
 # Imports ----------------------------------------------------------------------
@@ -14,7 +14,8 @@ from functools import partial
 from collections import namedtuple
 from numbers import Real, Integral
 
-from ._util import delay, ldict, fix_style
+from ._util import delay, ldict
+from ._style import validate_annotation_style
 
 # Configuration Error ----------------------------------------------------------
 
@@ -141,7 +142,7 @@ class DisplayConfig():
             raise err(f"{parameter} must be a mapping")
         
         # Try to make sure the style keys are valid
-        try: fix_style(style)
+        try: validate_annotation_style(style)
         except RuntimeError as e: raise err(e) from e
 
         return style
@@ -876,9 +877,9 @@ class CortexConfig(dict):
 
 
     @staticmethod
-    def _compile_fn(init, code):
+    def _compile_fn(init, argstr, code):
         """Compiles the code strings as a cortex function in the `init` environment."""
-        return init.compile_fn("target, key", f"{code}")
+        return init.compile_fn(argstr, f"{code}")
 
 
     @staticmethod
@@ -892,7 +893,7 @@ class CortexConfig(dict):
             raise ConfigError("cortex.faces", "faces must be a code string.")
 
         # Compile the faces code string into a function.
-        faces = CortexConfig._compile_fn(init, faces)
+        faces = CortexConfig._compile_fn(init, "target", faces)
 
         # Return the compiled function.
         return faces
@@ -923,7 +924,7 @@ class CortexConfig(dict):
          
         # return dictionary of compile functions per coordinates
         return {
-            key: CortexConfig._compile_fn(init, value) 
+            key: CortexConfig._compile_fn(init, "target", value) 
             for key, value in coordinates.items()
         }
 
@@ -978,7 +979,7 @@ class CortexConfig(dict):
         # Locate wildcard key, if provided.
         wildfn = overlays.get("_", None)
         if wildfn is not None:
-            wildfn = CortexConfig._compile_fn(init, wildfn)
+            wildfn = CortexConfig._compile_fn(init, "target, key", wildfn)
             
         # Prepare valid figure names for the overlays, including curvature.
         figure_names = { "curvature" } | set(figure_names)
@@ -995,7 +996,8 @@ class CortexConfig(dict):
                     )
                 key_fn = wildfn
             else: 
-                key_fn = CortexConfig._compile_fn(init, overlays[key])
+                key_fn = CortexConfig._compile_fn(
+                    init, "target, key", overlays[key])
             overlays_dict[key] = key_fn
         return overlays_dict
 
@@ -1013,11 +1015,11 @@ class CortexConfig(dict):
             )
     
         # Compile the faces code string into a function.
-        canvas_to_viewer = CortexConfig._compile_fn(init, canvas_to_viewer)
+        canvas_to_viewer = CortexConfig._compile_fn(
+            init, "target, points, mesh_coordinates", canvas_to_viewer)
          
         # Return the compiled function.
         return canvas_to_viewer
-
 
 
 # Config Object ----------------------------------------------------------------

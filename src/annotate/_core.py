@@ -27,9 +27,9 @@ import matplotlib.pyplot as plt
 from ._config  import Config
 from ._control import ControlPanel
 from ._figure  import FigurePanel
-from ._util    import (
-    ldict, delay, DEFAULT_STYLE
-)
+
+from ._util    import ldict, delay
+from ._style   import DEFAULT_ANNOTATION_STYLE
 
 # The State Manager ############################################################
 
@@ -415,14 +415,14 @@ class AnnotationState:
             preferences = { "style": {}, "figure_size": 256 } 
 
             # For each annotation, set the default style dictionary.
-            # DEFAULT_STYLE << config.display.default_style
-            styledict = DEFAULT_STYLE.copy()
+            # DEFAULT_ANNOTATION_STYLE << config.display.default_style
+            styledict = DEFAULT_ANNOTATION_STYLE.copy()
             styledict = { **styledict, **self.config.display.default_style }
             for annotation in self.config.annotations.keys():
                 preferences["style"][annotation] = styledict.copy()
             
             # Set the annotation for the active style as None.
-            # DEFAULT_STYLE << config.display.default_style << config.display.active_style
+            # DEFAULT_ANNOTATION_STYLE << config.display.default_style << config.display.active_style
             styledict = { **styledict, **self.config.display.active_style }
             preferences["style"][None] = styledict.copy()
 
@@ -651,10 +651,8 @@ class AnnotationTool(ipw.HBox):
                 target_id, annotation, target_annots)
             
             # Redraw the canvas and viewer.
-            #TODO: might need to change which are active for what
             self.figure_panel.redraw(
-                clear = True, base = True, active = True, background = True
-            )
+                clear = True, base = True, active = True, background = True)
             
 
     # Event Handler Methods ----------------------------------------------------
