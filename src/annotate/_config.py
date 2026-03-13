@@ -2,8 +2,28 @@
 ################################################################################
 # annotate/_config.py
 #
-# DOCSTRING
-
+# Configuration system for the `cortex-annotate` annotation tool.
+# 
+# This module defines the configuration loader and typed configuration objects
+# that parse and validate the project's `config.yaml` file. It handles:
+# 
+# - Global display options for figures and image rendering (`DisplayConfig`).
+# - An initialization code block whose environment is shared by other sections
+#   (`InitConfig`).
+# - Target definitions (datasets, participants, hemispheres, etc.) including
+#   dependency relationships and lazily-evaluated metadata (`TargetsConfig`).
+# - Annotation specifications describing contours, boundaries, and points to be
+#   drawn on each target (`AnnotationsConfig` and the `Annotation` record).
+# - Figure-generating functions that render panels for each annotation
+#   (`FiguresConfig`).
+# - Cortex viewer configuration, including mesh geometry, coordinates, overlays,
+#   and canvas-to-viewer transforms (`CortexConfig`).
+# - The top-level `Config` object, which loads `config.yaml` from disk and
+#   exposes each validated section as an attribute.
+# 
+# All YAML-driven code snippets are compiled and executed in the shared
+# `InitConfig` environment, and configuration errors are reported as
+# `ConfigError` with section-specific messages to aid debugging.
 
 # Imports ----------------------------------------------------------------------
 
@@ -833,47 +853,49 @@ class FiguresConfig(dict):
                     figures_dict[key] = compile_fn(code)
         return figures_dict
             
-# Cortex Configuration ---------------------------------------------------------
+# Viewer Configuration ---------------------------------------------------------
 
-class CortexConfig(dict):
-    """An object that stores configuration information for the cortex viewer.
+class ViewerConfig(dict):
+    """Configuration for the cortex viewer.
 
-    The `CortexConfig` type stores information from the `cortex` section of
-    the `config.yaml` file for the `cortex-annotate` project. It is a dictionary.
+    - faces: (n_faces, 3) face indices into the vertex array.
+    - coordinates: (n_vertices, 3) vertex coordinates per surface.
+    - overlays: (n_vertices, 3) RGB colors in [0, 1].
+    - canvas_to_viewer: (n_points, 3) function mapping betwen canvas and viewer coordinates.
     """
     
-    def __init__(self, cortex_yaml, figure_names, init):
-        # The cortex section is optional.
-        if cortex_yaml is None: cortex_yaml = {}
+    def __init__(self, viewer_yaml, figure_names, init):
+        # The viewer section is optional.
+        if viewer_yaml is None: viewer_yaml = {}
         
-        # If cortex section is provided, it must be a dictionary.
-        if not isinstance(cortex_yaml, dict):
-            raise ConfigError("cortex", "cortex section must contain a mapping.")
+        # If viewer section is provided, it must be a dictionary.
+        if not isinstance(viewer_yaml, dict):
+            raise ConfigError("viewer", "viewer section must contain a mapping.")
         
-        # If cortex section is not empty, then we prepare the cortex dictionary.
-        cortex_dict = {} # initialize
-        if cortex_yaml != {}: 
+        # If viewer section is not empty, then we prepare the viewer dictionary.
+        viewer_dict = {} # initialize
+        if viewer_yaml != {}: 
             # Prepare the faces field.
-            cortex_dict["faces"] = self._init_faces(cortex_yaml.copy(), init)
+            viewer_dict["faces"] = self._init_faces(viewer_yaml.copy(), init)
 
             # Prepare the coordinates field.
-            cortex_dict["coordinates"] = self._init_coordinates(
-                cortex_yaml.copy(), init)
+            viewer_dict["coordinates"] = self._init_coordinates(
+                viewer_yaml.copy(), init)
             
             # Prepare the morph_between field, optional.
-            cortex_dict["morph_between"] = self._init_morph_between(
-                cortex_yaml.copy(), cortex_dict["coordinates"], init)
+            viewer_dict["morph_between"] = self._init_morph_between(
+                viewer_yaml.copy(), viewer_dict["coordinates"], init)
 
             # Prepare the overlays field.
-            cortex_dict["overlays"] = self._init_overlays(
-                cortex_yaml.copy(), figure_names, init)
+            viewer_dict["overlays"] = self._init_overlays(
+                viewer_yaml.copy(), figure_names, init)
 
             # Prepare the canvas_to_viewer field
-            cortex_dict["canvas_to_viewer"] = self._init_canvas_to_viewer(
-                cortex_yaml.copy(), init)
+            viewer_dict["canvas_to_viewer"] = self._init_canvas_to_viewer(
+                viewer_yaml.copy(), init)
         
         # Update CortexConfig class dictionary.
-        self.update(cortex_dict)
+        self.update(viewer_dict)
 
 
     @staticmethod
@@ -883,27 +905,34 @@ class CortexConfig(dict):
 
 
     @staticmethod
-    def _init_faces(cortex_yaml, init):
-        """Initialize the `faces` from the cortex yaml."""
+    def _init_faces(viewer_yaml, init):
+        """Initialize the `faces` from the viewer yaml.
+        
+        The configured `faces` code must return an array of shape (n_faces, 3).
+        """
         # Extract the faces field from the yaml.
-        faces = cortex_yaml.get("faces", None)
+        faces = viewer_yaml.get("faces", None)
 
         # Check that faces is a string/code
         if not isinstance(faces, str):
             raise ConfigError("cortex.faces", "faces must be a code string.")
 
         # Compile the faces code string into a function.
-        faces = CortexConfig._compile_fn(init, "target", faces)
+        faces = ViewerConfig._compile_fn(init, "target", faces)
 
         # Return the compiled function.
         return faces
 
 
     @staticmethod
-    def _init_coordinates(cortex_yaml, init):
-        """Initialize the `coordinates` from the cortex yaml."""
+    def _init_coordinates(viewer_yaml, init):
+        """Initialize the `coordinates` from the viewer yaml.
+        
+        The configured `coordinates` code must return an array of shape 
+        (n_vertices, 3).
+        """
         # Extract the coordinates field from the yaml.
-        coordinates = cortex_yaml.get("coordinates", None)
+        coordinates = viewer_yaml.get("coordinates", None)
 
         # Check that coordinates is a string/code
         if not isinstance(coordinates, (str, dict)):
@@ -924,16 +953,20 @@ class CortexConfig(dict):
          
         # return dictionary of compile functions per coordinates
         return {
-            key: CortexConfig._compile_fn(init, "target", value) 
+            key: ViewerConfig._compile_fn(init, "target", value) 
             for key, value in coordinates.items()
         }
 
 
     @staticmethod
-    def _init_morph_between(cortex_yaml, coordinates, init):
-        """Initialize the `morph_between` from the cortex yaml."""
+    def _init_morph_between(viewer_yaml, coordinates):
+        """Initialize the `morph_between` from the viewer yaml.
+        
+        The `morph_between` field is optional, but if provided, must specify
+        nameable coordinates. Must be a list of two coordinate names.
+        """
         # Extract the coordinates field from the yaml.
-        morph_between = cortex_yaml.get("morph_between", None)
+        morph_between = viewer_yaml.get("morph_between", None)
 
         # This is an optioanl field, so if None, return None.
         if morph_between is None: return None
@@ -954,10 +987,18 @@ class CortexConfig(dict):
         
     
     @staticmethod
-    def _init_overlays(cortex_yaml, figure_names, init):
-        """Initialize the `overlays` from the cortex yaml."""
+    def _init_overlays(viewer_yaml, figure_names, init):
+        """Initialize the `overlays` from the viewer yaml.
+        
+        Each overlay function must return an array of shape (n_vertices, 3)
+        giving per-vertex RGB colors in [0, 1] for the surface used in the
+        cortex viewer. 
+
+        If on overlay is give, assumes it is the required curvature. Otherwise, 
+        will search for a curvature field in the mapping.
+        """
         # If there is a wildcard key, extract out.
-        overlays = cortex_yaml.get("overlays", None)
+        overlays = viewer_yaml.get("overlays", None)
 
         # Check that overlays is a string/code
         if not isinstance(overlays, (str, dict)):
@@ -979,7 +1020,7 @@ class CortexConfig(dict):
         # Locate wildcard key, if provided.
         wildfn = overlays.get("_", None)
         if wildfn is not None:
-            wildfn = CortexConfig._compile_fn(init, "target, key", wildfn)
+            wildfn = ViewerConfig._compile_fn(init, "target, key", wildfn)
             
         # Prepare valid figure names for the overlays, including curvature.
         figure_names = { "curvature" } | set(figure_names)
@@ -996,17 +1037,24 @@ class CortexConfig(dict):
                     )
                 key_fn = wildfn
             else: 
-                key_fn = CortexConfig._compile_fn(
+                key_fn = ViewerConfig._compile_fn(
                     init, "target, key", overlays[key])
             overlays_dict[key] = key_fn
         return overlays_dict
 
 
     @staticmethod
-    def _init_canvas_to_viewer(cortex_yaml, init):
-        """Initialize the `canvas_to_viewer` from the cortex yaml."""
+    def _init_canvas_to_viewer(viewer_yaml, init):
+        """Initialize the `canvas_to_viewer` callable.
+
+        The function must accept `(target, points, mesh_coordinates)`, where
+        `points` is (n_points, 2) canvas (2d) coordinates and `mesh_coordinates`
+        is (n_vertices, 3), and the code must return (n_points, 3) viewer 
+        coordinates.
+        """
+
         # Extract the canvas_to_viewer field from the yaml.
-        canvas_to_viewer = cortex_yaml.get("canvas_to_viewer", None)
+        canvas_to_viewer = viewer_yaml.get("canvas_to_viewer", None)
 
         # Check that canvas_to_viewer is a string/code
         if not isinstance(canvas_to_viewer, str):
@@ -1015,7 +1063,7 @@ class CortexConfig(dict):
             )
     
         # Compile the faces code string into a function.
-        canvas_to_viewer = CortexConfig._compile_fn(
+        canvas_to_viewer = ViewerConfig._compile_fn(
             init, "target, points, mesh_coordinates", canvas_to_viewer)
          
         # Return the compiled function.
@@ -1053,7 +1101,10 @@ class Config:
         self.init = InitConfig(self.yaml.get("init", None))
 
         # Parse the targets section.
-        self.targets = TargetsConfig(self.yaml.get("targets", None), self.init)
+        self.targets = TargetsConfig(
+            self.yaml.get("targets", None), 
+            self.init
+        )
 
         # Parse the annotations section.
         self.annotations = AnnotationsConfig(
@@ -1066,9 +1117,9 @@ class Config:
             self.init
         )
 
-        # Parse the cortex section.
-        self.cortex = CortexConfig(
-            self.yaml.get("cortex", None),
+        # Parse the viewer section.
+        self.viewer = ViewerConfig(
+            self.yaml.get("viewer", None),
             self.annotations.figure_names, 
             self.init
         )

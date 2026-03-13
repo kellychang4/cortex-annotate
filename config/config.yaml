@@ -26,6 +26,7 @@ init: |
   import neuropythy as ny
   from struct import unpack
   from matplotlib.colors import LinearSegmentedColormap
+  from neuropythy.geometry.util import barycentric_to_cartesian
 
   # define dataset directory (inside Docker container)
   datasets_dir = op.join("/home", "jovyan", "datasets") 
@@ -398,39 +399,60 @@ figures:
     axes.set_ylim((ymin, ymax))
 
 
-# TESTING below
-cortex:
+viewer:
+  # Expected `faces` shape: [ n_faces, 3 ]
   faces: |
     return target["cortex"].tess.faces.T
+  
+  # Expected `coordinates` shape: [ n_vertices, xyz (3) ]
   coordinates: 
     midgray: |
       return target["cortex"].surfaces["midgray"].coordinates.T
     inflated: |
       return target["cortex"].surfaces["inflated"].coordinates.T
-  morph_between: [ "inflated", "midgray" ]
+  
+  # Must be have matching coordinates fields. 
+  morph_between: [ "midgray", "inflated" ]
+
+  # Expected overlay shape: [ n_vertices, rgb (3) ]
   overlays: 
     curvature: |
+      # return curvature colors for cortical mesh plot
       return ny.graphics.cortex_plot_colors(target["cortex"])[:,:3]
     _: |
       # prepare (formatted) target information for figure code below
       hemisphere = target["Hemisphere"]  # string
       fs_hemi    = f"{hemisphere[0].lower()}h"
 
-      # prepare property values for figure
+      # prepare colormap name and values for figure
       values = target["cortex"].properties[key]
 
       # get property function and kwargs for angle property
       prop_color  = PROPERTY_KWARGS[key]["func"](values, fs_hemi)
       prop_kwargs = PROPERTY_KWARGS[key]["kwargs"]
 
+      # return vertex colors for cortical mesh plot
       return ny.graphics.cortex_plot_colors(target["cortex"], 
         color = prop_color, **prop_kwargs)[:,:3]
-
+  
+  # code to convert canvas (2d) coordinates to viewer (3d) coordinates, 
+  # Input: `target` (as above), 
+  #        `points` from canvas annotations (n_points, 2), and 
+  #        `mesh_coordinates` (n_vertices, 3) 
+  # Output: viewer coordinates (n_points, 3)
   canvas_to_viewer: |
-    def canvas_to_viewer(flatmap_coordinates, mesh_coordinates):
-      flatmap_address = target["flatmap"].address(flatmap_coordinates)
-      bary_faces      = flatmap_address["faces"]       # (3, n_faces)
-      bary_coords     = flatmap_address["coordinates"] # (2, n_points)
-      tx = np.transpose(mesh_coordinates[:, bary_faces], (1, 0, 2)) # (3, 3, n_points)
-      return barycentric_to_cartesian(tx, bary_coords) # (3, n_points)
-    return canvas_to_viewer
+    # prepare (formatted) target information for figure code below
+    hemisphere = target["Hemisphere"]  # string
+    fs_hemi    = f"{hemisphere[0].lower()}h"
+
+    # convert canvas (2d) coordinates to barycentric coordinates
+    flatmap_address  = fsa_flatmap[fs_hemi].address(points)
+    bary_faces       = flatmap_address["faces"]       # (3, n_faces)
+    bary_coordinates = flatmap_address["coordinates"] # (2, n_points)
+    
+    # sample barycentric coordinates on 3d mesh coordinates
+    tx = mesh_coordinates[bary_faces] # (n_vertices, n_points, n_triangles)
+    tx = np.transpose(tx, (0, 2, 1))  # (n_vertices, n_triangles, n_points)
+    
+    # return cartesian coordinates for each point along the mesh 
+    return barycentric_to_cartesian(tx, bary_coordinates).T # (n_points, 3)
