@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 ################################################################################
 # annotate/_widgets.py
-# 
-# Widget helper functions for constructing control panel UI elements.
-# These are small functions that return styled ipywidgets for use in 
-# ControlPanel and its subpanels.
+
+"""Widget helper functions for constructing control panel UI elements.
+
+These are small functions that return styled ipywidgets.
+"""
 
 # Imports ----------------------------------------------------------------------
 

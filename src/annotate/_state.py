@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import os.path as op
 
-from ._config import Config
+from .config._config import Config
 from ._util   import ldict, delay
 
 
@@ -27,8 +27,8 @@ class AnnotationState:
 
     def __init__(self, config, paths):
         # Store the config and paths.
-        self.config = Config(config)
-        self.paths  = paths # PathsManager
+        self.config = config
+        self.paths  = paths 
 
         # (Lazily) load the annotations.
         self.annotations = self.load_annotations()
@@ -36,8 +36,6 @@ class AnnotationState:
         # And (lazily) load the preferences.
         # self.preferences = self.load_preferences()
         
-
-
         # Declare the locked state of the annotation tool. When locked, the user
         # cannot interact with the figure panel and some control panel options 
         # are disabled. This is used when there is an error with the current
@@ -110,7 +108,7 @@ class AnnotationState:
                 )
             
             # If they're empty, no need to save them.
-            tsv_file = self.target_save_path(target_id, annotation_name)
+            tsv_file = self.paths.target_save_path(target_id, annotation_name)
             if coords.shape[0] == 0: 
                 # delete the file if it exists instead.
                 if op.isfile(tsv_file): os.remove(tsv_file)
@@ -128,4 +126,3 @@ class AnnotationState:
             # Skip lazy keys; these targets have not even been loaded yet.
             if not annotations.is_lazy(target_id):
                 self.save_target_annotations(target_id)
-

@@ -1,18 +1,15 @@
 # -*- coding: utf-8 -*-
 ################################################################################
-# annotate/_canvas.py
+# annotate/figure/_canvas.py
+#
+# Implementation code for the 2D Canvas Panel.
+#
+# The CanvasPanel is a pure rendering widget. It reads all annotation state from
+# a shared `FigurePanelState` object and redraws its ipycanvas layers when 
+# notified of changes. User input events (mouse clicks, key presses) are 
+# translated into figure-coordinate mutations and forwarded to FigurePanelState.
 
-"""
-Implementation code for the 2D Canvas Panel.
-
-The CanvasPanel is a pure rendering widget. It reads all annotation state from
-a shared `FigurePanelState` object and redraws its ipycanvas layers when 
-notified of changes. User input events (mouse clicks, key presses) are 
-translated into figure-coordinate mutations and forwarded to FigurePanelState.
-"""
-
-
-# Imports ######################################################################
+# Imports ----------------------------------------------------------------------
 
 import numpy as np
 import ipycanvas as ipc
@@ -20,9 +17,9 @@ import ipywidgets as ipw
 import matplotlib as mpl
 from collections import defaultdict
 
-from ._util import wrap as wordwrap
+from .._util import wrap as wordwrap
 
-# The Canvas Panel #############################################################
+# The Canvas Panel -------------------------------------------------------------
 
 class CanvasPanel(ipw.HBox):
     """The 2D canvas that displays figure images and annotation overlays.

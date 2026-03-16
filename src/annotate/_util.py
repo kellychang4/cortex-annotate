@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
 ################################################################################
 # annotate/_util.py
-#
-# Utility types and functions used in the annotation toolkit.
+
+"""Utility types and functions for the cortex-annotate toolkit.
+
+Provides the lazy dictionary type (ldict) with its delay/undelay mechanism,
+and a simple text-wrapping helper.
+"""
 
 # Imports ----------------------------------------------------------------------
 

@@ -23,11 +23,13 @@ class NoOpContext:
 # Figure Cache Class -----------------------------------------------------------
 
 class FigureCache:
-    def __init__(self, config, paths, loading_context = None):
+    def __init__(self, config, paths, prefs, loading_context = None):
+        # Store the arguments.
         self.config = config
-        self.paths  = paths # PathManager
+        self.paths  = paths 
+        self.prefs  = prefs
 
-        # Use loading control if we have one.
+        # Store the loading control if we have one.
         if loading_context is None:
             loading_context = NoOpContext()
         self.loading_context = loading_context   
@@ -40,10 +42,13 @@ class FigureCache:
         impath = self.paths.get_figure_path(target_id, figure_name)
         mdpath = re.sub(".png$", ".json", impath)
         
-        # Get the configuration information. TODO this is not clean
-        figsize, dpi = self.config.display.figsize, self.config.display.dpi
+        # Get the configuration information. 
         figure_fn = self.config.figures[figure_name]
         target    = self.config.targets[target_id]
+        
+        # Get the preferences information. 
+        figsize = self.prefs.get_display("figsize") 
+        dpi     = self.prefs.get_display("dpi")
 
         # Run the function from the config that draws the figure.
         fig, ax = plt.subplots(1, 1, figsize = figsize, dpi = dpi)
@@ -101,7 +106,7 @@ class FigureCache:
     def generate_grid(self, target_id, annotation):
         """Generates a single figure grid for an annotation."""
         # Prepare the image and meta data file paths.
-        impath = self.get_grid_path(target_id, annotation)
+        impath = self.paths.get_grid_path(target_id, annotation)
         mdpath = re.sub(".png$", ".json", impath)
 
         # Get the annotation figure_grid for this annotation. TODO!

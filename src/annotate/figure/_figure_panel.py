@@ -741,8 +741,6 @@ class FigurePanel(ipw.Box):
     #     """Increments the annotation change traitlet after redraw triggers."""
     #     self.figure_state._annotation_change += 1        
 
-
-
     #TODO; these are temporary until i figure out a nicer way to do this...
     def write_message(self, message):
         """Writes a message to the figure panel."""

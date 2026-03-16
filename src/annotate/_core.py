@@ -8,6 +8,8 @@
 
 import ipywidgets as ipw
 
+from .control import ControlPanel
+from .figure  import FigurePanel
     
 # The Annotation Tool ----------------------------------------------------------
 
@@ -28,32 +30,32 @@ class AnnotationTool(ipw.HBox):
             control_panel_background_color = "#f0f0f0",
             button_color = "#e0e0e0",
         ):        
-        """Initializes the annotation tool."""
         
-        # Store the state.
-        self.state = AnnotationState(
-            config_path  = config_path,
-            cache_path   = cache_path,
-            save_path    = save_path,
-            git_path     = git_path,
-            username     = username, 
-        )
+        # 1. Foundation
+        paths  = PathManager(cache_path, save_path, git_path, username)
+        config = Config(config_path)
 
-        # Pull out the annotation config for easy access.
-        self.annot_cfg = self.state.config.annotations
+        # 2. State + Persistence
+        state = AnnotationState(config, paths)
+        prefs = PrefsManager(config, paths.get_preferences_path())
 
-        # Make the control panel.
-        self.control_panel = ControlPanel(
-            state             = self.state,
-            background_color  = control_panel_background_color,
-            button_color      = button_color,
+        # 3. Figure model
+        figure_state = FigurePanelState(config.annotations)
+
+        # 4. Figure UI
+        canvas_panel = CanvasPanel(figure_state, size=prefs.get_display("figure_size"))
+        viewer_panel = (
+            CortexViewerPanel(figure_state)
+            if len(config.viewer) > 0
+            else None
         )
-        
-        # Make the canvas panel.
-        self.figure_panel = FigurePanel(self.state)
-        
-        # Pass the loading context over to the state.
-        self.state.loading_context = self.figure_panel.loading_context
+        figure_panel = FigurePanel(canvas_panel, viewer_panel)
+
+        # 5. Cache (needs loading_context from figure_panel)
+        cache = FigureCache(config, paths, prefs, figure_panel.loading_context)
+
+        # 6. Control UI
+        control_panel = ControlPanel(state, prefs, config, has_viewer=(viewer_panel is not None))
 
         # Go ahead and initialize the HBox component.
         super().__init__(
@@ -61,27 +63,15 @@ class AnnotationTool(ipw.HBox):
             layout   = { "border": "1px solid black", }
         )
 
-        # Give the figure the initial image to plot.
-        # with self.state.loading_context:
-        #     self.refresh_figure()
+        # 7. Wire events
+        control_panel.observe_selection(self.on_selection_change)
+        control_panel.observe_style(self.on_style_change)
+        control_panel.observe_figure_size(self.on_figure_size_change)
+        control_panel.observe_layout(self.on_layout_change)
+        control_panel.observe_viewer_style(self.on_viewer_style_change)
+        control_panel.observe_save(self.on_save)
+        control_panel.observe_clear(self.on_clear)
 
-        # And a listener for the selection change.
-        # self.control_panel.observe_selection(self.on_selection_change)
-
-        # Add a listener for the figure size change.
-        # self.control_panel.observe_figure_size(self.on_figure_size_change)
-
-        # And a listener for the style change.
-        # self.control_panel.observe_style(self.on_style_change)
-
-        # # Add a listener for the clear all button.
-        # self.control_panel.observe_clear(self.on_clear)
-
-        # And a listener for the save button.
-        # self.control_panel.observe_save(self.on_save)
-
-        # Add a listener for the layout button.
-        # self.control_panel.observe_layout(self.on_layout_change)
 
     # Tool Locking Methods -----------------------------------------------------
 
