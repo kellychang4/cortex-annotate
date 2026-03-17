@@ -3,9 +3,10 @@
 # annotate/_util.py
 
 """Utility types and functions for the cortex-annotate toolkit.
-
-Provides the lazy dictionary type (ldict) with its delay/undelay mechanism,
-and a simple text-wrapping helper.
+ 
+Provides the lazy dictionary type (:class:`ldict`) with its
+:class:`delay` / :func:`undelay` mechanism, and a simple text-wrapping
+helper (:func:`wrap`).
 """
 
 # Imports ----------------------------------------------------------------------
@@ -23,16 +24,17 @@ from functools import partial
 class delay:
     """A delayed computation type.
     
-    A `delay` object can be initialized exactly like a `partial` object (from
-    the `functools` package) except that all of the arguments to the delayed
-    function must be provided at initialization, unlike with a `partial`. The
-    computation can be run and its result accessed by calling the `delay` object
-    without arguments.
+    A ``delay`` object can be initialized exactly like a ``partial`` object
+    (from the ``functools`` package) except that all of the arguments to the
+    delayed function must be provided at initialization, unlike with a
+    ``partial``. The computation can be run and its result accessed by calling
+    the ``delay`` object without arguments.
     
-    Unlike a `partial` object, a `delay` object saves its result after it has
-    been computed once and does not recall (or even keey a reference to) the
-    original function after this point.
+    Unlike a ``partial`` object, a ``delay`` object saves its result after it
+    has been computed once and does not recall (or even keep a reference to)
+    the original function after this point.
     """
+
     __slots__ = ( "_partial", "_result" )
 
     def __setattr__(self, k, v):
@@ -68,8 +70,13 @@ def undelay(obj):
 
 
 class ldict_setlike:
-    
-    __slots__ = ( "_setlike" )
+    """Base class for lazy dict view types (:class:`ldict_items`, :class:`ldict_values`).
+ 
+    Wraps one of the underlying ``dict`` view objects and applies
+    :func:`undelay` to elements as they are iterated.
+    """
+
+    __slots__ = ( "_setlike", )
 
     @classmethod
     def _undelay(cls, ld):
@@ -116,6 +123,8 @@ class ldict_setlike:
 
 
 class ldict_items(ldict_setlike):
+    """Items view for :class:`ldict` that undelays values on iteration."""
+
     __slots__ = ()
 
     @classmethod
@@ -129,6 +138,8 @@ class ldict_items(ldict_setlike):
 
 
 class ldict_values(ldict_setlike):
+    """Values view for :class:`ldict` that undelays values on iteration."""
+
     __slots__ = ()
 
     @classmethod
@@ -144,10 +155,11 @@ class ldict_values(ldict_setlike):
 class ldict(dict):
     """A lazy dictionary type.
     
-    `ldict` is identical to `dict` except that it calls `undelay` on all values
-    before returning them, so it can be used to store lazy computations.
+    ``ldict`` is identical to ``dict`` except that it calls :func:`undelay`
+    on all values before returning them, so it can be used to store lazy
+    computations via :class:`delay` objects.
     """
-
+    
     __slots__ = ()
 
     def __getitem__(self, k):
@@ -187,16 +199,30 @@ class ldict(dict):
 
 # Textwrapping  ----------------------------------------------------------------
 
-def wrap(message, wrap = 60):
-    """Word-wraps a string and returns the wrapped string.
+def wrap(message, width = 60):
+    """Word-wrap a string to the given width.
 
     This function is a simple wrapper around the `textwrap.wrap` function. If
-    the optional argument `wrap` is `None` or `False`, then no wrapping is
+    the optional argument `width` is `None` or `False`, then no wrapping is
     performed and the message is returned as-is. Otherwise, the message is
-    wrapped with the width given by `wrap`.
-    """
-    if wrap:
-        if wrap is True or wrap is Ellipsis: wrap = 60 
-        message = textwrap.wrap(message, width = wrap)
+    wrapped with the width given by `width`.
+ 
+    Parameters
+    ----------
+    message : str
+        The text to wrap.
+
+    width : int, bool, or None
+        Maximum line width. If ``None`` or ``False``, no wrapping is
+        performed. If ``True`` or ``Ellipsis``, defaults to 60.
+ 
+    Returns
+    -------
+    str
+        The wrapped (or original) message string.
+    """    
+    if width:
+        if width is True or width is Ellipsis: width = 60 
+        message = textwrap.wrap(message, width = width)
         message = "\n".join(message)
     return message

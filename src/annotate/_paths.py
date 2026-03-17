@@ -3,14 +3,17 @@
 # annotate/_paths.py
 
 """File path management for the cortex-annotate toolkit.
-
+ 
 PathManager centralizes all path construction and directory creation for the
 project's cache (figures, grids) and save (annotations, preferences)
 directories. It also handles git repository username detection for per-user
 save paths.
+ 
+All path defaults assume a Docker environment where ``/cache``, ``/save``,
+and ``/git`` are mounted volumes.
 """
 
-# Imports ######################################################################
+# Imports ----------------------------------------------------------------------
 
 import os
 import os.path as op
@@ -19,22 +22,45 @@ from warnings import warn
 # Path Manager Class -----------------------------------------------------------
 
 class PathManager:
-    """Manages file paths for cached figures, grids, and saved annotations, preferences.
-
+    """Manages file paths for cached figures, grids, and saved annotations.
+ 
     Centralizes all path construction so that other modules never build 
     paths directly. Automatically creates directories as needed.
-
+ 
     Parameters
     ----------
     cache_path : str
-        Root directory for cached figure and grid images.
+        Root directory for cached figure and grid images
+        (default ``"/cache"``).
+
     save_path : str
-        Root directory for saved annotation TSV files.
+        Root directory for saved annotation TSV files and preferences
+        (default ``"/save"``).
+
     git_path : str or None
         Path to a git repository used to detect the username for 
-        per-user save subdirectories. If None, no git detection is attempted.
+        per-user save subdirectories. If ``None``, no git detection is
+        attempted and an explicit ``username`` must be provided.
+
     username : str or None
-        Explicit username override. If None, detected from git.
+        Explicit username override. If ``None``, detected from git
+        via :attr:`gitdata`.
+ 
+    Attributes
+    ----------
+    cache_path : str
+        Root directory for cached images.
+        
+    save_path : str
+        Root directory for saved data. If a username is detected or
+        provided, this is updated to include a per-user subdirectory.
+
+    git_path : str or None
+        Path to the git repository, or ``None``.
+
+    username : str
+        The resolved username (from ``username`` argument or git
+        detection). Empty string if no username could be determined.
     """
     
     def __init__(
@@ -70,16 +96,21 @@ class PathManager:
     @property
     def gitdata(self):
         """Detect the git repository username and repository name.
-
-        Reads the git remote origin URL from the repository at ``git_path``
-        and parses out the username and repo name. If git detection fails,
-        returns empty strings and issues a warning.
-
+ 
+        Reads the git remote origin URL from the repository at
+        :attr:`git_path` and parses out the username and repo name.
+        If git detection fails, returns empty strings and issues a
+        warning.
+ 
+        The initial ``ls`` call works around a Docker volume mount
+        race condition where the directory contents may not be visible
+        until first accessed.
+ 
         Returns
         -------
         tuple of (str, str)
-            ``(username, repo_name)``. Both are ``""`` if detection fails
-            or ``git_path`` is None.
+            ``(username, repo_name)``. Both are ``""`` if detection
+            fails or ``git_path`` is ``None``.
         """
         # If we were not given a git path, we return standard nothings.
         if self.git_path is None: return ( "" , "" )
@@ -111,28 +142,42 @@ class PathManager:
     # Path Methods -------------------------------------------------------------
 
     def _build_path(self, target_id, base_dir, subdir = None, filename = None):
-        """Builds a path for the given target, base directory, subdirectory, and filename.
+        """Build a filesystem path for a target and optional filename.
+ 
+        Joins *base_dir*, an optional *subdir*, the target id
+        components, and an optional *filename*. The directory portion
+        is created automatically (``exist_ok = True``) so callers never
+        need to worry about missing intermediate directories.
+ 
+        Parameters
+        ----------
+        target_id : tuple of str
+            Target identifier components (e.g. ``("sub-01", "ses-02")``).
 
-        Example 1: 
-            - target_id: ("sub-01", "ses-02")
-            - base_dir: "/cache"
-            - subdir: "figures"
-            - filename: "name.png"
-        Result: "/cache/figures/sub-01/ses-02/name.png"
+        base_dir : str
+            Root directory (e.g. ``cache_path`` or ``save_path``).
 
-        Example 2:
-            - target_id: ("sub-01", "ses-02")
-            - base_dir: "/cache"
-            - subdir: None
-            - filename: "name.png"
-        Result: "/cache/sub-01/ses-02/name.png"
+        subdir : str or None
+            Optional subdirectory inserted between *base_dir* and the
+            target components (e.g. ``"figures"``, ``"grids"``).
 
-        Example 3: 
-            - target_id: ("sub-01", "ses-02")
-            - base_dir: "/cache"
-            - subdir: None
-            - filename: None
-        Result: "/cache/sub-01/ses-02"
+        filename : str or None
+            Optional filename appended to the path. If ``None``, the
+            returned path is a directory.
+ 
+        Returns
+        -------
+        str
+            The constructed path. The directory portion is guaranteed
+            to exist on disk after this call.
+ 
+        Examples
+        --------
+        >>> pm._build_path(("sub-01", "ses-02"), "/cache", "figures", "V1.png")
+        '/cache/figures/sub-01/ses-02/V1.png'
+ 
+        >>> pm._build_path(("sub-01", "ses-02"), "/cache")
+        '/cache/sub-01/ses-02'
         """
         path = op.join(*target_id) # target relative path
         if subdir is None: path = op.join(base_dir, path)
@@ -146,10 +191,22 @@ class PathManager:
 
 
     def get_figure_path(self, target_id, figure = None):
-        """Returns the cache path for a target's figures.
+        """Return the cache path for a target's figure image.
+ 
+        Parameters
+        ----------
+        target_id : tuple of str
+            Target identifier tuple.
 
-        If `figure` is None, returns the path to the target's figure directory.
-        Otherwise, returns the path to the figure's png file.
+        figure : str or None
+            Figure name. If ``None``, returns the target's figure
+            directory path. Otherwise returns the path to
+            ``<figure>.png``.
+ 
+        Returns
+        -------
+        str
+            Absolute path to the figure directory or PNG file.
         """
         return self._build_path(
             target_id = target_id, 
@@ -160,10 +217,22 @@ class PathManager:
 
 
     def get_grid_path(self, target_id, grid = None):
-        """Returns the cache path for a target's grids.
+        """Return the cache path for a target's grid image.
+ 
+        Parameters
+        ----------
+        target_id : tuple of str
+            Target identifier tuple.
 
-        If `grid` is None, returns the path to the target's grid directory.
-        Otherwise, returns the path to the grid's png file.
+        grid : str or None
+            Annotation name whose grid to locate. If ``None``, returns
+            the target's grid directory path. Otherwise returns the
+            path to ``<grid>.png``.
+ 
+        Returns
+        -------
+        str
+            Absolute path to the grid directory or PNG file.
         """
         return self._build_path(
             target_id = target_id, 
@@ -174,10 +243,22 @@ class PathManager:
 
 
     def get_annotation_path(self, target_id, annotation = None):
-        """Returns the save path for a target's annotations.
+        """Return the save path for a target's annotation TSV file.
+ 
+        Parameters
+        ----------
+        target_id : tuple of str
+            Target identifier tuple.
 
-        If `annotation` is None, returns the path to the target's annotation 
-        directory. Otherwise, returns the path to the annotation's tsv file.
+        annotation : str or None
+            Annotation name. If ``None``, returns the target's
+            annotation directory path. Otherwise returns the path to
+            ``<annotation>.tsv``.
+ 
+        Returns
+        -------
+        str
+            Absolute path to the annotation directory or TSV file.
         """
         return self._build_path(
             target_id = target_id, 
@@ -187,5 +268,17 @@ class PathManager:
 
 
     def get_preferences_path(self, filename = ".annot-prefs.yaml"):
-        """Returns the save path for the annotation tool's preferences."""
+        """Return the save path for the user's preferences file.
+ 
+        Parameters
+        ----------
+        filename : str
+            Preferences filename (default ``".annot-prefs.yaml"``).
+ 
+        Returns
+        -------
+        str
+            Absolute path to the preferences YAML file, located in
+            :attr:`save_path`.
+        """
         return op.join(self.save_path, filename)

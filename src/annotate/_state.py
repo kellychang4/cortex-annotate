@@ -1,51 +1,91 @@
 # -*- coding: utf-8 -*-
 ################################################################################
 # annotate/_state.py
-# 
-# DOCSTRING
+
+"""Annotation data management for cortex-annotate.
+ 
+AnnotationState owns the in-memory annotation coordinate data for all
+targets. It handles lazy loading from TSV files on disk and saving
+modified annotations back. Each annotation is an N x 2 numpy array of
+(x, y) canvas coordinates.
+ 
+This module does not manage preferences, caching, or UI state — those
+responsibilities belong to ``PrefsManager``, ``FigureCache``, and the
+figure/control subpackages respectively.
+"""
 
 # Imports ----------------------------------------------------------------------
-
+ 
 import os
 import numpy as np
 import pandas as pd
 import os.path as op
-
-from .config._config import Config
-from ._util   import ldict, delay
-
+ 
+from ._util import ldict, delay
 
 # Annotation State Class -------------------------------------------------------
 
 class AnnotationState:
-    """The manager of the state of the annotation and the annotation tool.
-
-    The `AnnotationState` class manages the state of the annotation tool. This
-    state includes the cache, the user preferences (style settings), and the
-    saved annotations.
+    """Manages in-memory annotation data with lazy loading and persistence.
+ 
+    Annotation coordinates are lazily loaded from TSV files on first
+    access. Only annotations that have been accessed (and therefore
+    potentially modified) are written back on save — unaccessed lazy
+    entries are skipped.
+ 
+    Parameters
+    ----------
+    config : Config
+        Parsed configuration object. Used to enumerate targets and
+        annotations and to evaluate annotation filters.
+ 
+    paths : PathManager
+        Path manager for resolving annotation file locations.
+ 
+    Attributes
+    ----------
+    config : Config
+        The configuration object.
+ 
+    paths : PathManager
+        The path manager.
+ 
+    annotations : ldict
+        Nested lazy dict: ``{target_id: {annotation_name: ndarray}}``.
+        Outer and inner dicts are both :class:`~annotate._util.ldict`
+        instances that reify on first access.
     """
 
     def __init__(self, config, paths):
         # Store the config and paths.
         self.config = config
-        self.paths  = paths 
-
+        self.paths  = paths
+ 
         # (Lazily) load the annotations.
         self.annotations = self.load_annotations()
-
-        # And (lazily) load the preferences.
-        # self.preferences = self.load_preferences()
-        
-        # Declare the locked state of the annotation tool. When locked, the user
-        # cannot interact with the figure panel and some control panel options 
-        # are disabled. This is used when there is an error with the current
-        # selection that prevents the figure from being properly displayed.
-        self.locked = False
 
     # Annotation Methods -------------------------------------------------------
 
     def load_target_annotation(self, target_id, annotation):
-        """Loads a single annotation from the save path for a given target."""
+        """Load a single annotation's coordinates from disk.
+ 
+        Reads a headerless, tab-separated file containing an N x 2 matrix
+        of (x, y) canvas coordinates. If the file does not exist,
+        returns an empty (0, 2) array.
+ 
+        Parameters
+        ----------
+        target_id : tuple of str
+            Target identifier tuple.
+
+        annotation : str
+            Annotation name.
+ 
+        Returns
+        -------
+        ndarray, shape (N, 2)
+            Annotation coordinates. Empty array if no file exists.
+        """
         # Get the path for this annotation.
         tsv_file = self.paths.get_annotation_path(target_id, annotation)
 
@@ -68,7 +108,23 @@ class AnnotationState:
     
     
     def load_target_annotations(self, target_id):
-        """Loads (lazily) the annotations for the current tool user for a single target"""
+        """Lazily load all annotations for a single target.
+ 
+        Creates an :class:`~annotate._util.ldict` with one entry per
+        annotation that passes the target filter. Each entry is a
+        :class:`~annotate._util.delay` that calls
+        :meth:`load_target_annotation` on first access.
+ 
+        Parameters
+        ----------
+        target_id : tuple of str
+            Target identifier tuple.
+ 
+        Returns
+        -------
+        ldict
+            Lazy dict mapping annotation names to coordinate arrays.
+        """
         target_annotations = ldict() # initialize
         for annotation, annotation_info in self.config.annotations.items():
             if annotation_info.filter is None or \
@@ -79,7 +135,17 @@ class AnnotationState:
 
     
     def load_annotations(self):
-        """Loads (lazily) the annotations for the current tool user from the save path."""
+        """Lazily load all annotations for all targets.
+ 
+        Creates a nested :class:`~annotate._util.ldict` where the
+        outer dict maps target ids to inner lazy dicts of per-annotation
+        coordinate arrays.
+ 
+        Returns
+        -------
+        ldict
+            ``{target_id: ldict({annotation_name: ndarray})}``.
+        """
         return ldict({
             target_id: delay(self.load_target_annotations, target_id)
                 for target_id in self.config.targets.keys()
@@ -87,7 +153,20 @@ class AnnotationState:
 
 
     def save_target_annotations(self, target_id):
-        """Saves the annotations for the current tool user for a single target"""
+        """Save all modified annotations for a single target to disk.
+
+        Only annotations that have been accessed (i.e., whose lazy
+        values have been reified) are saved. Unaccessed entries are
+        skipped because they cannot have been modified.
+
+        Annotations with zero coordinates are deleted from disk rather
+        than saved as empty files.
+
+        Parameters
+        ----------
+        target_id : tuple of str
+            Target identifier tuple.
+        """
         # Get the target's annotations.
         target_annotations = self.annotations[target_id]
 
@@ -108,7 +187,7 @@ class AnnotationState:
                 )
             
             # If they're empty, no need to save them.
-            tsv_file = self.paths.target_save_path(target_id, annotation_name)
+            tsv_file = self.paths.get_annotation_path(target_id, annotation_name)
             if coords.shape[0] == 0: 
                 # delete the file if it exists instead.
                 if op.isfile(tsv_file): os.remove(tsv_file)
@@ -120,7 +199,13 @@ class AnnotationState:
     
     
     def save_annotations(self):
-        """Saves the annotations for a given target."""
+        """Save all modified annotations across all targets.
+ 
+        Iterates over all targets and calls
+        :meth:`save_target_annotations` for each that has been
+        accessed. Targets whose lazy values have not been reified
+        are skipped.
+        """
         annotations = self.annotations
         for target_id in annotations.keys():
             # Skip lazy keys; these targets have not even been loaded yet.

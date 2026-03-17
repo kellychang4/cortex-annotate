@@ -25,12 +25,23 @@ def make_hline(class_name = "annotate-control-panel-hline"):
 
 
 def darken_color(color, amount = 0.10):
-    """Darkens a color by the given fraction and returns an integer RGB tuple.
-    
-    Accepts any matplotlib-compatible color input (hex string, named color, 
-    RGB tuple). Returns a tuple of integers in 0-255 range, suitable for 
-    use in CSS `rgb(...)` values.
+    """Darken a color by a fractional amount and return integer RGB.
+
+    Parameters
+    ----------
+    color : str or tuple
+        Any matplotlib-compatible color input (hex string, named
+        color, RGB tuple).
+        
+    amount : float
+        Fraction to darken by, in [0, 1] (default 0.10).
+
+    Returns
+    -------
+    tuple of (int, int, int)
+        RGB values in the 0 - 255 range, suitable for CSS ``rgb(...)``
+        values.
     """
     color = mpl.colors.to_rgb(color) # convert to RGB tuple if hex string
-    color = [ max(0.0, x * (1 - amount)) for x in color ] # darken the color by the given amount
-    return tuple([ int(x * 255) for x in color ]) # convert back to 0-255 range and return as list
+    color = [ max(0.0, x * (1 - amount)) for x in color ] # darken by amount
+    return tuple([ int(x * 255) for x in color ]) # convert to 0-255 range

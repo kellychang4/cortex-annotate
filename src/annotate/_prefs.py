@@ -3,257 +3,344 @@
 # annotate/_prefs.py
 
 """User preferences management for cortex-annotate.
-
+ 
 PrefsManager handles loading, saving, and accessing user preferences that
 persist between annotation sessions. Preferences are organized into three
 sections:
-
-    display          : general tool layout and sizing (figure_size, layout, etc.)
+ 
+    display          : general tool layout, sizing, and figure generation
+                       parameters (figsize, dpi, figure_px, layout)
     annotation_style : per-annotation visual properties (color, linewidth, etc.)
     viewer_style     : 3D cortex viewer settings (morph, overlay, etc.)
-
+ 
 Preferences are stored as a YAML file in the user's save directory. On first
-run, defaults are built from the style constants in ``_style.py`` and any
-overrides in ``config.yaml``.
+run, defaults are built from the style constants in ``_style.py``, overridden
+by any values specified in the ``display`` section of ``config.yaml``.
+ 
+Priority chain (lowest to highest):
+ 
+    Module constants (``DEFAULT_*``)
+        → ``config.yaml`` display section (read-only overrides)
+            → saved preferences file on disk
+                → runtime changes via UI widgets
 """
 
 # Imports ----------------------------------------------------------------------
 
 import yaml
 import os.path as op
-
+ 
 from ._style import (
-    DEFAULT_ANNOTATION_STYLE, ANNOTATION_STYLE_KEYS,
-    DEFAULT_VIEWER_STYLE, VIEWER_STYLE_KEYS,
-    validate_annotation_style, validate_viewer_style,
+    DEFAULT_ANNOTATION_STYLE,
+    DEFAULT_VIEWER_STYLE,
+    VIEWER_STYLE_KEYS,
+    validate_annotation_style,
 )
 
-# Default display preferences (general tool layout and sizing).
+# Constants --------------------------------------------------------------------
+
+# Default display preferences.
+# NOTE: figure_px is not included here because it is computed from
+# figsize and dpi in _build_defaults(). 
 DEFAULT_DISPLAY_PREFS = {
     "figsize" : [4, 4],
     "dpi"     : 128,
     "layout"  : "horizontal",
 }
-
-DISPLAY_PREFS_KEYS = tuple(DEFAULT_DISPLAY_PREFS.keys())
-
+ 
+# All valid display preference keys (for get_display validation).
+# Includes figure_px which is computed, not stored in the constant above.
+DISPLAY_PREFS_KEYS = ( "figsize", "dpi", "figure_px", "layout" )
+ 
+# Keys that can be modified at runtime via set_display().
+_SETTABLE_DISPLAY_KEYS = ( "figure_px", "layout" )
+ 
 # Preference Manager Class -----------------------------------------------------
 
 class PrefsManager:
     """Manages user preferences that persist between annotation sessions.
-
+ 
     Parameters
     ----------
     config : Config
-        Parsed configuration object, used to build annotation style defaults
-        from ``config.display.default_style`` and ``config.display.active_style``.
+        Parsed configuration object. Used to build defaults from
+        ``config.display.default_style``, ``config.display.active_style``,
+        ``config.display.figsize``, ``config.display.dpi``, and
+        ``config.display.layout``.
+ 
+    paths : PathManager
+        Path manager, used to resolve the preferences file location.
+ 
     preferences_file : str
-        Path to the YAML preferences file on disk.
-
+        Preferences filename (default ``".annot-prefs.yaml"``). Resolved
+        against the save path via ``paths.get_preferences_path()``.
+ 
     Attributes
     ----------
+    config : Config
+        The configuration object, retained for building defaults.
+ 
+    paths : PathManager
+        The path manager.
+ 
+    preferences_file : str
+        Absolute filesystem path to the preferences YAML file.
+ 
     preferences : dict
-        In-memory preferences with keys ``"annotation_style"``,
-        ``"viewer_style"``, ``"display"``.
+        In-memory preferences dict with keys ``"display"``,
+        ``"annotation_style"``, and ``"viewer_style"``.
     """
 
-    def __init__(self, config, preferences_file = ".annot-prefs.yaml"):
-        # Store the config for building defaults. 
+    __slots__ = ( "config", "paths", "preferences_file", "preferences" )
+ 
+    def __init__(self, config, paths, preferences_file = ".annot-prefs.yaml"):
+        # Store the arguments.
         self.config = config
-        
-        # Store the preferences file paths.
-        self.preferences_file = preferences_file
-
+        self.paths  = paths
+ 
+        # Resolve the preferences file path.
+        self.preferences_file = self.paths.get_preferences_path(preferences_file)
+ 
         # Load the preferences (from file if it exists, otherwise default).
         self.preferences = self._load()
 
-    
+    # Load and Save Methods ----------------------------------------------------
+
     def _load(self):
-        """Loads preferences from disk, or builds defaults if no file exists."""
+        """Load preferences from disk, or build defaults if no file exists.
+ 
+        Returns
+        -------
+        dict
+            The preferences dict with keys ``"display"``,
+            ``"annotation_style"``, and ``"viewer_style"``.
+        """
         if op.isfile(self.preferences_file):
             with open(self.preferences_file, "rt") as f:
                 return yaml.safe_load(f)
         return self._build_defaults()
 
-
+ 
     def _build_defaults(self):
-        """Constructs the default preferences dictionary from style constants 
-        and config overrides.
-
-        Display preference priority (lowest → highest):
-            DEFAULT_DISPLAY_PREFS → config.display
-
-        Annotation style priority (lowest → highest):
-            DEFAULT_ANNOTATION_STYLE → config.display.default_style
-        
-        Active annotation style priority (lowest → highest):
-            DEFAULT_ANNOTATION_STYLE → config.display.default_style → config.display.active_style
-
-        Viewer style priority (lowest → highest):
-            DEFAULT_VIEWER_STYLE → config.display.viewer_style
+        """Construct the default preferences from constants and config overrides.
+ 
+        Merges module-level defaults with any values specified in the
+        ``display`` section of ``config.yaml``. Config values override
+        module constants where present; missing config values fall back
+        to the module constant.
+ 
+        Returns
+        -------
+        dict
+            A fully populated preferences dict ready for use.
+ 
+        Notes
+        -----
+        Priority chains (lowest → highest):
+ 
+        Display:
+            ``DEFAULT_DISPLAY_PREFS`` → ``config.display`` (matching keys)
+ 
+        Annotation style:
+            ``DEFAULT_ANNOTATION_STYLE`` → ``config.display.default_style``
+            Active annotation: above chain → ``config.display.active_style``
+ 
+        Viewer style:
+            ``DEFAULT_VIEWER_STYLE`` (no config override currently)
         """
-        # Initialize the preferences dict with the defaults.
+        # Initialize the preferences dictionary.
         preferences = {
-            "display": DEFAULT_DISPLAY_PREFS.copy(),
-            "annotation_style": {},
-            "viewer_style": DEFAULT_VIEWER_STYLE.copy(),
+            "display"          : {},
+            "annotation_style" : {},
+            "viewer_style"     : DEFAULT_VIEWER_STYLE.copy(),
         }
-
+ 
+        # Extract the display preferences from the config, if they exist.
+        config_display = {}
+        for key in ( "figsize", "dpi", "layout" ):
+            if getattr(self.config.display, key) is not None:
+                config_display[key] = getattr(self.config.display, key)
+ 
+        # Build the display prefs: module defaults + config overrides.
+        display_prefs = {
+            **DEFAULT_DISPLAY_PREFS,
+            **config_display,
+        }
+ 
+        # Calculate the figure size in pixels from the display prefs.
+        figure_px = int(display_prefs["figsize"][0] * display_prefs["dpi"])
+        display_prefs["figure_px"] = figure_px
+ 
+        # Store the display prefs in the main preferences dict.
+        preferences["display"] = display_prefs
+ 
         # Build the annotation style: module defaults + config overrides.
         annotation_style = {
             **DEFAULT_ANNOTATION_STYLE,
             **self.config.display.default_style,
         }
-
+ 
         # Set each annotation to the base style.
         for annotation in self.config.annotations.keys():
             preferences["annotation_style"][annotation] = annotation_style.copy()
-
+ 
         # Set active annotation style (key = None).
         active_style = { **annotation_style, **self.config.display.active_style }
         preferences["annotation_style"][None] = active_style.copy()
-
+ 
         # Return the fully built preferences dict.
         return preferences
-    
-    
-
+ 
 
     def save(self):
-        """Writes the current preferences to disk as YAML."""
+        """Write the current preferences to disk as YAML.
+ 
+        The file is written to :attr:`preferences_file`. Overwrites
+        any existing file.
+        """
         with open(self.preferences_file, "wt") as f:
             yaml.dump(self.preferences, f)
 
-
     # Display Methods ----------------------------------------------------------
-
+ 
     def get_display(self, key = None):
-        """Returns display preference values.
-
+        """Return display preference values.
+ 
         Parameters
         ----------
         key : str or None
-            If None, returns the full display prefs dict.
+            If ``None``, returns the full display prefs dict.
             If a string, returns the single value for that key.
-
+ 
         Returns
         -------
         dict or scalar
-            Full display dict, or a single value if key was given.
+            Full display dict if *key* is ``None``, otherwise the
+            value for the requested key.
         """
         display = self.preferences["display"]
         if key is None: return display
         if key not in DISPLAY_PREFS_KEYS:
             raise RuntimeError(f"Invalid display preference key: {key}")
         return display.get(key)
-
+ 
 
     def set_display(self, key, value):
-        """Sets a single display preference value.
-
+        """Set a display preference.
+ 
+        Only ``figure_px`` and ``layout`` can be modified at runtime.
+        The ``figsize`` and ``dpi`` keys are config-level generation
+        parameters and cannot be changed after initialization.
+ 
+        Validation constraints:
+ 
+        - ``figure_px``: positive integer.
+        - ``layout``: one of ``("horizontal", "vertical")``.
+ 
         Parameters
         ----------
         key : str
-            A display preference key (e.g. 'figure_size', 'layout').
-        value : scalar
+            Must be one of ``_SETTABLE_DISPLAY_KEYS``
+            (``"figure_px"`` or ``"layout"``).
+ 
+        value : int or str
             The new value for this key.
-
+ 
         Returns
         -------
         dict
             The full updated display prefs dict.
         """
-        if key not in DISPLAY_PREFS_KEYS:
-            raise RuntimeError(f"Invalid display preference key: {key}")
-        display = self.preferences["display"]
-        display[key] = value
-        return display
-
+        if key not in _SETTABLE_DISPLAY_KEYS:
+            raise RuntimeError(
+                f"Display key '{key}' is not settable at runtime. "
+                f"Settable keys: {_SETTABLE_DISPLAY_KEYS}")
+        self.preferences["display"][key] = value
+        return self.preferences["display"]
+    
     # Annotation Style Methods -------------------------------------------------
-
+ 
     def get_annotation_style(self, annotation):
-        """Returns the full style dict for the given annotation.
-
+        """Return the full style dict for an annotation.
+ 
         Parameters
         ----------
         annotation : str or None
-            The annotation name, or None for the active annotation style.
-
+            The annotation name, or ``None`` for the active annotation
+            style.
+ 
         Returns
         -------
         dict
-            Style dict with keys: color, linewidth, linestyle, markersize, 
-            visible.
+            Style dict with keys like ``color``, ``linewidth``, etc. 
         """
         styles = self.preferences["annotation_style"]
         return styles.get(annotation, {})
-
-
+ 
+ 
     def set_annotation_style(self, annotation, updates):
-        """Merge style updates into the given annotation's style dict.
-
-        Validates incoming keys against ``ANNOTATION_STYLE_KEYS`` and
-        normalizes colors to hex before merging.
+        """Merge style updates into an annotation's style dict.
+ 
+        Validates incoming style options before merging. See 
+        ``validate_annotation_style()``.
 
         Parameters
         ----------
         annotation : str or None
             Annotation name, or ``None`` for the active annotation style.
+
         updates : dict
             Partial style dict. Colors are normalized to hex.
-
+ 
         Returns
         -------
         dict
             The full updated style dict for this annotation.
-
-        Raises
-        ------
-        RuntimeError
-            If any key in ``updates`` is not a valid annotation style key.
         """
         # Validate the incoming keys and values.
         validate_annotation_style(updates)
-
+ 
         # Merge into existing style.
         styles = self.preferences["annotation_style"]
         current = styles.get(annotation, {})
-        styles[annotation] = {**current, **updates}
+        styles[annotation] = { **current, **updates }
         return styles[annotation]
-
-    # Viewer Style Methods -----------------------------------------------------
-
+ 
+   # Viewer Style Methods -----------------------------------------------------
+ 
     def get_viewer_style(self, key = None):
-        """Returns viewer style values.
-
+        """Return viewer style values.
+ 
         Parameters
         ----------
         key : str or None
-            If None, returns the full viewer style dict.
+            If ``None``, returns the full viewer style dict.
             If a string, returns the single value for that key.
-
+ 
         Returns
         -------
         dict or scalar
-            Full style dict, or a single value if key was given.
+            Full style dict if *key* is ``None``, otherwise the value
+            for the requested key.
         """
         styles = self.preferences["viewer_style"]
         if key is None: return styles
         if key not in VIEWER_STYLE_KEYS:
             raise RuntimeError(f"Invalid viewer style key: {key}")
         return styles.get(key)
-
-
+ 
+ 
     def set_viewer_style(self, key, value):
-        """Sets a single viewer style value.
-
+        """Set a single viewer style value.
+ 
         Parameters
         ----------
         key : str
-            Must be one of the VIEWER_STYLE_KEYS.
+            Must be one of ``VIEWER_STYLE_KEYS``.
+ 
         value : scalar
             The new value for this key.
-
+ 
         Returns
         -------
         dict
@@ -264,3 +351,4 @@ class PrefsManager:
         styles = self.preferences["viewer_style"]
         styles[key] = value
         return styles
+ 

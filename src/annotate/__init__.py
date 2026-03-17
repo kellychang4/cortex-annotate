@@ -1,26 +1,19 @@
 # -*- coding: utf-8 -*-
 ################################################################################
 # annotate/__init__.py
-#
-# Initialization code for the annotate toolkit.
-# The annotate toolkit primarily uses the neuropythy library
-# (github.com/noahbenson/neuropythy) to facilitate the annotation of cortical
-# surfaces by hand using a combination of Jupyter notebooks, Git/GitHub, and
-# (optionally) Docker. 
 
-"""
-The annotate package facilitates the manual annotation of the human cortex.
+"""The annotate package facilitates the manual annotation of the human cortex.
 
 These tools are intended to be run using a Docker container; for information
 on how to use these tools, see the README.md file in the github repository
 noahbenson/cortex-annotate.
 """
 
-# Imports ######################################################################
+# Imports ----------------------------------------------------------------------
 
 from ._core import AnnotationTool
 
-# Meta-Data ####################################################################
+# Meta-Data --------------------------------------------------------------------
 
 __version__ = "0.3.0"
-#__all__ = ( "AnnotationTool", )
+__all__ = ( "AnnotationTool", )

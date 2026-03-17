@@ -3,16 +3,16 @@
 # annotate/_style.py
 
 """Style definitions and validation for annotation and viewer styles.
-
+ 
 This module is the single source of truth for all style constants and
 validation in the cortex-annotate toolkit. It defines two style categories:
-
+ 
     annotation_style : visual properties for 2D canvas annotations
                        (color, linewidth, linestyle, markersize, visible)
     viewer_style     : 3D cortex viewer display settings
                        (morph_percent, overlay, overlay_alpha, point_size,
                        line_width, line_interp)
-
+ 
 Each category has a DEFAULT_*_STYLE dict, a *_STYLE_KEYS tuple, and a
 validate_*_style() function.
 """
@@ -35,14 +35,25 @@ DEFAULT_ANNOTATION_STYLE = {
 
 # Annotation style key names.
 ANNOTATION_STYLE_KEYS = tuple(DEFAULT_ANNOTATION_STYLE.keys())
-
+ 
 
 def validate_annotation_style(style_dict):
-    """Validates an annotation style dictionary and normalizes colors to hex.
-    
-    Checks that all keys are recognized annotation style keys and that values 
-    are within valid ranges. Mutates the input dict by converting colors to hex. 
-    Returns the validated dictionary, or raises RuntimeError on invalid input.
+    """Validate an annotation style dictionary.
+ 
+    Checks that all keys are recognized annotation style keys and that
+    values are within valid ranges. Mutates the input dict in place by
+    converting color values to hex strings.
+ 
+    Parameters
+    ----------
+    style_dict : dict
+        A partial or full annotation style dict. Only the keys present
+        are validated; missing keys are not required.
+ 
+    Returns
+    -------
+    dict
+        The same *style_dict* object, with colors normalized to hex.
     """
     # Check that all the keys are valid style keys.
     for key in style_dict.keys():
@@ -84,7 +95,6 @@ def validate_annotation_style(style_dict):
     # Return the style dictionary, if valid.
     return style_dict
 
-
 # Viewer Style Utilities -------------------------------------------------------
 
 # Default viewer style values.
@@ -96,22 +106,30 @@ DEFAULT_VIEWER_STYLE = {
     "line_width"    : 0.25,
     "line_interp"   : 10,
 }
+ 
 
 # Viewer style key names.
 VIEWER_STYLE_KEYS = tuple(DEFAULT_VIEWER_STYLE.keys())
+ 
 
 #TODO: these numbers are random, need to edit for real use.
 def validate_viewer_style(style_dict):
     """Validate a viewer style dictionary and return it if valid.
-
-    Checks that all keys are recognized viewer style keys and that values
-    are within valid ranges. Returns the validated dictionary, or raises
-    RuntimeError on invalid input.
-
-    .. note::
-       Range limits are provisional and may need adjustment for real use.
+ 
+    Checks that all keys are recognized viewer style keys and that
+    values are within valid ranges.
+ 
+    Parameters
+    ----------
+    style_dict : dict
+        A partial or full viewer style dict. Only the keys present
+        are validated; missing keys are not required.
+ 
+    Returns
+    -------
+    dict
+        The same *style_dict* object, unmodified if valid.
     """
-    
     # Check that all the keys are valid style keys.
     for key in style_dict.keys():
         if key not in VIEWER_STYLE_KEYS:
@@ -126,32 +144,32 @@ def validate_viewer_style(style_dict):
     # Check that the overlay is a string.
     if "overlay" in style_dict:
         overlay = style_dict["overlay"]
-        if not isinstance(overlay, str):
+        if not isinstance(overlay, str): #TODO: check the annotations?
             raise RuntimeError(f"Invalid overlay: {overlay}")
-
+ 
     # Check that the overlay_alpha is a valid number.
     if "overlay_alpha" in style_dict:
         overlay_alpha = style_dict["overlay_alpha"]
         if overlay_alpha < 0 or overlay_alpha > 1:
             raise RuntimeError(f"Invalid overlay_alpha: {overlay_alpha}")
-
+ 
     # Check that the point_size is a valid number.
     if "point_size" in style_dict:
         point_size = style_dict["point_size"]
         if point_size < 0 or point_size > 5:
             raise RuntimeError(f"Invalid point_size: {point_size}")
-
+ 
     # Check that the line_width is a valid number.
     if "line_width" in style_dict:
         line_width = style_dict["line_width"]
         if line_width < 0 or line_width > 20:
             raise RuntimeError(f"Invalid line_width: {line_width}")
-
+ 
     # Check that the line_interp is a valid number.
     if "line_interp" in style_dict:
         line_interp = style_dict["line_interp"]
         if line_interp < 0 or line_interp > 100:
             raise RuntimeError(f"Invalid line_interp: {line_interp}")
-
+ 
     # Return the style dictionary, if valid.
     return style_dict
