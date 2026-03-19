@@ -2,26 +2,98 @@
 ################################################################################
 # annotate/figure/_figure.py
 
-"""
-Implementation code for the Figure Panel.
+"""Figure panel facade for cortex-annotate.
+ 
+``FigurePanel`` is the top-level widget that composes the 2D canvas
+panel, optional 3D cortex viewer panel, and two HTML overlays.
+It is the sole public interface through which the orchestrator
+interacts with the figure rendering layer.
+ 
+The orchestrator never imports or touches renderers directly.  All
+redraw, resize, layout, lock, loading, and message operations go
+through ``FigurePanel``.  User input events (mouse clicks, key
+presses) are handled privately and translated into
+``AnnotationEditor`` operations and redraws.
+ 
+Two overlay widgets sit above the renderers via CSS absolute
+positioning:
+ 
+``MessageOverlay`` displays transient error messages (e.g.
+dependency-blocked deletion).  Supports auto-hide via timeout.
+Blocks user interaction while visible.
+ 
+``LoadingOverlay`` displays a loading screen during long-running
+operations (cache generation, target switch, startup).  Managed via
+a reference-counted context manager so nested loading operations
+(e.g. cache generation inside a target switch) show a single overlay
+that only clears when the outermost context exits.
 """
 
 # Imports ----------------------------------------------------------------------
-
-import threading
-import numpy as np
+ 
 import ipywidgets as ipw
-from functools import partial
 
-from ._canvas import CanvasPanel
-from ._viewer import CortexViewerPanel
+from ._canvas  import CanvasPanel
+from ._viewer  import CortexViewerPanel 
+from ._loading import LoadingOverlay, LoadingContext
+from ._message import MessageOverlay
 
 # Figure Panel Class -----------------------------------------------------------
 
 class FigurePanel(ipw.Box):
-    """Container widget holding the 2D canvas and 3D cortex viewer."""
+    """Figure panel widget composing the 2D canvas, 3D viewer, and overlays.
+ 
+    User input events from the canvas (mouse clicks, key presses)
+    are handled internally by ``FigurePanel``, translated into
+    ``AnnotationEditor`` mutations, and followed by the appropriate
+    redraws.  The orchestrator does not wire input events.
+ 
+    Two HTML overlays cover the entire figure area:
+ 
+    * ``MessageOverlay`` — transient error messages with optional
+      auto-hide timeout.  Blocks interaction.
 
-    # Define the horizontal and vertical layouts for the figure panel. 
+    * ``LoadingOverlay`` — loading screens managed via the
+      ``loading_context`` context manager. Blocks interaction.
+ 
+    Parameters
+    ----------
+    config : Config
+        Parsed tool configuration.  Used to determine whether to
+        instantiate the 3D cortex viewer (``config.viewer != {}``).
+
+    prefs : PrefsManager
+        User preferences.  Used to read the initial canvas tile size
+        via ``prefs.get_display("image_pixel")``.
+     
+     editor : AnnotationEditor
+        The shared annotation editing model.  ``FigurePanel`` reads
+        annotation state from the editor and calls its mutation
+        methods in response to user input.
+
+    Attributes
+    ----------
+    editor : AnnotationEditor
+        Reference to the annotation editing model.
+
+    canvas_panel : CanvasPanel
+        The 2D ipycanvas renderer (private implementation detail).
+
+    viewer_panel : CortexViewerPanel or None
+        The 3D k3d renderer, or ``None`` if the viewer section was
+        omitted from config.yaml.
+
+    locked : bool
+        When ``True``, user input events (mouse clicks, key presses)
+        are silently ignored.  Managed by ``lock()`` / ``unlock()``.
+
+    loading_context : LoadingContext
+        Reference-counted context manager for showing/hiding the
+        loading overlay.  Used by ``FigureCache`` and the
+        orchestrator.
+    """
+
+    # Define the horizontal and vertical layouts for the figure panel.
     _HORIZONTAL_LAYOUT = ipw.Layout(
         display     = "flex", 
         flex_flow   = "row", 
@@ -38,152 +110,247 @@ class FigurePanel(ipw.Box):
         border      = "1px solid deeppink",
     )
 
-    def __init__(self, annot_state, width = 512, height = 512):
-        """Initialize the figure panel."""
-        # Store the annotation state.
-        self.annot_state = annot_state
+    def __init__(self, config, prefs, editor):
+        """Initialize the figure panel and its child renderers.
+ 
+        Parameters
+        ----------
+        config : Config
+            Parsed tool configuration.
 
-        # Create the figure panels state (NOT annotation state)
-        self.figure_state = FigurePanelState(
-            annot_state = self.annot_state
-        )
-        print("Inside FigurePanel...")
+        prefs : PrefsManager
+            User preferences manager.
 
-        # Make the canvas panel.
+        editor : AnnotationEditor
+            The shared annotation editing model.
+        """
+        # Store the editor reference for internal use.
+        self.editor = editor
+
+        # Define the figure locked/unlocked state.
+        self.locked = False
+
+        # Build the 2D canvas renderer.
         self.canvas_panel = CanvasPanel(
-            figure_state = self.figure_state,
-            figure_size  = annot_state.preferences["figure_size"]
+            editor, figure_size = prefs.get_display("image_pixel"),
         )
 
-        # Make the cortex viewer panel. 
-        self.viewer_panel = CortexViewerPanel(
-            figure_state = self.figure_state,
-            width = width, 
-            height = height
-        )
+        # Build the 3D cortex viewer renderer, if specified.
+        if config.viewer != {}:
+            self.viewer_panel = CortexViewerPanel(editor)
+        else:
+            self.viewer_panel = None
 
-        # Create the Box (HBox/VBox) figure area.
-        super().__init__(
-            children = [ self.canvas_panel, self.viewer_panel ],
-            layout   = self._HORIZONTAL_LAYOUT
-        )
+        # Build the message overlay.
+        self._message = MessageOverlay()
 
-        # Canvas-specific observers (mouse clicks and key presses)
-        self.canvas_panel.observe_mouse(self.on_mouse_click)
-        self.canvas_panel.observe_key(self.on_key_press)
+        # Build the loading overlay and its context manager.
+        self._loading = LoadingOverlay()
+        self.loading_context = LoadingContext(self._loading)
+ 
+        # Assemble children: canvas, (optional) viewer, overlays.
+        children = [ self._make_html_header(), self.canvas_panel ]
+        if self.viewer_panel is not None:
+            children.append(self.viewer_panel)
+        children.append(self._message)
+        children.append(self._loading)
 
+        # Create the Box (horizontal = default) figure panel.
+        super().__init__(children, layout = self._HORIZONTAL_LAYOUT)
+
+        # Wire canvas input events to private handlers.
+        self.canvas_panel.observe_mouse(self._on_mouse_click)
+        self.canvas_panel.observe_key(self._on_key_press)
+
+    # Static Helper Methods ----------------------------------------------------
+
+    def _make_html_header(self):
+        return ipw.HTML(f"""
+            <style>
+                .jupyter-widget-Collapse-open {{
+                    background-color: white;
+                    width: 300px;
+                }}
+            </style>
+        """)
+ 
+
+    # Lock / Unlock ------------------------------------------------------------
+
+    def lock(self):
+        """Disable user input events on the figure panel.
+ 
+        While locked, mouse clicks and key presses are silently
+        ignored. 
+        """
+        self.locked = True
+ 
+
+    def unlock(self):
+        """Unlock user input events on the figure panel.
+        
+        Enables mouse clicks and key presses after a ``lock()``.  
+        """
+        self.locked = False
     
-    # Property Methods ------------------------------------------------------------
+    # Message Methods ----------------------------------------------------------
+ 
+    def write_message(self, message, timeout = 3.0):
+        """Display a transient message over the entire figure area.
+ 
+        Parameters
+        ----------
+        message : str
+            The message text to display.
 
-    @property
-    def loading_context(self):
-        """Expose the canvas loading context."""
-        return self.canvas_panel.loading_context
-    
-    # Redraw Method ------------------------------------------------------------
+        timeout : float or None, optional
+            Auto-hide after this many seconds.  Defaults to ``3.0``.
+            Pass ``None`` to persist until ``clear_message()`` is
+            called.
+        """
+        self._message.show(message, timeout = timeout)
+ 
 
-    def redraw(
-            self, clear = False, base = False, active = True, 
-            background = False
-        ):
-        """Redraw both the canvas and viewer panels."""
-        # Redraw the viewer panel.
+    def clear_message(self):
+        """Hide any currently displayed message."""
+        self._message.hide()
+
+    # Layout -------------------------------------------------------------------
+ 
+    def set_layout(self, layout):
+        """Switch between horizontal and vertical arrangement.
+ 
+        Parameters
+        ----------
+        layout : {"horizontal", "vertical"}
+            The layout direction for the canvas and viewer.
+        """
+        if layout == "horizontal":
+            self.layout = self._HORIZONTAL_LAYOUT
+        elif layout == "vertical":
+            self.layout = self._VERTICAL_LAYOUT
+        else:
+            raise ValueError(
+                f"Invalid layout direction: {layout!r}. "
+                f"Expected 'horizontal' or 'vertical'."
+            )
+
+    # Redraw -------------------------------------------------------------------
+ 
+    def redraw(self, base = False, active = True, background = False):
+        """Redraw the canvas and viewer panels.
+ 
+        Each flag controls whether the corresponding layer is
+        redrawn.  Flags that are ``False`` leave that layer
+        untouched.
+ 
+        Parameters
+        ----------
+        base : bool, optional
+            Redraw the base layer (grid image on canvas, cortex mesh
+            on viewer).  Defaults to ``False``.
+
+        active : bool, optional
+            Redraw the active annotation layer.  Defaults to ``True``.
+
+        background : bool, optional
+            Redraw the background annotation layers.
+            Defaults to ``False``.
+        """
+        # Redraw the 2D canvas.
         self.canvas_panel.redraw_canvas(
             image      = base, 
             active     = active,
             background = background
         )
-        
-        # Redraw the viewer panel.
-        self.viewer_panel.redraw_viewer(
-            clear      = clear, 
-            cortex     = base, 
-            active     = active,
-            background = background
-        )
+ 
+        # Redraw the 3D viewer, if present.
+        if self.viewer_panel is not None:
+            #TODO: bring back clear if needed
+            self.viewer_panel.redraw_viewer(
+                cortex     = base, 
+                active     = active,
+                background = background
+            )
 
-    # Mouse Event Handler Methods ----------------------------------------------
+    # Internal Handlers --------------------------------------------------------
 
-    def on_mouse_click(self, points):
-        """Handle a mouse click on the canvas."""
+    def _on_mouse_click(self, points):
+        """Handle a mouse click on the canvas.
+ 
+        Translates the click into figure coordinates (already done by
+        ``CanvasPanel.observe_mouse``), pushes the point to the
+        editor, and redraws affected layers.
+ 
+        Parameters
+        ----------
+        points : ndarray, shape (1, 2)
+            Click position in figure coordinates.
+        """
         # If the figure is locked, we do not allow events.
-        if self.annot_state.locked: return
-
-        # Push points (in figure coordinates) to the state. 
-        fixed_deps = self.figure_state.push_point(points)
-        
-        # Update the viewer annotations (active + dependencies).
-        self.figure_state.update_viewer_annotations(
-            annotations = [ self.figure_state.active, *fixed_deps ])
-
-        # Redraw canvas and viewer.
+        if self.locked: return
+ 
+        # Push the point and get back any dependent annotations that changed.
+        fixed_deps = self.editor.push_point(points)
+ 
+        # Redraw active annotation (redraw background if deps changed).
         self.redraw(active = True, background = len(fixed_deps) > 0)
 
-    # Key Press Event Handler Methods ------------------------------------------
 
-    def on_key_press(self, key, shift_down, ctrl_down, meta_down):
-        """Handle a key press on the canvas."""
+    def _on_key_press(self, key, shift_down, ctrl_down, meta_down):
+        """Handle a key press on the canvas.
+ 
+        Dispatches to the appropriate ``AnnotationEditor`` method
+        based on the key pressed.
+ 
+        Parameters
+        ----------
+        key : str
+            The key identifier (e.g. ``"Tab"``, ``"Backspace"``,
+            ``"ArrowLeft"``).
+
+        shift_down : bool
+            Whether the Shift key was held.
+
+        ctrl_down : bool
+            Whether the Ctrl key was held.
+
+        meta_down : bool
+            Whether the Meta (Cmd) key was held.
+        """
         # If the figure is locked, we do not allow events.
-        if self.annot_state.locked: return
-
+        if self.locked: return
+ 
         # Handle the key press.
-        fixed_deps = []
-        key = key.lower()
-        if key == "tab":
-            # Toggle the cursor (active) position. 
-            self.figure_state.toggle_cursor()            
-        elif key == "backspace":
-            # Delete current cursor (active) point.
-            fixed_deps = self.figure_state.pop_point()
+        if key == "Tab":
+            # Cycle cursor to the next editable point.
+            self.editor.toggle_cursor()
 
-            # Update the viewer annotations (active + dependencies).
-            self.figure_state.update_viewer_annotations(
-                annotations = [ self.figure_state.active, *fixed_deps ])
-        else: 
-            # Unrecognized key press, can skip redrawing
-            return 
+            # toggling does not edit points, so no fixed deps
+            fixed_deps = [] 
+ 
+        elif key == "Backspace":
+            # Delete the point at the cursor.
+            fixed_deps, error_msg = self.editor.pop_point()
 
-        # Redraw canvas because of annotation change 
-        self.redraw(active = True, background = len(fixed_deps) > 0) 
-
-    # Canvas Resizing Method ---------------------------------------------------
-
-    # def resize_canvas(self, new_figure_size = None):
-    #     """Resize the canvas so that each grid cell has the given pixel size.
-
-    #     Triggers a full redraw because resizing clears the canvas.
-    #     """
-    #     # If there is no new_figure_size give, we just use the current figure size.
-    #     if new_figure_size is None:
-    #         new_figure_size = self.figure_size
-
-    #     # Update the figure size (pixels per grid cell).
-    #     self.figure_size = np.array([new_figure_size, new_figure_size])
-
-    #     # The canvas size is a product of the figure size and the grid shape.
-    #     self.canvas_size = self.figure_size * np.array(self.state.grid_shape)
-    #     canvas_width, canvas_height = self.canvas_size.astype(int)
-
-    #     # Resize the multicanvas (this clears it).
-    #     self.multicanvas.width         = canvas_width
-    #     self.multicanvas.height        = canvas_height
-    #     self.multicanvas.layout.width  = f"{canvas_width}px"
-    #     self.multicanvas.layout.height = f"{canvas_height}px"
-
-    #     # Redraw everything.
-    #     self.redraw_canvas()
-
-    # Internal Helpers ---------------------------------------------------------
-
-    # def _increment_annotation_change(self):
-    #     """Increments the annotation change traitlet after redraw triggers."""
-    #     self.figure_state._annotation_change += 1        
-
-    #TODO; these are temporary until i figure out a nicer way to do this...
-    def write_message(self, message):
-        """Writes a message to the figure panel."""
-        self.canvas_panel.write_message(message)
-
-    def clear_message(self):
-        """Clears the message from the figure panel."""
-        self.canvas_panel.clear_message()
+            # If error, show the error message and exit without redrawing.
+            if error_msg is not None:
+                self.write_message(error_msg, timeout = 3.0)
+                return
+ 
+        elif key == "ArrowLeft":
+            # Switch insertion direction to "before" cursor.
+            self.editor.insert = "before"
+            return
+ 
+        elif key == "ArrowRight":
+            # Switch insertion direction to "after" cursor.
+            self.editor.insert = "after"
+            return
+ 
+        else:
+            # Unhandled key, do nothing.
+            return
+ 
+        # Redraw active annotation (redraw background if deps changed).
+        self.redraw(active = True, background = len(fixed_deps) > 0)

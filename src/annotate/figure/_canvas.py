@@ -1,137 +1,204 @@
 # -*- coding: utf-8 -*-
 ################################################################################
 # annotate/figure/_canvas.py
-#
-# Implementation code for the 2D Canvas Panel.
-#
-# The CanvasPanel is a pure rendering widget. It reads all annotation state from
-# a shared `FigurePanelState` object and redraws its ipycanvas layers when 
-# notified of changes. User input events (mouse clicks, key presses) are 
-# translated into figure-coordinate mutations and forwarded to FigurePanelState.
+
+"""2D canvas renderer for cortex-annotate.
+ 
+``CanvasPanel`` is a pure rendering widget.  It reads annotation state
+from a shared ``AnnotationEditor`` and annotation styles from a
+``PrefsManager``, then redraws its ipycanvas layers when asked.
+ 
+User input events (mouse clicks, key presses) are translated into
+figure-coordinate callbacks and forwarded to ``FigurePanel``, which
+in turn mutates the ``AnnotationEditor``.  The canvas never mutates
+annotation state directly.
+ 
+Canvas-specific rendering data (grid image, grid layout, axis limits)
+is stored as instance attributes and set by the orchestrator (or
+``FigurePanel``) before drawing begins.
+ 
+Canvas Layers
+-------------
+Layer 0 : grid image — the background figure tile(s).
+Layer 1 : background annotations — all non-active annotations.
+Layer 2 : active annotation — the annotation being edited, with
+          cursor indicator.
+ 
+Loading screens and error messages are handled by overlays at the
+``FigurePanel`` level, not by canvas layers.
+"""
 
 # Imports ----------------------------------------------------------------------
-
+ 
 import numpy as np
 import ipycanvas as ipc
 import ipywidgets as ipw
 import matplotlib as mpl
-from collections import defaultdict
-
-from .._util import wrap as wordwrap
-
+ 
 # The Canvas Panel -------------------------------------------------------------
 
 class CanvasPanel(ipw.HBox):
-    """The 2D canvas that displays figure images and annotation overlays.
+    """2D ipycanvas renderer for figure images and annotation overlays.
+ 
+    Manages a 3-layer ``MultiCanvas``:
+ 
+    * Layer 0 — grid image (PNG tile).
+    * Layer 1 — background annotations (non-active, all styles).
+    * Layer 2 — active annotation (with cursor indicator).
+ 
+    The canvas reads annotation coordinates, cursor position, and
+    fixed-head/tail data from the ``AnnotationEditor``.  Annotation
+    styles are read from the ``PrefsManager`` at draw time.
+ 
+    Canvas-specific rendering data (grid image, grid layout, figure
+    axis limits) are stored as instance attributes and must be set
+    before the first ``redraw_canvas`` call.
+ 
+    Parameters
+    ----------
+    editor : AnnotationEditor
+        The shared annotation editing model (read-only access).
 
-    The CanvasPanel manages a multi-layer ipycanvas for rendering:
-        Layer 0: grid image
-        Layer 1: background annotations (non-active)
-        Layer 2: active annotation (with cursor)
-        Layer 3: loading screen
-        Layer 4: messages (errors, warnings)
+    prefs : PrefsManager
+        User preferences for annotation styles.
+
+    figure_size : int, optional
+        Pixel size of one grid cell (both width and height).
+        Defaults to ``256``.
+ 
+    Attributes
+    ----------
+    editor : AnnotationEditor
+        Reference to the annotation editing model.
+    prefs : PrefsManager
+        Reference to the user preferences manager.
+    figure_size : ndarray, shape (2,)
+        Pixel dimensions ``[width, height]`` of one grid cell.
+    canvas_size : ndarray, shape (2,)
+        Total pixel dimensions of the multicanvas.
+    image : ipywidgets.Image or None
+        The current grid image widget.  Set by the caller before
+        drawing.
+    grid : list of list or None
+        The figure grid layout (2D list where ``None`` marks empty
+        cells).  Set by the caller before drawing.
+    grid_shape : tuple of (int, int) or None
+        ``(n_rows, n_cols)`` of the grid.  Set by the caller before
+        drawing.
+    xlim : tuple of (float, float) or None
+        X-axis figure limits for coordinate conversion.
+    ylim : tuple of (float, float) or None
+        Y-axis figure limits for coordinate conversion.
     """
+ 
+    def __init__(self, editor, prefs, figure_size = 256):
+        """Initialize the canvas panel.
+ 
+        Parameters
+        ----------
+        editor : AnnotationEditor
+            The shared annotation editing model.
 
-    class LoadingContext:
-        """A context manager for the loading screen on the figure panel canvas."""
-        __slots__ = ("canvas", "message")
+        prefs : PrefsManager
+            User preferences for annotation styles.
 
-        _count = defaultdict(lambda: 0)
-
-        def __init__(self, canvas, message = "Loading..."):
-            self.canvas  = canvas
-            self.message = message
-
-        def __enter__(self):
-            count = CanvasPanel.LoadingContext._count
-            idc   = id(self.canvas)
-            c = count[idc]
-            if c == 0:
-                CanvasPanel._draw_loading(self.canvas, self.message)
-            count[idc] = c + 1
-
-        def __exit__(self, type, value, traceback):
-            count = CanvasPanel.LoadingContext._count
-            idc = id(self.canvas)
-            c = count[idc]
-            c -= 1
-            count[idc] = c
-            if c == 0:
-                self.canvas.clear()
-                del count[idc]
-
-
-    def __init__(self, figure_state, figure_size = 256):
-        """Initialize the canvas panel."""
-        # Store figure state.
-        self.state     = figure_state 
-        self.annot_cfg = figure_state.annot_cfg
-
-        # Store the figure size (in pixels, cell in grid). 
+        figure_size : int, optional
+            Pixel size of one grid cell.  Defaults to ``256``.
+        """
+        # Store references.
+        self.editor    = editor
+        self.prefs     = prefs
+        self.annot_cfg = editor.annot_cfg
+ 
+        # Store the figure size (pixels per grid cell).
         self.figure_size = np.array([figure_size, figure_size])
-
-        # Get first grid shape from first annotation in state
+ 
+        # Rendering variables.
+        self.image      = None
+        self.grid       = None
+        self.grid_shape = None
+        self.xlim       = None
+        self.ylim       = None
+ 
+        # Get first grid shape from the first annotation for initial sizing.
         grid_shape0 = self.annot_cfg.grid_shape[self.annot_cfg.names[0]]
-
-        # Calculate the canvas size (in pixels) from figure size and grid shape.
+ 
+        # Calculate the canvas size (pixels) from figure size and grid shape.
         self.canvas_size = self.figure_size * grid_shape0
-
-        # Make a multicanvas.
+ 
+        # Build the multicanvas (3 layers: image, background, active).
         canvas_width, canvas_height = self.canvas_size
         self.multicanvas = ipc.MultiCanvas(
-            5, width = canvas_width, height = canvas_height)
-        
+            3, width = canvas_width, height = canvas_height)
+ 
         # We always seem to need to explicitly set the layout size in pixels.
         self.multicanvas.layout.width  = f"{canvas_width}px"
         self.multicanvas.layout.height = f"{canvas_height}px"
-
-        # Separate out the canvas layers.
-        self.image_canvas      = self.multicanvas[0]  # grid image layer
-        self.background_canvas = self.multicanvas[1]  # background annotation layer
-        self.active_canvas     = self.multicanvas[2]  # active annotation layer
-        self.loading_canvas    = self.multicanvas[3]  # loading screen layer
-        self.message_canvas    = self.multicanvas[4]  # message layer
-
-        # Draw the loading screen and save it as the loading context.
-        self._draw_loading(self.loading_canvas)
-        self.loading_canvas.save()
-        self.loading_context = CanvasPanel.LoadingContext(self.loading_canvas)
-
-        # Initialize the HBox.
+ 
+        # Name the canvas layers.
+        self.image_canvas      = self.multicanvas[0] # annotation image layer
+        self.background_canvas = self.multicanvas[1] # background annotations layer
+        self.active_canvas     = self.multicanvas[2] # active annotation layer
+ 
+        # Initialize the HBox with the crosshair CSS and the multicanvas.
         super().__init__(
             children = [ self._make_html_header(), self.multicanvas ],
             layout   = { "border": "1px solid blue" }
         )
 
+    # Static Helper ------------------------------------------------------------
 
-    @classmethod
-    def _make_html_header(cls):
-        return ipw.HTML(f"""
+    @staticmethod
+    def _make_html_header():
+        """Return an HTML widget that sets the canvas cursor to crosshair."""
+        return ipw.HTML("""
             <style>
-                canvas {{
+                canvas {
                     cursor: crosshair !important;
-                }}
+                }
             </style>
         """)
 
-    # Image Canvas Methods -----------------------------------------------------
-
+    # Image Layer --------------------------------------------------------------
+ 
     def redraw_image(self):
-        """Clear the image canvas and redraw the grid image."""
+        """Clear and redraw the annotation image on the image canvas.
+ 
+        Reads the image from ``self.image``.  No-op if ``self.image``
+        is ``None``.
+        """
+        # If there is no image to draw, skip.
+        if self.image is None: return
+
+        # Draw the image on the canvas.
         with ipc.hold_canvas():
             self.image_canvas.clear()
             self.image_canvas.draw_image(
-                self.state.canvas.image, 0, 0,
+                self.image, 0, 0,
                 self.image_canvas.width,
-                self.image_canvas.height
+                self.image_canvas.height,
             )
 
-
-    # Canvas to Figure Coordinate Conversion -----------------------------------
+    # Coordinate Conversion ----------------------------------------------------
 
     def canvas_to_figure(self, points):
-        """Convert an (N, 2) matrix of canvas pixel coordinates to figure coordinates."""
-        # Check the shape of the input and convert it into an `N x 2` matrix if necessary.
+        """Convert canvas pixel coordinates to figure coordinates.
+ 
+        Applies grid-cell modular wrapping, y-axis inversion, and
+        scaling by the figure axis limits.
+ 
+        Parameters
+        ----------
+        points : ndarray, shape (N, 2) or (2,)
+            Canvas pixel coordinates.  A 1D input is promoted to
+            ``(1, 2)`` and the result squeezed back.
+ 
+        Returns
+        -------
+        ndarray, shape (N, 2) or (2,)
+            Corresponding figure coordinates.
+        """
+        # Coerce points into an `N x 2` matrix if necessary.
         points = np.asarray(points)
         if len(points.shape) == 1:
             return self.canvas_to_figure([points])[0]
@@ -140,12 +207,11 @@ class CanvasPanel(ipw.HBox):
         (figure_width, figure_height) = self.figure_size
         points = points % [figure_width, figure_height]
 
-        # Get figure limits.
-        xlim, ylim = self.state.canvas.xlim, self.state.canvas.ylim
-        xlim = (0, figure_width)  if xlim is None else xlim
-        ylim = (0, figure_height) if ylim is None else ylim
+        # Resolve figure limits (default to pixel extents).
+        xlim = (0, figure_width)  if self.xlim is None else self.xlim
+        ylim = (0, figure_height) if self.ylim is None else self.ylim
 
-        # We need to invert the y axis.
+        # Invert y-axis (canvas origin is top-left, figure origin is bottom-left).
         points[:, 1] = figure_height - points[:, 1]
 
         # Now, make the conversion.
@@ -158,60 +224,84 @@ class CanvasPanel(ipw.HBox):
 
 
     def figure_to_canvas(self, points):
-        """Convert an (N, 2) matrix of figure coordinates to canvas pixel coordinates.
-
-        Returns a list of (N, 2) matrices, one per non-None cell in the grid.
+        """Convert figure coordinates to canvas pixel coordinates.
+ 
+        Returns one copy of the points per grid cell, if not ``None``.
+ 
+        Parameters
+        ----------
+        points : ndarray, shape (N, 2) or (2,)
+            Figure coordinates.  A 1D input is promoted to ``(1, 2)``
+            and the result squeezed back.
+ 
+        Returns
+        -------
+        list of ndarray, shape (N, 2)
+            One point matrix per non-``None`` cell in the grid.
         """
-        # Check the shape of the input and convert it into an `N x 2` matrix if necessary.
+        # Coerce points into an `N x 2` matrix if necessary.
         points = np.asarray(points)
-        if len(points.shape) == 1: 
+        if len(points.shape) == 1:
             return self.figure_to_canvas([points])[0]
 
-        # Get the figure limits.
+        # Resolve figure limits.
         (figure_width, figure_height) = self.figure_size
-        xlim, ylim = self.state.canvas.xlim, self.state.canvas.ylim
-        xlim = (0, figure_width)  if xlim is None else xlim
-        ylim = (0, figure_height) if ylim is None else ylim
+        xlim = (0, figure_width)  if self.xlim is None else self.xlim
+        ylim = (0, figure_height) if self.ylim is None else self.ylim
 
         # Scale to pixel coordinates.
         points  = points - [xlim[0], ylim[0]]
         points *= [figure_width  / (xlim[1] - xlim[0]),
-                figure_height / (ylim[1] - ylim[0])]
+                   figure_height / (ylim[1] - ylim[0])]
 
         # Invert the y axis.
         points[:, 1] = figure_height - points[:, 1]
 
         # And build up the point matrices for each (not None) grid element.
-        (n_rows, n_cols) = self.state.canvas.grid_shape
+        (n_rows, n_cols) = self.grid_shape
         return [
             points + [ii * figure_width, jj * figure_height]
             for ii in np.arange(n_cols)
             for jj in np.arange(n_rows)
-            if self.state.canvas.grid[jj][ii] is not None
+            if self.grid[jj][ii] is not None
         ]
 
-
-    # Annotation Canvas Methods ------------------------------------------------
+    # Annotation Drawing Methods -----------------------------------------------
 
     def redraw_annotations(self, active = True, background = True):
-        """Clear and redraw annotation overlays."""
-        # Clear the appropriate acanvas layers.
+        """Clear and redraw annotation overlays on the active or background 
+        annotation canvases.
+ 
+        Iterates over all annotations in the editor, determines
+        whether each is active or background, fetches its style from
+        ``self.prefs``, converts coordinates, and draws.
+ 
+        Parameters
+        ----------
+        active : bool, optional
+            Whether to redraw the active annotation layer.
+            Defaults to ``True``.
+
+        background : bool, optional
+            Whether to redraw the background annotation layer.
+            Defaults to ``True``.
+        """
+        # Clear the specified canvas layers.
         if active:     self.active_canvas.clear()
         if background: self.background_canvas.clear()
 
         # Step through all annotations and draw them.
-        for (annotation, points) in self.state.annotations.items():
+        for annotation, points in self.editor.annotations.items():
             # If there are no points, we can skip.
-            if points is None or len(points) == 0:
-                continue
+            if points is None or len(points) == 0: continue
 
             # Determine if this is the active or a background annotation.
-            if self.state.active == annotation:
+            if self.editor.active == annotation:
                 # Skip active annotation if active is False.
                 if not active: continue
                 canvas   = self.active_canvas
                 styletag = None
-                cursor   = self.state.cursor
+                cursor   = self.editor.cursor
             else:
                 # Skip background annotations if background is False.
                 if not background: continue
@@ -219,17 +309,17 @@ class CanvasPanel(ipw.HBox):
                 styletag = annotation
                 cursor   = None
 
-            # Determine if the head or tail of this annotation is fixed.
+            # Determine if the annotation has a fixed-head or fixed-tail.
             fixed_head = self.state.fixed_heads.get(annotation, None) is not None
             fixed_tail = self.state.fixed_tails.get(annotation, None) is not None
 
-            # Get the style for this annotation.
-            style = self.state.style(styletag)
+            # Get style from preferences.
+            style = self.prefs.get_annotation_style(styletag)
 
             # Skip, if the annotation is not visible.
             if not style["visible"]: continue
 
-            # Check if the path is closed (only boundaries are closed).
+            # Determine if the path is closed (only boundaries are closed).
             atype  = self.annot_cfg.type[annotation]
             closed = atype == "boundary"
 
@@ -245,16 +335,28 @@ class CanvasPanel(ipw.HBox):
                     cursor     = cursor,
                     closed     = closed,
                     fixed_head = fixed_head,
-                    fixed_tail = fixed_tail
+                    fixed_tail = fixed_tail, 
+                    insert     = "after"
                 )
 
 
     def _apply_linestyle(self, canvas, style):
-        """Apply the line width and line style to the given canvas."""
-        # Get the line width and line style from the style dict, with defaults.
-        linewidth, linestyle = style["linewidth"], style["linestyle"]
+        """Apply line width and dash pattern to a canvas context.
+ 
+        Parameters
+        ----------
+        canvas : ipycanvas.Canvas
+            The canvas layer to configure.
 
-        # Apply the linewidth and linestyle to the canvas.
+        style : dict
+            Annotation style dict with ``linewidth`` and ``linestyle``
+            keys.
+        """
+        # Get the linewidth and linestyle from the style dictionary.
+        linewidth = style["linewidth"]
+        linestyle = style["linestyle"]
+ 
+         # Apply the linewidth and linestyle to the canvas.
         canvas.line_width = linewidth if linewidth is not None else 1
         if linestyle == "solid":
             canvas.set_line_dash([])
@@ -271,14 +373,44 @@ class CanvasPanel(ipw.HBox):
 
     def draw_points(
         self, canvas, points, style, cursor = None, closed = False,
-        fixed_head = False, fixed_tail = False
+        fixed_head = False, fixed_tail = False, insert = "after"
     ):
-        """Draw an annotation path on the given canvas.
+        """Draw an annotation on the given canvas layer.
+ 
+        Renders line segments between consecutive points, circular
+        markers for user-placed points, square markers for fixed
+        head/tail points, and a cursor ring around the active point.
+ 
+        Parameters
+        ----------
+        canvas : ipycanvas.Canvas
+            The canvas layer to draw on.
 
-        Points must be in canvas pixel coordinates. The ``style`` dict
-        provides color, linewidth, linestyle, and markersize.
+        points : ndarray, shape (N, 2)
+            Annotation points in canvas pixel coordinates.
+
+        style : dict
+            Annotation style dict with ``color``, ``linewidth``,
+            ``linestyle``, and ``markersize`` keys.
+
+        cursor : int or None, optional
+            Index of the cursor point.  If given, a ring is drawn
+            around that point.
+
+        closed : bool, optional
+            Whether to close the path (connect last point to first).
+
+        fixed_head : bool, optional
+            Whether the first point is a fixed head (drawn as square).
+
+        fixed_tail : bool, optional
+            Whether the last point is a fixed tail (drawn as square).
+
+        insert: str, optional
+            Whether to insert the new points "before" or "after" the
+            existing points.  Defaults to "after".
         """
-        # Convert the color to an RGB array.
+        # Convert the color to an uint8 RGB array. 
         rgb_color = np.array(mpl.colors.to_rgb(style["color"]))
         rgb_color = np.array(rgb_color * 255, dtype = np.uint8)
 
@@ -288,7 +420,8 @@ class CanvasPanel(ipw.HBox):
         # We only draw line segments if there are at least two points. If the
         # annotation has fixed points, we only draw when there are more points 
         # than fixed points.
-        if points.shape[0] > np.max([1, np.sum([fixed_head, fixed_tail])]):
+        n_fixed = int(fixed_head) + int(fixed_tail)
+        if points.shape[0] > np.max([1, n_fixed]):
             # if the path is closed, we need to add the first point to the end 
             # of the point matrix to make sure the path is closed when we draw it.
             if closed: points = np.vstack([points, points[0:1, :]])
@@ -302,9 +435,9 @@ class CanvasPanel(ipw.HBox):
                 color  = [rgb_color],
             )
 
-        # Separate fixed points from user points for different marker styles.
+        # Separate fixed points from user points for marker styling.
         user_points  = points.copy()
-        fixed_points = self.state.empty_point_matrix()
+        fixed_points = np.empty((0, 2))
 
         if fixed_head:
             fixed_points = np.vstack([fixed_points, points[0, :]])
@@ -343,93 +476,31 @@ class CanvasPanel(ipw.HBox):
                 color  = [rgb_color],
             )
 
-    # Loading Canvas Methods ---------------------------------------------------
-
-    @staticmethod
-    def _prep_canvas_message(canvas, message, wrap = True, fontsize = 32):
-        """Prepare a message for drawing on the given canvas."""
-        # Prepare the message by word wrapping, if necessary.
-        if wrap is True or wrap is Ellipsis:
-            wrap = int(canvas.width * 13 / 15 / fontsize * 2)
-        message = wordwrap(message, wrap = wrap)
-
-        # Calculate the x0, y0, and max_width for the canvas message.
-        x0        = canvas.width // 15
-        y0        = canvas.height // 15
-        max_width = canvas.width - (canvas.width // 15 * 2)
-
-        # Return the prepared message and the x0, y0, and max_width for drawing it.
-        return message, x0, y0, max_width
-
-
-    @staticmethod
-    def _draw_text_canvas(canvas, message, wrap = True, fontsize = 32):
-        """Draw a message on the given canvas."""
-        # Prepare the message by word wrapping, if necessary.
-        message, x0, y0, max_width = CanvasPanel._prep_canvas_message(
-            canvas, message, wrap = wrap, fontsize = fontsize)
-
-        with ipc.hold_canvas():
-            # Clear the canvas.
-            canvas.clear()
-
-            # Draw a white background with some transparency.
-            canvas.fill_style   = "white"
-            canvas.global_alpha = 0.85
-            canvas.fill_rect(0, 0, canvas.width, canvas.height)
-
-            # Draw the message in black.
-            canvas.fill_style    = "black"
-            canvas.global_alpha  = 1
-            canvas.font          = f"{fontsize}px HelveticaNeue"
-            canvas.text_align    = "left"
-            canvas.text_baseline = "top"
-
-            # Draw the message on the canvas, line by line.
-            for (i, line) in enumerate(message.split("\n")):
-                canvas.fill_text(
-                    text = line, x = x0, y = y0 + fontsize * i,
-                    max_width = max_width
-                )
-
-
-    @classmethod
-    def _draw_loading(cls, canvas, message = "Loading...", wrap = True, fontsize = 32):
-        """Clear the canvas and draw the loading screen."""
-        cls._draw_text_canvas(
-            canvas   = canvas,
-            message  = message,
-            wrap     = wrap,
-            fontsize = fontsize
-        )
-
-    # Message Canvas Methods ---------------------------------------------------
-
-    def write_message(self, message, wrap = True, fontsize = 32):
-        """Write a message on the message canvas."""
-        self._draw_text_canvas(
-            canvas   = self.message_canvas,
-            message  = message,
-            wrap     = wrap,
-            fontsize = fontsize
-        )
-
-
-    def clear_message(self):
-        """Clear the current message canvas."""
-        self.message_canvas.clear()
-
+        # TODO: add some arrow marker to indicate the direction of the next insert
 
     # Redraw Multicanvas Method ------------------------------------------------
 
     def redraw_canvas(self, image = False, active = True, background = False):
-        """Redraw the entire canvas panel."""
+        """Redraw the canvas.
+ 
+        This is the primary entry point called by ``FigurePanel``.
+        Each flag controls whether the corresponding layer is redrawn.
+ 
+        Parameters
+        ----------
+        image : bool, optional
+            Redraw the grid image on the image canvas.  Defaults to ``False``.
+
+        active : bool, optional
+            Redraw the active annotation on the active annotation canvas.
+            Defaults to ``True``.
+
+        background : bool, optional
+            Redraw the background annotations on the background annotation canvas.
+            Defaults to ``False``.
+        """
         # If there is no image to draw, skip
-        if self.state.canvas.image is None: return
-        
-        # Redraw the loading canvas.
-        if image or active or background:
-            self.loading_canvas.restore()
+        if self.image is None: return
 
         # Redraw layers.
         with ipc.hold_canvas():
@@ -443,7 +514,17 @@ class CanvasPanel(ipw.HBox):
     # Observer Methods ---------------------------------------------------------
 
     def observe_mouse(self, fn):
-        """Expose multicanvas mouse event listener."""
+        """Register a callback for mouse clicks on the canvas.
+ 
+        The callback receives figure coordinates (not canvas pixel
+        coordinates).  Conversion is handled internally.
+ 
+        Parameters
+        ----------
+        fn : callable
+            ``fn(points)`` where *points* is ``ndarray, shape (1, 2)``
+            in figure coordinates.
+        """
         # Define a function to convert canvas pixel to figure coordinates. 
         # Then call the callback with the converted points.
         def _convert_xy_to_points(x, y):
@@ -457,5 +538,12 @@ class CanvasPanel(ipw.HBox):
 
 
     def observe_key(self, fn):
-        """Expose multicanvas key press event listener."""
+        """Register a callback for key presses on the canvas.
+ 
+        Parameters
+        ----------
+        fn : callable
+            ``fn(key, shift_down, ctrl_down, meta_down)`` where *key*
+            is the key identifier string.
+        """
         self.multicanvas.on_key_down(fn)

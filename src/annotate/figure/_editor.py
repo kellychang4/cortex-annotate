@@ -2,102 +2,148 @@
 ################################################################################
 # annotate/figure/_editor.py
 
-"""
-Implementation code for the Figure Panel.
+"""Pure annotation editing model for cortex-annotate.
+ 
+``AnnotationEditor`` owns the shared annotation state (target, active
+annotation, coordinate arrays, cursor, editable indices, fixed heads
+and tails) and exposes point manipulation operations (push, pop,
+toggle).
+ 
+The editor receives an ``AnnotationsConfig`` at construction and uses
+it for annotation metadata (types, names, fixed-point functions,
+dependency graphs).  Target-specific annotation coordinate data is
+supplied at runtime via ``update()``.
 """
 
 # Imports ----------------------------------------------------------------------
-
-import threading
+ 
 import numpy as np
-import ipywidgets as ipw
-from functools import partial
-
-# The Figure Panel State ------------------------------------------------------
-
+ 
+# Annotation Editor ------------------------------------------------------------
+ 
 class AnnotationEditor:
-    """Figure panel state for the cortex annotation tool."""
+    """Annotation editing class.
+ 
+    Maintains the annotation coordinate arrays, cursor position,
+    editable point indices, fixed-head/tail points, and insertion
+    direction for the currently selected target and annotation.  
+    
+    Exposes ``push_point``, ``pop_point``, and ``toggle_cursor`` 
+    for point manipulation, and ``update`` for target/annotation switching.
+  
+    Parameters
+    ----------
+    annot_cfg : AnnotationsConfig
+        Parsed annotation configuration providing types, names,
+        fixed-point functions, dependency graph, and grid metadata.
+ 
+    Attributes
+    ----------
+    annot_cfg : AnnotationsConfig
+        Reference to the annotation configuration (read-only).
 
-    # Point type constants (used for annotation rendering)
-    POINT_FIXED  = 2  # fixed head/tail point
-    POINT_USER   = 1  # user-placed point
-    POINT_INTERP = 0  # interpolated point (between user/fixed points)
+    target : tuple of str or None
+        Current target identifier tuple.
 
+    active : str or None
+        Name of the annotation currently being edited.
 
-    class CanvasState:
-        def __init__(self):
-            """Initialize the canvas state."""
-            self.image      = None # ipw.Image (background image)
-            self.grid       = None # figure_grid layout
-            self.grid_shape = None # (rows, cols) tuple
-            self.xlim       = None # x-axis figure limits
-            self.ylim       = None # y-axis figure limits
+    annotations : dict of {str: ndarray or None}
+        Mapping of annotation name to ``(N, 2)`` coordinate arrays
+        for the current target.
 
+    fixed_heads : dict of {str: ndarray or None}
+        Fixed head point ``(1, 2)`` for each annotation, or ``None``.
 
-    class ViewerState:
-        def __init__(self):
-            """Initialize the viewer state."""
-            self.faces        = None # (n_faces, 3) array of mesh faces
-            self._coordinates = None # list of (n_vertices, 3), 1 = no interp, 2 = interp
-            self.overlays     = {}   # (n_vertices, 3) array of overlay RGB colors
+    fixed_tails : dict of {str: ndarray or None}
+        Fixed tail point ``(1, 2)`` for each annotation, or ``None``.
 
-            # Viewer annotations (surface!!!)
-            self.canvas_to_viewer = None # function to convert canvas coordinates to viewer coordinates
-            self.annotations = {} # Dict of annotation_name → { "coordinates", "point_types" }
+    editable : ndarray of int
+        Indices into the active annotation's point array that are
+        user-editable (i.e. not fixed heads or tails).
+        
+    cursor : int or None
+        Index of the cursor within the active annotation's point
+        array, or ``None`` if no editable points exist.
 
-            # Style settings for the viewer.
-            self.style = {
-                "morph_percent" : 0,
-                "overlay"       : "curvature",
-                "overlay_alpha" : 1.0, 
-                "point_size"    : 1.5, 
-                "line_width"    : 0.25,
-                "line_interp"   : 10,
-            }
+    insert : bool
+        Insertion direction.  When ``after`` (default),
+        ``push_point`` inserts after the cursor.  When ``before``,
+        inserts before the cursor. 
+    """
 
+    # Empty point matrix constant for annotations with no points.
+    _EMPTY_POINT_MATRIX = np.zeros((0, 2), dtype = float)
 
-        @property
-        def coordinates(self):
-            """Compute blended coordinates between internal coordinate values."""
-            # If only one set of coordinates, return without interpolation
-            if len(self._coordinates) == 1: return self._coordinates[0]
+    __slots__ = (
+        "annot_cfg", "target", "active", "annotations",
+        "fixed_heads", "fixed_tails", "editable", "cursor",
+        "insert"
+    )
 
-            # Else: there two set of coordinates, return blended coordinates
-            start_coords, end_coords = self._coordinates
-            morph_proportion = self.style["morph_percent"] / 100.0
-            return ((end_coords - start_coords) * morph_proportion) + start_coords
+    def __init__(self, annot_cfg):
+        """Initialize the annotation editor."""
+        # Store the annotation configuration. 
+        self.annot_cfg = annot_cfg
 
+        # Initialize internal variables.
+        self.target      = None
+        self.active      = None
+        self.annotations = {}
+        self.fixed_heads = {}
+        self.fixed_tails = {}
+        self.editable    = np.zeros((0,), dtype = int)
+        self.cursor      = None
+        self.insert      = "after"
 
-    def __init__(self, annot_state):
-        """Initialize the figure panel state."""
-        # Store the state (from the annotation tool).
-        self.annot_state = annot_state
-        self.annot_cfg   = annot_state.config.annotations
-        self.style       = annot_state.style # get/set style method
-
-        # Initialize the (shared = canvas & viewer) variables.
-        self.target      = None # current target id tuple
-        self.active      = None # current active annotation name
-        self.annotations = {} # annotation_name -> (N, 2) coordinates
-        self.fixed_heads = {} # annotation_name -> (1, 2) coordinates or None
-        self.fixed_tails = {} # annotation_name -> (1, 2) coordinates or None
-        self.editable    = np.array([]) # editable indices
-        self.cursor      = None # cursor index into active annotation
-
-        # Canvas and Viewer specific variables
-        self.canvas = self.CanvasState()
-        self.viewer = self.ViewerState()
-       
+    # Static Helpers -----------------------------------------------------------
+    
+    @staticmethod
+    def _init_editable(x = None):
+        """Create an initial editable-index array.
+ 
+        Parameters
+        ----------
+        x : int or None
+            If given, the single editable index.  If ``None``,
+            returns an empty array.
+ 
+        Returns
+        -------
+        ndarray of int
+            Length-0 or length-1 array of editable point indices.
+        """
+        if x is None: return np.zeros((0,), dtype = int)
+        return np.array([x], dtype = int)
+    
     # Fixed Point Methods ------------------------------------------------------
 
-    @staticmethod
-    def empty_point_matrix():
-        """Returns an empty point matrix with shape (0, 2) and dtype float."""
-        return np.zeros((0, 2), dtype = float)
-
-
     def calc_fixed_point(self, annotation, target_annotations, fixed_point):
-        """Calculates the fixed head or tail point for the given annotation."""
+        """Calculate a fixed head or tail point for an annotation.
+ 
+        Uses the compiled calculation function from the annotation
+        config to compute the fixed point from the current target's
+        annotation coordinates.
+ 
+        Parameters
+        ----------
+        annotation : str
+            Annotation name.
+
+        target_annotations : dict
+            Current target's annotation coordinate arrays, keyed by
+            annotation name.
+            
+        fixed_point : {"fixed_head", "fixed_tail"}
+            Which fixed point to calculate.
+ 
+        Returns
+        -------
+        ndarray, shape (1, 2) or None
+            The computed fixed point, or ``None`` if the annotation
+            has no fixed point for *which* or if the calculation
+            fails.
+        """
         # Validate the fixed point type.
         if fixed_point not in ("fixed_head", "fixed_tail"):
             raise ValueError(f"Invalid fixed point: {fixed_point}")
@@ -105,148 +151,84 @@ class AnnotationEditor:
         # Get the fixed head or tail attribute for the given annotation.
         fixed_point = getattr(self.annot_cfg, fixed_point)[annotation]
 
-        # If there is a fixed head, we need to calculate it using the compiled function.
-        if fixed_point is not None:
-            try:
-                fixed_point = fixed_point["calculate"](target_annotations)
-                fixed_point = fixed_point.reshape(1, 2)
-            except Exception:
-                fixed_point = None
+        # If there is no fixed point, return None
+        if fixed_point is None: return None
+
+        # If there is a fixed head, attempt to calculate using the compiled function.
+        try:
+            fixed_point = fixed_point["calculate"](target_annotations)
+            return fixed_point.reshape(1, 2)
         
-        # Return the fixed point (coordinates of the fixed point or None).
-        return fixed_point
+        # If the calculation fails, we return None. 
+        except Exception:
+            return None
 
-    # Editable Methods ---------------------------------------------------------
-
-    @staticmethod
-    def _init_editable(x = None):
-        """Initializes the editable points for the given annotation."""
-        if x is None: return np.zeros((0,), dtype = int)
-        return np.array([x], dtype = int)
-    
+    # Editable Index Methods ---------------------------------------------------
 
     def _calc_editable(self, annotation):
-        """Calculates the editable points for the active annotation."""
+        """Return indices of user editable points for *annotation*.
+ 
+        Editable points are those that do not coincide with the
+        fixed head or fixed tail.
+ 
+        Parameters
+        ----------
+        annotation : str
+            Annotation name.
+ 
+        Returns
+        -------
+        ndarray of int
+            Indices into ``self.annotations[annotation]`` that are
+            not fixed.
+        """
         # Get the points, fixed head, and fixed tail for the given annotation
         points     = self.annotations[annotation]
         fixed_head = self.fixed_heads[annotation]
         fixed_tail = self.fixed_tails[annotation]
 
         # Determine which points are fixed by comparing them to the fixed head and tail.
-        fixed_head = np.all(points == fixed_head, axis = 1)
-        fixed_tail = np.all(points == fixed_tail, axis = 1)
-        fixed_index = np.logical_or(fixed_head, fixed_tail)
+        is_head  = np.all(points == fixed_head, axis = 1)
+        is_tail  = np.all(points == fixed_tail, axis = 1)
+        is_fixed = np.logical_or(is_head, is_tail)
 
         # Return the indices of the editable points (i.e., non-fixed points).
-        return np.where(~fixed_index)[0] 
+        return np.where(~is_fixed)[0]
 
-
-    # Cortex Viewer Annotation Methods -----------------------------------------
-    
-    def _interpolate_coordinates(self, coordinates, point_types):
-        """Interpolate coordinates along the annotation path."""
-        # Get number of interpolated points
-        n = self.viewer.style["line_interp"] + 2
-
-        # Intialize ararys to store interpolated coordinates
-        x_interp = []; y_interp = []; ptype_interp = []
-        
-        # Initialize point type interpolation filler
-        ptype_filler = [self.POINT_INTERP] * self.viewer.style["line_interp"]
-        
-        # Iterate over each segment and interpolate points  
-        n_interp = coordinates.shape[0] - 1
-        for i in np.arange(n_interp):
-            # Extract start and end coordinates and point types for the segment
-            xs, xe = coordinates[i, 0], coordinates[i + 1, 0]
-            ys, ye = coordinates[i, 1], coordinates[i + 1, 1]
-            ps, pe = point_types[i], point_types[i + 1]
-            
-            # Interpolate x and y coordinates and point types for the segment\
-            xn = np.linspace(xs, xe, n)
-            yn = np.linspace(ys, ye, n)
-            pn = [ps, *ptype_filler, pe]
-
-            if i == 0:
-                # for the first segment, include the starting point
-                x_interp.append(xn)
-                y_interp.append(yn)
-                ptype_interp.append(pn)
-            else:
-                # for subsequent segments, exclude the starting point to avoid duplicates
-                x_interp.append(xn[1:])
-                y_interp.append(yn[1:])
-                ptype_interp.append(pn[1:])
-
-        # Concatenate and prepare interpolated points
-        x_interp     = np.concatenate(x_interp)
-        y_interp     = np.concatenate(y_interp)
-        ptype_interp = np.concatenate(ptype_interp)
-
-        # Return interpolated coordinates (as matrix) and point types (as int)
-        interp_coordinates = np.vstack((x_interp, y_interp, ptype_interp)).T
-        return interp_coordinates[:, :-1], interp_coordinates[:, -1].astype(int)
-
-
-    def update_viewer_annotations(self, annotations = None):
-        """Update cortical viewer annotations for each annotation."""
-        # Determine the annotations to update. If None, update all annotations.
-        if annotations is None: annotations = self.annot_cfg.names.copy()
-
-        # Convert each canvas (2d) annotation to viewer (3d) coordinates
-        for key in annotations: # for each annotation to update
-            # Get the current canvas points
-            canvas_points = self.annotations.get(key, None)
-            print(f"working on: {key}")
-            print(f"canvas_points: {canvas_points}")
-
-            # If no points, set viewer annotation to None
-            if canvas_points is None or canvas_points.shape[0] == 0:
-                self.viewer.annotations[key] = {
-                    "coordinates" : None,
-                    "point_types" : None,
-                }
-                continue
-
-            # Determine point types (fixed vs user points).
-            n_points    = canvas_points.shape[0]
-            point_types = np.full(n_points, self.POINT_USER)
-            fixed_head  = bool(self.annot_cfg.fixed_heads[key])
-            fixed_tail  = bool(self.annot_cfg.fixed_tails[key])
-            if fixed_head: point_types[0]  = self.POINT_FIXED
-            if fixed_tail: point_types[-1] = self.POINT_FIXED
-
-            print(f"n_points: {n_points}")
-            print(f"before interp: {canvas_points.shape}")
-
-            # Interpolate coordinate if there are more than one point (to make a 
-            # segment) and if the points are NOT all fixed points.
-            if n_points > 1 and not np.all(point_types == self.POINT_FIXED):
-                canvas_points, point_types = self._interpolate_coordinates(
-                    canvas_points, point_types)
-            
-            print(f"after interp: {canvas_points.shape}")
-            print(f"point_types: {point_types}")
-
-            # Calculate viewer coordinates from canvas (interpolated) coordinates
-            viewer_coordinates = self.viewer.canvas_to_viewer(
-                canvas_points, self.viewer.coordinates)
-
-            # Store viewer annotations coordinates and point types
-            self.viewer.annotations[key] = {
-                "coordinates": viewer_coordinates,
-                "point_types": point_types
-            }
-
-
-    # Update Method ------------------------------------------------------------
+    # Update (target / annotation switch) --------------------------------------
 
     def update(self, target_id, annotation, target_annotations):
-        """Updates the state to reflect the given target and annotation."""
-    
-        # If neither the target nor the annotation is changing, we can skip the update.
-        if self.target == target_id and self.active == annotation: return
-        print("Inside Update....")
+        """Update the editor to reflect a new target and/or annotation.
+ 
+        Recalculates fixed heads and tails, resolves the editable
+        indices, and positions the cursor.  For contour/boundary
+        annotations with no user points, seeds the coordinate array
+        with any configured fixed head and tail.
+ 
+        Parameters
+        ----------
+        target_id : tuple of str
+            The new target identifier.
+
+        annotation : str
+            The new active annotation name.
+
+        target_annotations : dict of {str: ndarray or None}
+            Mapping of annotation name to ``(N, 2)`` coordinate
+            arrays for *target_id*.
+ 
+        Returns
+        -------
+        bool or None
+            ``True`` if the target changed — callers should reload
+            base data (grid image, cortex mesh).  ``False`` if only
+            the annotation changed — callers should redraw annotations
+            only.  ``None`` if neither changed (no-op, no redraw
+            needed).
+        """    
+        # If neither the target nor the annotation changed, we can skip the update.
+        if self.target == target_id and self.active == annotation: return None
+            
         # Store the previous state.
         prev_target     = self.target
         prev_annotation = self.active
@@ -255,18 +237,17 @@ class AnnotationEditor:
         self.target      = target_id
         self.active      = annotation
         self.annotations = target_annotations
+
+        # Determine if the target changed.
+        target_changed = prev_target != self.target
         
-        print(f"self.target: {self.target}")
-        print(f"self.active: {self.active}")
-        # print(f"self.annotations: {self.annotations}")
-        
-        # If the target is changing, we need to reset the fixed heads and tails, 
-        # since they are target specific. Recalculating all annotations.
-        if self.fixed_heads == {} or self.fixed_tails == {} or \
-            prev_target != self.target:
+        # Determine which annotations need fixed point recalculation.
+        # On first call (empty dicts) or target change: recalculate all.
+        if self.fixed_heads == {} or self.fixed_tails == {} or target_changed:
             self.fixed_heads = {}
             self.fixed_tails = {}
             recalc_fixed     = list(self.annot_cfg.names)
+
         # If the annotation is changing, we need to recalculate the fixed heads
         # tails for dependencies of the previous annotation.
         else:
@@ -280,13 +261,13 @@ class AnnotationEditor:
             self.fixed_tails[annotation] = self.calc_fixed_point(
                 annotation, self.annotations, "fixed_tail")
             
-        # Get the points and annotation type for the active annotation.
+        # Get the annotation coordinates type for the active annotation.
         points = self.annotations[self.active]
         atype  = self.annot_cfg.type[self.active]
 
         # If there are no points for the current annotation, initialize.
         if points is None or points.shape[0] == 0:
-            points = self.empty_point_matrix()
+            points = self._EMPTY_POINT_MATRIX.copy()
 
         # Determine the editable points.
         if atype == "point":
@@ -296,7 +277,7 @@ class AnnotationEditor:
 
         else: # atype in ( "contour", "boundary" )
             # If points is empty, update the annotations with the fixed points. 
-            # Annotations should be saved WITH their fixed heads and tails.
+            # Annotations are saved WITH their fixed heads and tails. 
             if points.shape[0] == 0:
                 if self.fixed_heads[self.active] is not None:
                     points = np.vstack([self.fixed_heads[self.active], points])
@@ -314,54 +295,22 @@ class AnnotationEditor:
         if self.editable.shape[0] == 0: self.cursor = None
         else: self.cursor = self.editable[-1]
 
-        # Canvas-specific updates
-        ## Update the image data, grid shape, and figure limits from the state.
-        image_data, meta_data  = self.annot_state.grid(self.target, self.active)
-        self.canvas.image      = ipw.Image(value = image_data, format = "png")
-        self.canvas.grid       = self.annot_cfg.figure_grid[self.active]
-        self.canvas.grid_shape = self.annot_cfg.grid_shape[self.active]
-        self.canvas.xlim       = meta_data["xlim"]
-        self.canvas.ylim       = meta_data["ylim"]
-
-        # Cortex viewer-specific updates
-        ## If the target changed, we need to update the cortex variables.
-        if prev_target != self.target: # target change
-            # Extract the configuration cortex and target dictionary
-            cortex_dict = self.annot_state.config.cortex
-            target      = self.annot_state.config.targets[self.target]
-
-            # Prepare the viewer faces values
-            self.viewer.faces = cortex_dict["faces"](target)
-
-            # Prepare the internal coordinates, depends on morph_between
-            morph_between = cortex_dict.get("morph_between", None)
-            print(f"morph_between: {morph_between}")
-            if morph_between is None: morph_between = [ "_default" ]
-            print(f"morph_between: {morph_between}")
-            self.viewer._coordinates = [
-                cortex_dict["coordinates"][coordinate_name](target)
-                for coordinate_name in morph_between
-            ]
-
-            # Prepare the canvas to viewer function
-            self.viewer.canvas_to_viewer = partial(
-                cortex_dict["canvas_to_viewer"], target)
-            print(f"self.viewer.canvas_to_viewer: {self.viewer.canvas_to_viewer}")
-
-            # Update the viewer annotatations (all annotations)
-            self.update_viewer_annotations()
-            
-            # Prepare the overlay values 
-            self.viewer.overlays = {
-                key: overlay_fn(target, key)
-                for key, overlay_fn in cortex_dict["overlays"].items()
-            } 
-        
-
+        # Return whether the target changed (for redraw purposes).
+        return target_changed
+    
     # Recalculate Dependencies -------------------------------------------------
 
     def _recalculate_deps(self, annotation):
-        """Recalculates the dependent annotations for the given annotation."""
+        """Recalculate fixed points for annotations that depend on *annotation*.
+ 
+        Iterates over annotations whose fixed head or tail is derived
+        from *annotation* and updates their first/last point in place.
+ 
+        Parameters
+        ----------
+        annotation : str
+            The annotation whose dependents should be recalculated.
+        """
         # Get the dependent annotations for the given annotation.
         fixed_deps = self.annot_cfg.fixed_dependencies[annotation]
 
@@ -369,7 +318,7 @@ class AnnotationEditor:
         if len(fixed_deps) == 0: return 
 
         # We need to recalculate each of the dependent annotations using their
-        # provided functions and update them in the state.
+        # provided functions and update their annotation coordinates.
         for fd in fixed_deps: 
             # Get the current points for the dependent annotation.
             points = self.annotations[fd]
@@ -391,13 +340,38 @@ class AnnotationEditor:
     # Push Point Method --------------------------------------------------------
 
     def push_point(self, new_point):
-        """Pushes a new point to the active annotation dependent on cursor position."""
+        """Add a point at the current cursor position.
+ 
+        For point annotation types, replaces the single point.  For
+        contour and boundary annotations, inserts relative to the
+        cursor based on the ``insert`` flag:
+ 
+        * ``insert = "after"`` (default): inserts **after** the
+          cursor and advances the cursor to the new point.
+        * ``insert = "before"``: inserts **before** the cursor,
+          placing the new point at the cursor's current index.
+ 
+        After insertion, recalculates fixed points for any dependent
+        annotations.
+ 
+        Parameters
+        ----------
+        new_point : ndarray, shape (1, 2)
+            The new point in figure coordinates.
+ 
+        Returns
+        -------
+        list of str
+            Annotation names whose fixed points were recalculated as
+            a result of this push.  Empty if the active annotation
+            has no dependents, or if there is no active annotation.
+        """
         # We can only push points if there is an active annotation.
-        if self.active is None: return None
+        if self.active is None: return 
 
         # Get the current points for this annotation. If None, initialize empty.
         points = self.annotations[self.active]
-        if points is None: points = self.empty_point_matrix()
+        if points is None: points = self._EMPTY_POINT_MATRIX.copy()
 
         # Get the annotation type for this annotation.
         atype = self.annot_cfg.type[self.active]
@@ -425,18 +399,27 @@ class AnnotationEditor:
                     self.editable = self._init_editable(0)
                 self.cursor = self.editable[0]   
 
-            # If there are editable points, we add the new point after the 
-            # current cursor position and move the cursor to the new point.
+            # If there are editable points, we add the new point dependoing 
+            # on the insert direction.
             else: 
-                # Because we are inserting a point, all the editable points 
-                # after the cursor need to be shifted by one index.
-                self.editable[self.editable > self.cursor] += 1
+                if self.insert == "before":
+                    # If we are inserting a point before the cursor, all
+                    # editable points at or after the cursor shift up by one,
+                    # but we also keep the original cursor position. This means
+                    # we can just add an editable point index at the end of
+                    # the editable points and keep the curor where it is.
+                    self.editable = np.append(self.editable, np.max(self.editable) + 1)
+                    
+                else: # self.insert == "after"1
+                    # If we are inserting a point after the cursor, all editable
+                    # points after the cursor need to be shifted by one index.
+                    self.editable[self.editable > self.cursor] += 1
 
-                # We add the new cursor position to the editable points.
-                self.editable = np.sort(np.append(self.editable, self.cursor + 1))
-                
-                # Finally, we increment the cursor to move it to the next position.
-                self.cursor += 1
+                    # We add the new cursor position to the editable points.
+                    self.editable = np.sort(np.append(self.editable, self.cursor + 1))
+                    
+                    # Finally, we increment the cursor to move it to the next position.
+                    self.cursor += 1
 
             # Insert the new point at the cursor position.
             points = np.insert(points, self.cursor, new_point, axis = 0)
@@ -451,11 +434,16 @@ class AnnotationEditor:
         # Return fixed dependencies
         return fixed_deps
 
-
     # Toggle Cursor Method -----------------------------------------------------
     
     def toggle_cursor(self):
-        """Toggles the cursor position of the active annotation."""
+        """Cycle the cursor to the next editable point.
+ 
+        For contour and boundary annotations, advances the cursor to
+        the next editable index with wraparound.  No-op for point
+        annotations (only one point) or when fewer than two editable
+        points exist.
+        """
         # Extract current annotation type.
         atype = self.annot_cfg.type[self.active]
 
@@ -478,13 +466,38 @@ class AnnotationEditor:
             # Update the cursor to the next editable point.
             self.cursor = self.editable[next_index]
 
-    
     # Pop Point Method ---------------------------------------------------------
     
     def pop_point(self):
-        """Removes the point at the current cursor position of the active annotation."""
-        # We can only push points if there is an active annotation.
-        if self.active is None: return None
+        """Remove the point at the current cursor position.
+ 
+        For point annotation types, clears the single point. For
+        contour and boundary annotations, removes the point at the
+        cursor and adjusts remaining editable indices.
+ 
+        Deletion is blocked when the active annotation has live
+        dependents and only one editable point remains where removing 
+        the point would orphan the dependent annotations. In that case, 
+        an error message is returned instead.
+ 
+        After removal, recalculates fixed points for any dependent
+        annotations.
+ 
+        Returns
+        -------
+        tuple of (list of str, str or None)
+            A two-element tuple ``(fixed_deps, error_msg)``.
+ 
+            *fixed_deps* is the list of annotation names whose fixed
+            points were recalculated.  Empty if nothing was deleted
+            or no dependents exist.
+ 
+            *error_msg* is a user-facing message when the deletion
+            was blocked (e.g. live dependencies prevent removal), or
+            ``None`` on success or when there is nothing to delete.
+        """
+        # We can only pop points if there is an active annotation.
+        if self.active is None: return ([], None)
 
         # Get the current annotation and annotation type.
         points = self.annotations[self.active]
@@ -492,7 +505,7 @@ class AnnotationEditor:
 
         # If there are no points, we cannot delete anything. Skip.
         if points is None or points.shape[0] == 0 or \
-            self.editable.shape[0] == 0: return
+            self.editable.shape[0] == 0: return ([], None)
         
         # Check if there are any LIVE dependencies on this annotation. If so, 
         # we cannot delete the last point of this annotation because the 
@@ -510,22 +523,23 @@ class AnnotationEditor:
                 and self.annotations[fd].shape[0] > n
             ]
         
+            # If there are live dependencies, we cannot delete the last point 
+            # of the annotation, return error message.
             if live_deps:
-                # Write a warning message to the user about live dependencies. 
-                self.write_message(
+                error_message = (
                     f"Cannot delete: '{self.active}'. It is required by "
-                    f"'{', '.join(live_deps)}'. Clear those annotations first."
+                    f"'{', '.join(live_deps)}'. Clear those annotations "
+                    f"first."
                 )
-                # Clear the message after 3 seconds. 
-                threading.Timer(3.0, self.clear_message).start()
-                return
+                return ([], error_message)
         
         # If there are points, we delete based on annotation type.
         if atype == "point":
             # For a point annotation, we delete the single point.
-            points        = self.empty_point_matrix()
+            points        = self._EMPTY_POINT_MATRIX.copy()
             self.editable = self._init_editable()
             self.cursor   = None
+            
         else: # atype in ( "contour", "boundary" )
             # If there are points to delete, delete at current position.
             points = np.delete(points, self.cursor, axis = 0)
@@ -554,22 +568,4 @@ class AnnotationEditor:
         if len(fixed_deps) > 0: self._recalculate_deps(self.active)
 
         # Return fixed dependencies
-        return fixed_deps
-
-    
-    # Figure Size Methods ------------------------------------------------------
-
-    # def figure_size(self, new_figure_size = None):
-    #     """Returns the figure size from the user's preferences.
-
-    #     `state.figure_size()` returns the current figure size.
-
-    #     `state.figure_size(new_figure_size)` updates the current figure size.
-    #     """
-    #     if new_figure_size is None:
-    #         # Just return the current figure size, or the default if it is not set.
-    #         return self.preferences.get("figure_size", 256)
-    #     else:
-    #         # Update the figure size in the preferences, and return the new value.
-    #         self.preferences["figure_size"] = new_figure_size
-    #         return new_figure_size
+        return ( fixed_deps, None )
