@@ -44,7 +44,7 @@ class AnnotationState:
  
     Attributes
     ----------
-    config : Config
+      : Config
         The configuration object.
  
     paths : PathManager

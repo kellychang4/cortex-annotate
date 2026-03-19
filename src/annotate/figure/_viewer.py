@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 ################################################################################
-# annotate/_viewer.py
+# annotate/figure/_viewer.py
 
 """
 Implementation code for the Cortex Viewer.

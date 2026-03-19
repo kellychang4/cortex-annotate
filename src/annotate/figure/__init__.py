@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 ################################################################################
 # annotate/figure/__init__.py
-#
-# Initialization code for the annotation tool's figure panel items.
 
-from ._figure_panel import FigurePanel
+"""DOCSTRING"""
 
-__all__ = [ "FigurePanel" ]
+from ._figure import FigurePanel
+
+__all__ = ( "FigurePanel", )

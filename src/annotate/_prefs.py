@@ -9,7 +9,7 @@ persist between annotation sessions. Preferences are organized into three
 sections:
  
     display          : general tool layout, sizing, and figure generation
-                       parameters (figsize, dpi, figure_px, layout)
+                       parameters (figsize, dpi, image_pixel, layout)
     annotation_style : per-annotation visual properties (color, linewidth, etc.)
     viewer_style     : 3D cortex viewer settings (morph, overlay, etc.)
  
@@ -40,7 +40,7 @@ from ._style import (
 # Constants --------------------------------------------------------------------
 
 # Default display preferences.
-# NOTE: figure_px is not included here because it is computed from
+# NOTE: image_pixel is not included here because it is computed from
 # figsize and dpi in _build_defaults(). 
 DEFAULT_DISPLAY_PREFS = {
     "figsize" : [4, 4],
@@ -49,11 +49,11 @@ DEFAULT_DISPLAY_PREFS = {
 }
  
 # All valid display preference keys (for get_display validation).
-# Includes figure_px which is computed, not stored in the constant above.
-DISPLAY_PREFS_KEYS = ( "figsize", "dpi", "figure_px", "layout" )
+# Includes image_pixel which is computed, not stored in the constant above.
+DISPLAY_PREFS_KEYS = ( "figsize", "dpi", "image_pixel", "layout" )
  
 # Keys that can be modified at runtime via set_display().
-_SETTABLE_DISPLAY_KEYS = ( "figure_px", "layout" )
+_SETTABLE_DISPLAY_KEYS = ( "image_pixel", "layout" )
  
 # Preference Manager Class -----------------------------------------------------
 
@@ -163,20 +163,20 @@ class PrefsManager:
  
         # Build the display prefs: module defaults + config overrides.
         display_prefs = {
-            **DEFAULT_DISPLAY_PREFS,
+            **DEFAULT_DISPLAY_PREFS.copy(),
             **config_display,
         }
  
         # Calculate the figure size in pixels from the display prefs.
-        figure_px = int(display_prefs["figsize"][0] * display_prefs["dpi"])
-        display_prefs["figure_px"] = figure_px
+        image_pixel = int(display_prefs["figsize"][0] * display_prefs["dpi"])
+        display_prefs["image_pixel"] = image_pixel
  
         # Store the display prefs in the main preferences dict.
         preferences["display"] = display_prefs
  
         # Build the annotation style: module defaults + config overrides.
         annotation_style = {
-            **DEFAULT_ANNOTATION_STYLE,
+            **DEFAULT_ANNOTATION_STYLE.copy(),
             **self.config.display.default_style,
         }
  
@@ -228,20 +228,20 @@ class PrefsManager:
     def set_display(self, key, value):
         """Set a display preference.
  
-        Only ``figure_px`` and ``layout`` can be modified at runtime.
+        Only ``image_pixel`` and ``layout`` can be modified at runtime.
         The ``figsize`` and ``dpi`` keys are config-level generation
         parameters and cannot be changed after initialization.
  
         Validation constraints:
  
-        - ``figure_px``: positive integer.
+        - ``image_pixel``: positive integer.
         - ``layout``: one of ``("horizontal", "vertical")``.
  
         Parameters
         ----------
         key : str
             Must be one of ``_SETTABLE_DISPLAY_KEYS``
-            (``"figure_px"`` or ``"layout"``).
+            (``"image_pixel"`` or ``"layout"``).
  
         value : int or str
             The new value for this key.
@@ -275,7 +275,7 @@ class PrefsManager:
             Style dict with keys like ``color``, ``linewidth``, etc. 
         """
         styles = self.preferences["annotation_style"]
-        return styles.get(annotation, {})
+        return styles.get(annotation, )
  
  
     def set_annotation_style(self, annotation, updates):
@@ -302,7 +302,7 @@ class PrefsManager:
  
         # Merge into existing style.
         styles = self.preferences["annotation_style"]
-        current = styles.get(annotation, {})
+        current = styles.get(annotation)
         styles[annotation] = { **current, **updates }
         return styles[annotation]
  

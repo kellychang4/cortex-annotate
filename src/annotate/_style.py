@@ -9,6 +9,7 @@ validation in the cortex-annotate toolkit. It defines two style categories:
  
     annotation_style : visual properties for 2D canvas annotations
                        (color, linewidth, linestyle, markersize, visible)
+                       
     viewer_style     : 3D cortex viewer display settings
                        (morph_percent, overlay, overlay_alpha, point_size,
                        line_width, line_interp)
@@ -25,11 +26,11 @@ import matplotlib as mpl
 
 # Default annotation style values. 
 DEFAULT_ANNOTATION_STYLE = {
+    "visible"    : True,
     "color"      : "black",
     "linestyle"  : "solid",
     "linewidth"  : 1,
     "markersize" : 1,
-    "visible"    : True
 }
 
 
@@ -96,7 +97,7 @@ def validate_annotation_style(style_dict):
     return style_dict
 
 # Viewer Style Utilities -------------------------------------------------------
-
+ 
 # Default viewer style values.
 DEFAULT_VIEWER_STYLE = {
     "morph_percent" : 0,
@@ -107,69 +108,6 @@ DEFAULT_VIEWER_STYLE = {
     "line_interp"   : 10,
 }
  
-
+ 
 # Viewer style key names.
 VIEWER_STYLE_KEYS = tuple(DEFAULT_VIEWER_STYLE.keys())
- 
-
-#TODO: these numbers are random, need to edit for real use.
-def validate_viewer_style(style_dict):
-    """Validate a viewer style dictionary and return it if valid.
- 
-    Checks that all keys are recognized viewer style keys and that
-    values are within valid ranges.
- 
-    Parameters
-    ----------
-    style_dict : dict
-        A partial or full viewer style dict. Only the keys present
-        are validated; missing keys are not required.
- 
-    Returns
-    -------
-    dict
-        The same *style_dict* object, unmodified if valid.
-    """
-    # Check that all the keys are valid style keys.
-    for key in style_dict.keys():
-        if key not in VIEWER_STYLE_KEYS:
-            raise RuntimeError(f"Invalid viewer style key: {key}")
-        
-    # Check that the morph_percent is a valid number.
-    if "morph_percent" in style_dict:
-        morph_percent = style_dict["morph_percent"]
-        if morph_percent < 0 or morph_percent > 100:
-            raise RuntimeError(f"Invalid morph_percent: {morph_percent}")
-        
-    # Check that the overlay is a string.
-    if "overlay" in style_dict:
-        overlay = style_dict["overlay"]
-        if not isinstance(overlay, str): #TODO: check the annotations?
-            raise RuntimeError(f"Invalid overlay: {overlay}")
- 
-    # Check that the overlay_alpha is a valid number.
-    if "overlay_alpha" in style_dict:
-        overlay_alpha = style_dict["overlay_alpha"]
-        if overlay_alpha < 0 or overlay_alpha > 1:
-            raise RuntimeError(f"Invalid overlay_alpha: {overlay_alpha}")
- 
-    # Check that the point_size is a valid number.
-    if "point_size" in style_dict:
-        point_size = style_dict["point_size"]
-        if point_size < 0 or point_size > 5:
-            raise RuntimeError(f"Invalid point_size: {point_size}")
- 
-    # Check that the line_width is a valid number.
-    if "line_width" in style_dict:
-        line_width = style_dict["line_width"]
-        if line_width < 0 or line_width > 20:
-            raise RuntimeError(f"Invalid line_width: {line_width}")
- 
-    # Check that the line_interp is a valid number.
-    if "line_interp" in style_dict:
-        line_interp = style_dict["line_interp"]
-        if line_interp < 0 or line_interp > 100:
-            raise RuntimeError(f"Invalid line_interp: {line_interp}")
- 
-    # Return the style dictionary, if valid.
-    return style_dict

@@ -52,6 +52,7 @@ class AnnotationsConfig(dict):
         The ``annotations`` section from config.yaml. Each key is an
         annotation name; values are either a figure_grid list or a full
         annotation specification mapping.
+
     init : InitConfig
         The init environment, used to compile filter and fixed-point
         calculation functions.
@@ -60,24 +61,34 @@ class AnnotationsConfig(dict):
     ----------
     names : list of str
         Ordered annotation names.
+
     type : dict of {str: str}
         Maps annotation name → type ('contour', 'boundary', 'point').
+
     figure_grid : dict of {str: list of list}
         Maps annotation name → figure grid matrix.
+
     grid_shape : dict of {str: tuple}
         Maps annotation name → (rows, cols) shape of its figure grid.
+
     fixed_head : dict of {str: dict or None}
         Maps annotation name → fixed_head info dict, or None.
+
     fixed_tail : dict of {str: dict or None}
         Maps annotation name → fixed_tail info dict, or None.
+
     fixed_heads : dict of {str: list of str}
         Maps annotation name → list of annotation names required by its head.
+
     fixed_tails : dict of {str: list of str}
         Maps annotation name → list of annotation names required by its tail.
+
     fixed_points : dict of {str: list of str}
         Maps annotation name → combined list of all required annotations.
+
     fixed_dependencies : dict of {str: list of str}
         Reverse mapping: annotation name → annotations that depend on it.
+        
     figure_names : set of str
         All unique figure names referenced across all annotation grids.
     """
