@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 ################################################################################
-# annotate/control/_buttons.py
+# annotate/control/_annotate/_buttons.py
 
 """Save and Clear action buttons for cortex-annotate.
 
-Provides the ``ButtonPanel`` widget containing the Save, Clear Current,
+Provides the ``ButtonSection`` widget containing the Save, Clear Current,
 and Clear All buttons. 
 """
 
@@ -14,7 +14,7 @@ import ipywidgets as ipw
 
 # The Button Subpanel ----------------------------------------------------------
 
-class ButtonPanel(ipw.HBox):
+class ButtonSection(ipw.HBox):
     """Horizontal row of action buttons (Save, Clear Current, Clear All).
 
     Parameters

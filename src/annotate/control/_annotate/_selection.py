@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 ################################################################################
-# annotate/control/_selection.py
+# annotate/control/_annotate/_selection.py
 
 """Target and annotation selection subpanel.
  
-Provides the ``SelectionPanel`` widget, which manages a set of dropdown
+Provides the ``SelectionSection`` widget, which manages a set of dropdown
 menus for choosing annotation targets (derived from the ``config.yaml``
 ``targets`` section) and the active annotation.  Dependent dropdowns
 (whose options change based on a parent dropdown's value) are updated
@@ -26,11 +26,11 @@ An ``_updating`` guard prevents observers from firing during internal changes.
 import ipywidgets as ipw
 from functools import partial
  
-from .._widgets import make_section_title
+from ..._widgets import make_section_title
 
 # The Selection Subpanel -------------------------------------------------------
 
-class SelectionPanel(ipw.VBox):
+class SelectionSection(ipw.VBox):
     """Target and annotation selection panel.
  
     Parameters

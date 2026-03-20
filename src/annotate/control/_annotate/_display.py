@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 ################################################################################
-# annotate/control/_display.py
+# annotate/control/_annotate/_display.py
 
 """Display subpanel for cortex-annotate.
 
-Provides the ``DisplayPanel`` widget, which exposes two controls that
+Provides the ``DisplaySection`` widget, which exposes two controls that
 affect the overall tool layout:
 
     image_pixel_slider : pixel size of one figure tile in the annotation
@@ -18,11 +18,11 @@ affect the overall tool layout:
 
 import ipywidgets as ipw
 
-from .._widgets import make_section_title
+from ..._widgets import make_section_title
 
 # The Display Subpanel ---------------------------------------------------------
 
-class DisplayPanel(ipw.VBox):
+class DisplaySection(ipw.VBox):
     """Image pixel size and layout controls.
 
     Parameters

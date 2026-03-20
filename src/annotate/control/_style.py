@@ -2,9 +2,9 @@
 ################################################################################
 # annotate/control/_style.py
 
-"""Annotation and viewer style subpanel for cortex-annotate.
+"""Annotation and viewer style tab for cortex-annotate.
 
-Provides the ``StylePanel`` widget, which manages two groups of
+Provides the ``StyleTab`` widget, which manages two groups of
 controls:
 
     Annotation style : visibility, color, linewidth, linestyle,
@@ -27,9 +27,9 @@ from functools import partial
 
 from .._widgets import make_section_title, make_hline
 
-# The Style Subpanel -----------------------------------------------------------
+# The Style tab -----------------------------------------------------------
 
-class StylePanel(ipw.VBox):
+class StyleTab(ipw.VBox):
     """Annotation and viewer style controls.
 
     Parameters

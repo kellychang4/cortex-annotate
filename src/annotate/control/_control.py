@@ -38,63 +38,9 @@ Observers
 
 import ipywidgets as ipw
 
-from ._selection import SelectionPanel
-from ._display   import DisplayPanel
-from ._legend    import LegendPanel
-from ._buttons   import ButtonPanel
-from ._style     import StylePanel
-from ._info      import InfoPanel
-from .._widgets  import make_hline, darken_color
-
-# Selection Tab Wrapper --------------------------------------------------------
-
-class _SelectionTab(ipw.VBox):
-    """Composed selection tab wrapping the core subpanels.
-
-    Groups ``SelectionPanel``, ``DisplayPanel``, ``LegendPanel``,
-    ``ButtonPanel``, and ``InfoPanel`` into a single tab.  Implements
-    ``lock()`` / ``unlock()`` by propagating to each sub-panel that
-    supports it.
-
-    Parameters
-    ----------
-    selection : SelectionPanel
-    display : DisplayPanel
-    legend : LegendPanel
-    buttons : ButtonPanel
-    info : InfoPanel
-    """
-
-    __slots__ = ( "_lockable_panels", )
-
-    def __init__(self, selection, display, legend, buttons, info):
-        # Define which subpanels are lockable.
-        self._lockable_panels = [ display, buttons ]
-
-        super().__init__(
-            children = [
-                selection,
-                make_hline(),
-                display,
-                make_hline(),
-                legend,
-                make_hline(),
-                buttons,
-                make_hline(),
-                info,
-            ],
-        )
-
-    # Lock / Unlock ------------------------------------------------------------
-
-    def lock(self):
-        """Disable interactive widgets in all lockable sub-panels."""
-        for panel in self._lockable_panels: panel.lock()
-
-
-    def unlock(self):
-        """Enable interactive widgets in all lockable sub-panels."""
-        for panel in self._lockable_panels: panel.unlock()
+from ._annotate import AnnotateTab
+from ._style    import StyleTab
+from .._widgets import make_hline, darken_color
 
 # The Control Panel Widget -----------------------------------------------------
 
@@ -119,17 +65,9 @@ class ControlPanel(ipw.VBox):
  
     Attributes
     ----------
-    _selection_panel : SelectionPanel
- 
-    _display_panel : DisplayPanel
- 
-    _legend_panel : LegendPanel
- 
-    _button_panel : ButtonPanel
- 
-    _info_panel : InfoPanel
- 
-    _style_panel : StylePanel
+    _annotate_tab : AnnotateTab
+
+    _style_tab : StyleTab
  
     _tabs : list[tuple[str, Widget, bool]]
         Internal tab registry.  Each entry is
@@ -143,12 +81,8 @@ class ControlPanel(ipw.VBox):
     """
  
     __slots__ = (
-        "_selection_panel",
-        "_display_panel",
-        "_legend_panel",
-        "_button_panel",
-        "_info_panel",
-        "_style_panel",
+        "_annotate_tab",
+        "_style_tab",
         "_tabs",
         "_tab_widget",
         "_accordion",
@@ -162,26 +96,18 @@ class ControlPanel(ipw.VBox):
             button_color     = "#e0e0e0",
         ):
         # Create the required subtabs/subpanels widgets.
-        self._selection_panel = SelectionPanel(config)
-        self._display_panel   = DisplayPanel(prefs)
-        self._legend_panel    = LegendPanel(config)
-        self._button_panel    = ButtonPanel(button_color)
-        self._info_panel      = InfoPanel()
-        self._style_panel     = StylePanel(config, prefs)
+        self._annotate_tab = AnnotateTab(config, prefs, button_color)
+        self._style_tab    = StyleTab(config, prefs)
  
         # Declare the tab registry and register the default tabs.
         self._tabs = []
- 
-        # Default tabs: Selection (composed wrapper) and Style.
-        selection_tab = _SelectionTab(
-            self._selection_panel,
-            self._display_panel,
-            self._legend_panel,
-            self._button_panel,
-            self._info_panel,
-        )
-        self._add_tab("Selection", selection_tab)
-        self._add_tab(    "Style", self._style_panel)
+
+        # Populate the tab register with the defaults. 
+        # The loop allows for easy extension to more default tabs in the future, if desired.
+        for tab in [ self._annotate_tab, self._style_tab ]:
+            # TODO: I dop not like how the tab name is derived from the class. 
+            tab_name = type(tab).__name__.removesuffix("Tab").title()
+            self._add_tab(tab_name, tab)
  
         # Build the tab widget from the registry.
         self._tab_widget = self._build_tab_widget()

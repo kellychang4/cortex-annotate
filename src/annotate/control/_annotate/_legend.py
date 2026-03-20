@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 ################################################################################
-# annotate/control/_legend.py
+# annotate/control/_annotate/_legend.py
 
 """Annotation legend image subpanel.
  
-Provides the ``LegendPanel`` widget, which displays a reference image
+Provides the ``LegendSection`` widget, which displays a reference image
 for the currently selected annotation and hemisphere.  Legend images
 are PNG files stored in a sibling ``annotation-legends/`` directory,
 organised by hemisphere subdirectory.
@@ -15,11 +15,11 @@ organised by hemisphere subdirectory.
 import os.path as op
 import ipywidgets as ipw
  
-from .._widgets import make_section_title
+from ..._widgets import make_section_title
 
 # The Legend Subpanel ----------------------------------------------------------
 
-class LegendPanel(ipw.VBox):
+class LegendSection(ipw.VBox):
     """Annotation legend image display.
  
     Shows a PNG legend for the active annotation, selected by
@@ -39,7 +39,7 @@ class LegendPanel(ipw.VBox):
     Attributes
     ----------
     legend_dir : str
-        Absolute path to the ``annotation-legends/`` directory.
+        Absolute path to the ``legends/`` directory.
 
     hemisphere_index : int
         Positional index of *hemisphere_key* within the concrete keys.
@@ -49,7 +49,7 @@ class LegendPanel(ipw.VBox):
     """
 
     # legend directory
-    _LEGEND_DIR = op.join(op.dirname(__file__), "annotation-legends")
+    _LEGEND_DIR = op.join(op.dirname(__file__), "legend")
 
     __slots__ = ( "legend_dir", "hemisphere_index", "image_widget" )
 
