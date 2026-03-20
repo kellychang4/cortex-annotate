@@ -15,26 +15,21 @@ through ``FigurePanel``.  User input events (mouse clicks, key
 presses) are handled privately and translated into
 ``AnnotationEditor`` operations and redraws.
  
-Two overlay widgets sit above the renderers via CSS absolute
-positioning:
- 
-``MessageOverlay`` displays transient error messages (e.g.
-dependency-blocked deletion).  Supports auto-hide via timeout.
-Blocks user interaction while visible.
- 
-``LoadingOverlay`` displays a loading screen during long-running
-operations (cache generation, target switch, startup).  Managed via
-a reference-counted context manager so nested loading operations
-(e.g. cache generation inside a target switch) show a single overlay
-that only clears when the outermost context exits.
+Overlay stacking is achieved via CSS Grid: the outer container uses a
+single-cell grid and all children (the figure box, loading overlay,
+message overlay) occupy the same cell.  Later DOM children render on
+top of earlier ones, so the figure box sits at the bottom, the
+loading overlay in the middle, and the message overlay on top.
+``z-index`` values on the overlay ``<div>`` elements provide a
+secondary stacking guarantee.
 """
 
 # Imports ----------------------------------------------------------------------
  
 import ipywidgets as ipw
-
+ 
 from ._canvas  import CanvasPanel
-from ._viewer  import CortexViewerPanel 
+from ._viewer  import CortexViewerPanel
 from ._loading import LoadingOverlay, LoadingContext
 from ._message import MessageOverlay
 
@@ -50,50 +45,51 @@ class FigurePanel(ipw.Box):
  
     Two HTML overlays cover the entire figure area:
  
-    * ``MessageOverlay`` — transient error messages with optional
-      auto-hide timeout.  Blocks interaction.
-
     * ``LoadingOverlay`` — loading screens managed via the
       ``loading_context`` context manager. Blocks interaction.
+ 
+    * ``MessageOverlay`` — transient error messages with optional
+      auto-hide timeout.  Blocks interaction.  Stacked above the
+      loading overlay so error messages remain visible during loading.
  
     Parameters
     ----------
     config : Config
         Parsed tool configuration.  Used to determine whether to
         instantiate the 3D cortex viewer (``config.viewer != {}``).
-
+ 
     prefs : PrefsManager
         User preferences.  Used to read the initial canvas tile size
         via ``prefs.get_display("image_pixel")``.
-     
-     editor : AnnotationEditor
+ 
+    editor : AnnotationEditor
         The shared annotation editing model.  ``FigurePanel`` reads
         annotation state from the editor and calls its mutation
         methods in response to user input.
-
+ 
     Attributes
     ----------
     editor : AnnotationEditor
         Reference to the annotation editing model.
-
+ 
     canvas_panel : CanvasPanel
-        The 2D ipycanvas renderer (private implementation detail).
-
+        The 2D ipycanvas renderer.
+ 
     viewer_panel : CortexViewerPanel or None
         The 3D k3d renderer, or ``None`` if the viewer section was
         omitted from config.yaml.
-
+ 
     locked : bool
         When ``True``, user input events (mouse clicks, key presses)
         are silently ignored.  Managed by ``lock()`` / ``unlock()``.
-
+ 
     loading_context : LoadingContext
         Reference-counted context manager for showing/hiding the
         loading overlay.  Used by ``FigureCache`` and the
         orchestrator.
     """
 
-    # Define the horizontal and vertical layouts for the figure panel.
+    # Define the horizontal and vertical layouts for the canvas + viewer panel.
     _HORIZONTAL_LAYOUT = ipw.Layout(
         display     = "flex", 
         flex_flow   = "row", 
@@ -117,10 +113,10 @@ class FigurePanel(ipw.Box):
         ----------
         config : Config
             Parsed tool configuration.
-
+ 
         prefs : PrefsManager
             User preferences manager.
-
+ 
         editor : AnnotationEditor
             The shared annotation editing model.
         """
@@ -131,65 +127,96 @@ class FigurePanel(ipw.Box):
         self.locked = False
 
         # Build the 2D canvas renderer.
-        self.canvas_panel = CanvasPanel(
-            editor, figure_size = prefs.get_display("image_pixel"),
-        )
+        self.canvas_panel = CanvasPanel(editor, prefs)
 
         # Build the 3D cortex viewer renderer, if specified.
+        figure_children = [ self.canvas_panel ]
         if config.viewer != {}:
-            self.viewer_panel = CortexViewerPanel(editor)
+            self.viewer_panel = CortexViewerPanel(editor, prefs)
+            figure_children.append(self.viewer_panel)
         else:
             self.viewer_panel = None
 
-        # Build the message overlay.
-        self._message = MessageOverlay()
+        # Combine the canvas and viewer panels into a single panel for layout.
+        self._figure = ipw.Box(
+            children = figure_children,
+            layout   = self._HORIZONTAL_LAYOUT,
+        )
+        self._figure.add_class("annotate-figure-item")
 
         # Build the loading overlay and its context manager.
         self._loading = LoadingOverlay()
+        self._loading.add_class("annotate-figure-item")
         self.loading_context = LoadingContext(self._loading)
- 
-        # Assemble children: canvas, (optional) viewer, overlays.
-        children = [ self._make_html_header(), self.canvas_panel ]
-        if self.viewer_panel is not None:
-            children.append(self.viewer_panel)
-        children.append(self._message)
-        children.append(self._loading)
 
-        # Create the Box (horizontal = default) figure panel.
-        super().__init__(children, layout = self._HORIZONTAL_LAYOUT)
+         # Build the message overlay.
+        self._message = MessageOverlay()
+        self._message.add_class("annotate-figure-item")
+
+        # Assemble children: canvas + (optional) viewer, loading overlay, and 
+        # message overlay.
+        children = [ 
+            self._make_html_header(), 
+            self._figure, 
+            self._loading,
+            self._message,
+        ]
+
+        # Create the figure panel (CSS Grid container). 
+        super().__init__(children)
+        super().add_class("annotate-figure-container")
 
         # Wire canvas input events to private handlers.
         self.canvas_panel.observe_mouse(self._on_mouse_click)
         self.canvas_panel.observe_key(self._on_key_press)
 
-    # Static Helper Methods ----------------------------------------------------
-
-    def _make_html_header(self):
-        return ipw.HTML(f"""
+    # CSS Helper ---------------------------------------------------------------
+    
+    @staticmethod
+    def _make_html_header():
+        """Return an ``ipw.HTML`` widget containing scoped CSS.
+ 
+        The CSS defines the single-cell grid overlap used for overlay
+        stacking and sets the crosshair cursor on canvas elements.
+        """
+        return ipw.HTML("""
             <style>
-                .jupyter-widget-Collapse-open {{
+                .jupyter-widget-Collapse-open {
                     background-color: white;
                     width: 300px;
-                }}
+                }
+                .annotate-figure-container {
+                    display: grid;
+                    grid-template-columns: [column-start] 1fr [column-end];
+                    grid-template-rows: [row-start] 1fr [row-end];
+                }
+                .annotate-figure-item {
+                    grid-column: column-start / column-end;
+                    grid-row: row-start / row-end;
+                    margin: 0px;
+                    padding: 0px;
+                }
+                canvas {
+                    cursor: crosshair !important;
+                }
             </style>
         """)
  
-
     # Lock / Unlock ------------------------------------------------------------
 
     def lock(self):
         """Disable user input events on the figure panel.
  
         While locked, mouse clicks and key presses are silently
-        ignored. 
+        ignored.
         """
         self.locked = True
  
-
+ 
     def unlock(self):
         """Unlock user input events on the figure panel.
-        
-        Enables mouse clicks and key presses after a ``lock()``.  
+ 
+        Enables mouse clicks and key presses after a ``lock()``.
         """
         self.locked = False
     
@@ -202,7 +229,7 @@ class FigurePanel(ipw.Box):
         ----------
         message : str
             The message text to display.
-
+ 
         timeout : float or None, optional
             Auto-hide after this many seconds.  Defaults to ``3.0``.
             Pass ``None`` to persist until ``clear_message()`` is
@@ -210,15 +237,18 @@ class FigurePanel(ipw.Box):
         """
         self._message.show(message, timeout = timeout)
  
-
+ 
     def clear_message(self):
         """Hide any currently displayed message."""
         self._message.hide()
-
+ 
     # Layout -------------------------------------------------------------------
  
     def set_layout(self, layout):
         """Switch between horizontal and vertical arrangement.
+ 
+        Changes the inner figure box layout (canvas + viewer).  The
+        outer grid container is unaffected.
  
         Parameters
         ----------
@@ -226,18 +256,24 @@ class FigurePanel(ipw.Box):
             The layout direction for the canvas and viewer.
         """
         if layout == "horizontal":
-            self.layout = self._HORIZONTAL_LAYOUT
+            self._figure.layout = self._HORIZONTAL_LAYOUT
         elif layout == "vertical":
-            self.layout = self._VERTICAL_LAYOUT
+            self._figure.layout = self._VERTICAL_LAYOUT
         else:
             raise ValueError(
                 f"Invalid layout direction: {layout!r}. "
                 f"Expected 'horizontal' or 'vertical'."
             )
-
+ 
     # Redraw -------------------------------------------------------------------
  
-    def redraw(self, base = False, active = True, background = False):
+    def redraw(
+            self,
+            base       = False,
+            active     = True,
+            dependent  = False,
+            background = False,
+        ):
         """Redraw the canvas and viewer panels.
  
         Each flag controls whether the corresponding layer is
@@ -249,32 +285,39 @@ class FigurePanel(ipw.Box):
         base : bool, optional
             Redraw the base layer (grid image on canvas, cortex mesh
             on viewer).  Defaults to ``False``.
-
+ 
         active : bool, optional
             Redraw the active annotation layer.  Defaults to ``True``.
-
+ 
+        dependent : bool, optional
+            Redraw the dependent annotation layer (annotations whose
+            fixed points derive from the active annotation).
+            Defaults to ``False``.
+ 
         background : bool, optional
-            Redraw the background annotation layers.
+            Redraw all background annotation layers.
             Defaults to ``False``.
         """
         # Redraw the 2D canvas.
         self.canvas_panel.redraw_canvas(
-            image      = base, 
+            image      = base,
             active     = active,
-            background = background
+            dependent  = dependent,
+            background = background,
         )
  
         # Redraw the 3D viewer, if present.
         if self.viewer_panel is not None:
-            #TODO: bring back clear if needed
+            # TODO: might need to bring back clear for target refreshing.
             self.viewer_panel.redraw_viewer(
-                cortex     = base, 
+                cortex     = base,
                 active     = active,
-                background = background
+                dependent  = dependent,
+                background = background,
             )
 
     # Internal Handlers --------------------------------------------------------
-
+ 
     def _on_mouse_click(self, points):
         """Handle a mouse click on the canvas.
  
@@ -293,10 +336,10 @@ class FigurePanel(ipw.Box):
         # Push the point and get back any dependent annotations that changed.
         fixed_deps = self.editor.push_point(points)
  
-        # Redraw active annotation (redraw background if deps changed).
-        self.redraw(active = True, background = len(fixed_deps) > 0)
-
-
+        # Redraw active annotation (redraw dependent layer if deps changed).
+        self.redraw(active = True, dependent = len(fixed_deps) > 0)
+ 
+ 
     def _on_key_press(self, key, shift_down, ctrl_down, meta_down):
         """Handle a key press on the canvas.
  
@@ -308,13 +351,13 @@ class FigurePanel(ipw.Box):
         key : str
             The key identifier (e.g. ``"Tab"``, ``"Backspace"``,
             ``"ArrowLeft"``).
-
+ 
         shift_down : bool
             Whether the Shift key was held.
-
+ 
         ctrl_down : bool
             Whether the Ctrl key was held.
-
+ 
         meta_down : bool
             Whether the Meta (Cmd) key was held.
         """
@@ -325,14 +368,14 @@ class FigurePanel(ipw.Box):
         if key == "Tab":
             # Cycle cursor to the next editable point.
             self.editor.toggle_cursor()
-
-            # toggling does not edit points, so no fixed deps
-            fixed_deps = [] 
+ 
+            # Toggling does not edit points, so no fixed deps.
+            fixed_deps = []
  
         elif key == "Backspace":
             # Delete the point at the cursor.
             fixed_deps, error_msg = self.editor.pop_point()
-
+ 
             # If error, show the error message and exit without redrawing.
             if error_msg is not None:
                 self.write_message(error_msg, timeout = 3.0)
@@ -352,5 +395,5 @@ class FigurePanel(ipw.Box):
             # Unhandled key, do nothing.
             return
  
-        # Redraw active annotation (redraw background if deps changed).
-        self.redraw(active = True, background = len(fixed_deps) > 0)
+        # Redraw active annotation (redraw dependent layer if deps changed).
+        self.redraw(active = True, dependent = len(fixed_deps) > 0)

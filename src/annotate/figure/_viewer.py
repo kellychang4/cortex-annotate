@@ -2,69 +2,197 @@
 ################################################################################
 # annotate/figure/_viewer.py
 
-"""
-Implementation code for the Cortex Viewer.
+"""3D cortex viewer renderer for cortex-annotate.
+ 
+``CortexViewerPanel`` is a pure rendering widget.  It displays a 3D
+cortical mesh with overlay coloring and annotation paths rendered as
+lines and scatter points in 3D space.
+ 
+The viewer reads 2D annotation coordinates from the shared
+``AnnotationEditor`` and converts them to 3D viewer coordinates via
+a configurable ``canvas_to_viewer`` function.  Annotation styles are
+read from the ``PrefsManager``.  Viewer-specific style settings
+(morph, overlay, point size, line width) are also read from
+``PrefsManager`` at construction and updated at runtime by the
+orchestrator.
+ 
+Viewer-specific mesh data (faces, coordinate sets, overlays, the
+coordinate-transform function) are stored as instance attributes and
+set by the orchestrator before drawing begins.
+ 
+k3d Layers
+----------
+Layer 0 : cortex mesh -> base mesh colored by curvature.
+Layer 1 : overlay mesh —> optional per-vertex color overlay
+          (e.g. ROI map).  Hidden when overlay is ``"curvature"``.
+Layer 2 : background annotation lines (independent of active).
+Layer 3 : background annotation points (independent of active).
+Layer 4 : dependent annotation lines (fixed points derived from
+          active annotation).
+Layer 5 : dependent annotation points.
+Layer 6 : active annotation lines.
+Layer 7 : active annotation points.
 """
 
 # Imports ----------------------------------------------------------------------
-
+ 
 import k3d
 import numpy as np
 import ipywidgets as ipw
 from matplotlib.colors import to_rgb
-
+ 
 # Cortex Viewer Figure Panel ---------------------------------------------------
 
 class CortexViewerPanel(ipw.VBox):
-    """The 3D cortex viewer that displays cortical mesh and annotations.
+    """3D k3d cortex viewer for mesh display and annotation rendering.
+ 
+    Manages a k3d ``Plot`` with 8 drawable objects (2 meshes +
+    3 line/point pairs for background, dependent, and active
+    annotations).
+ 
+    The viewer reads 2D annotation coordinates from the
+    ``AnnotationEditor``, converts them to 3D via the
+    ``canvas_to_viewer`` transform, and renders them as colored
+    lines and scatter points on the cortical surface.
+ 
+    Viewer-specific mesh data (faces, coordinate sets, overlays, the
+    transform function) are stored as instance attributes and must be
+    set before the first ``redraw_viewer`` call.
+ 
+    Parameters
+    ----------
+    editor : AnnotationEditor
+        The shared annotation editing model (read-only access).
 
-    The CortexViewerPanel manages a multi-layer k3d figure for rendering:
-        Layer 0: cortex mesh with curvature
-        Layer 1: cortex overlays (optional)
-        Layer 2: active annotation (lines)
-        Layer 3: active annotation (points)
-        Layer 4: background annotations (lines)
-        Layer 5: background annotations (points)
+    prefs : PrefsManager
+        User preferences for annotation and viewer styles.
+
+    width : int, optional
+        Widget width in pixels.  Defaults to ``512``.
+
+    height : int, optional
+        Widget height in pixels.  Defaults to ``512``.
+ 
+    Attributes
+    ----------
+    editor : AnnotationEditor
+        Reference to the annotation editing model.
+
+    prefs : PrefsManager
+        Reference to the user preferences manager.
+
+    faces : ndarray or None
+        ``(n_faces, 3)`` triangle face indices.  Set by caller.
+
+    _coordinates : list of ndarray or None
+        List of ``(n_vertices, 3)`` coordinate arrays (1 or 2 sets
+        for morph blending).  Set by caller.
+
+    overlays : dict of {str: ndarray} or None
+        Per-vertex RGB color arrays keyed by overlay name.  Set by
+        caller.
+
+    canvas_to_viewer : callable or None
+        ``fn(points, mesh_coords) → ndarray (n, 3)``.  Converts 2D
+        canvas coordinates to 3D viewer coordinates.  Set by caller.
+
+    annotations : dict of {str: dict}
+        Cached 3D annotation data keyed by annotation name.  Each
+        value is ``{"coordinates": ndarray, "point_types": ndarray}``
+        or ``{"coordinates": None, "point_types": None}``.
     """
 
-    def __init__(self, figure_state, width = 512, height = 512):
-        """Initialize the cortex viewer panel."""
-        # Store figure state.
-        self.state = figure_state 
+    # Define the coordinate point types. 
+    _POINT_FIXED  = 2  # fixed head/tail point
+    _POINT_USER   = 1  # user-placed point
+    _POINT_INTERP = 0  # interpolated point (between user/fixed points)
 
-        # Create a figure background (k3d plot)
-        self.figure = k3d.plot(
-            height            = height, 
+    # Define empty arrays for initializing k3d layers 
+    _EMPTY_COORDINATES = np.array([[0, 0, 0]], dtype = np.float32)
+    _EMPTY_INDICES     = np.array([[0, 0, 0]], dtype = np.uint32)
+    _EMPTY_COLORS      = np.array( [0x000000], dtype = np.uint32)
+
+    __slots__ = (
+        "editor", "prefs", "annot_cfg", 
+        "faces", "_coordinates", "overlays", "canvas_to_viewer",
+        "annotations",
+        # k3d figure.
+        "_figure", 
+        # Cortex mesh and overlay layers.
+        "_k3dmesh_cortex", "_k3dmesh_overlay",
+        # Background annotation layers 
+        "_k3dline_background", "_k3dpoints_background",
+        # Dependent annotation layers 
+        "_k3dline_dependent", "_k3dpoints_dependent",
+        # Active annotation layers.
+        "_k3dline_active", "_k3dpoints_active",
+    )
+
+    def __init__(self, editor, prefs, width = 512, height = 512):
+        """Initialize the cortex viewer panel.
+ 
+        Parameters
+        ----------
+        editor : AnnotationEditor
+            The shared annotation editing model.
+        prefs : PrefsManager
+            User preferences manager.
+        width : int, optional
+            Widget width in pixels.  Defaults to ``512``.
+        height : int, optional
+            Widget height in pixels.  Defaults to ``512``.
+        """
+        # Store references.
+        self.editor    = editor
+        self.prefs     = prefs
+        self.annot_cfg = editor.annot_cfg
+
+        # Rendering variables.
+        self.faces            = None
+        self._coordinates     = None
+        self.overlays         = None
+        self.canvas_to_viewer = None
+ 
+        # Initialize viewer annotations dictionary.
+        self.annotations = {}
+
+        # Create the k3d plot.
+        self._figure = k3d.plot(
+            height            = height,
             grid_visible      = False,
             camera_auto_fit   = False,
             menu_visibility   = False,
             camera_fov        = 60,
-            axes_helper       = 0, # remove axes direction helper
+            axes_helper       = 0,
             camera_zoom_speed = 1.5,
         )
 
         # Initialize all k3d layers (start empty/invisible).
-        self.k3dmesh_cortex       = self._init_mesh()
-        self.k3dmesh_overlay      = self._init_mesh()
-        self.k3dline_active       = self._init_line()
-        self.k3dpoints_active     = self._init_points()
-        self.k3dline_background   = self._init_line()
-        self.k3dpoints_background = self._init_points()
+        self._k3dmesh_cortex       = self._init_mesh()
+        self._k3dmesh_overlay      = self._init_mesh()
+        self._k3dline_background   = self._init_line()
+        self._k3dpoints_background = self._init_points()
+        self._k3dline_dependent    = self._init_line()
+        self._k3dpoints_dependent  = self._init_points()
+        self._k3dline_active       = self._init_line()
+        self._k3dpoints_active     = self._init_points()
 
         # Add all layers to the figure.
-        self.figure += self.k3dmesh_cortex
-        self.figure += self.k3dmesh_overlay 
-        self.figure += self.k3dline_active
-        self.figure += self.k3dpoints_active 
-        self.figure += self.k3dline_background
-        self.figure += self.k3dpoints_background 
+        self._figure += self._k3dmesh_cortex
+        self._figure += self._k3dmesh_overlay
+        self._figure += self._k3dline_background
+        self._figure += self._k3dpoints_background
+        self._figure += self._k3dline_dependent
+        self._figure += self._k3dpoints_dependent
+        self._figure += self._k3dline_active
+        self._figure += self._k3dpoints_active
 
         # Set initial camera values
-        self.figure.camera = [-160, -10, -6, 15, -30, 0, 0, 0, 1]
+        self._figure.camera = [-160, -10, -6, 15, -30, 0, 0, 0, 1]
 
         # Initialize the VBox with the figure as the child 
         super().__init__(
-            children = [ self.figure ], 
+            children = [ self._figure ], 
             layout = {
                 "width"   : f"{width}px", 
                 "height"  : f"{height}px", 
@@ -73,14 +201,173 @@ class CortexViewerPanel(ipw.VBox):
             }
         )
     
+    # Properties ---------------------------------------------------------------
+ 
+    @property
+    def coordinates(self):
+        """Compute blended vertex coordinates for the current morph state.
+ 
+        If only one coordinate set is loaded, returns it directly.
+        If two sets are loaded (for morph blending), interpolates
+        between them based on ``self.prefs.get_viewer_style("morph_percent")``.
+ 
+        Returns
+        -------
+        ndarray, shape (n_vertices, 3)
+            The blended vertex coordinates.
+        """
+        # If no coordinates are loaded, return None to indicate no mesh to plot.
+        if self._coordinates is None: return None
+
+        # If only one coordinate set is loaded, return the coordinates.
+        if len(self._coordinates) == 1: return self._coordinates[0]
+ 
+        # If more than one coordinates sets, interpolate between coordinates.
+        start_coords, end_coords = self._coordinates[0], self._coordinates[1]
+        morph_proportion = self.prefs.get_viewer_style("morph_percent") / 100.0
+        return ((end_coords - start_coords) * morph_proportion) + start_coords
+
+    # 2D → 3D Annotation Conversion -------------------------------------------
+ 
+    def _interpolate_coordinates(self, coordinates, point_types):
+        """Interpolate coordinates along an annotation path.
+ 
+        Inserts evenly spaced points between each consecutive pair of
+        annotation coordinates.  The number of interpolated points per
+        segment is determined by ``self.prefs.get_viewer_style("line_interp")``.
+ 
+        Parameters
+        ----------
+        coordinates : ndarray, shape (N, 2)
+            The 2D annotation coordinates.
+            
+        point_types : ndarray of int, shape (N,)
+            Point type for each coordinate (``self._POINT_FIXED``,
+            ``self._POINT_USER``, or ``self._POINT_INTERP``).
+ 
+        Returns
+        -------
+        interp_coords : ndarray, shape (M, 2)
+            The interpolated coordinate array.
+
+        interp_types : ndarray of int, shape (M,)
+            Point type for each interpolated coordinate.
+        """
+        # Get the number of points to interpolate per segment.
+        n_interp = self.prefs.get_viewer_style("line_interp")
+        n = n_interp + 2 # add two for start/end points
+
+        # Intialize ararys to store interpolated coordinates
+        x_interp = []; y_interp = []; ptype_interp = []
+ 
+        # Initialize point type interpolation filler
+        ptype_filler = [self._POINT_INTERP] * n_interp
+ 
+        # Iterate over each segment and interpolate points  
+        n_segments = coordinates.shape[0] - 1
+        for i in np.arange(n_segments): 
+            # Extract start and end coordinates and point types for the segment
+            xs, xe = coordinates[i, 0], coordinates[i + 1, 0]
+            ys, ye = coordinates[i, 1], coordinates[i + 1, 1]
+            ps, pe = point_types[i], point_types[i + 1]
+
+            # Interpolate x and y coordinates and point types for the segment
+            xn = np.linspace(xs, xe, n)
+            yn = np.linspace(ys, ye, n)
+            pn = [ps, *ptype_filler, pe]
+ 
+            if i == 0:
+                # First segment: include the starting point.
+                x_interp.append(xn)
+                y_interp.append(yn)
+                ptype_interp.append(pn)
+            else:
+                # Subsequent segments: exclude starting point to avoid
+                # duplicates at segment boundaries.
+                x_interp.append(xn[1:])
+                y_interp.append(yn[1:])
+                ptype_interp.append(pn[1:])
+ 
+        # Concatenate interpolated points
+        x_interp     = np.concatenate(x_interp)
+        y_interp     = np.concatenate(y_interp)
+        ptype_interp = np.concatenate(ptype_interp)
+ 
+        # Return interpolated coordinates (as matrix) and point types (as int)
+        interp_matrix = np.vstack((x_interp, y_interp, ptype_interp)).T
+        return interp_matrix[:, :-1], interp_matrix[:, -1].astype(int)
+ 
+
+    def update(self, annotations = None):
+        """Convert 2D canvas annotations to 3D viewer coordinates.
+ 
+        For each annotation, determines point types (fixed vs. user),
+        interpolates along the path, and transforms to 3D via the
+        ``canvas_to_viewer`` function.  Results are cached in
+        ``self.annotations``.
+ 
+        Parameters
+        ----------
+        annotations : list of str or None, optional
+            Annotation names to update.  If ``None``, updates all
+            annotations.
+        """
+        if annotations is None:
+            annotations = list(self.annot_cfg.names)
+ 
+        for key in annotations:
+            canvas_points = self.editor.annotations.get(key, None)
+ 
+            # No points → clear the viewer annotation.
+            if canvas_points is None or canvas_points.shape[0] == 0:
+                self.annotations[key] = {
+                    "coordinates": None,
+                    "point_types": None,
+                }
+                continue
+ 
+            # Determine point types (fixed vs. user).
+            n_points    = canvas_points.shape[0]
+            point_types = np.full(n_points, self._POINT_USER)
+            has_fixed_head = bool(self.annot_cfg.fixed_heads[key])
+            has_fixed_tail = bool(self.annot_cfg.fixed_tails[key])
+            if has_fixed_head:
+                point_types[0] = self._POINT_FIXED
+            if has_fixed_tail:
+                point_types[-1] = self._POINT_FIXED
+ 
+            # Interpolate if there are segments and not all-fixed.
+            if n_points > 1 and not np.all(point_types == self._POINT_FIXED):
+                canvas_points, point_types = (
+                    self._interpolate_coordinates(canvas_points, point_types))
+ 
+            # Convert 2D → 3D.
+            viewer_coords = self.canvas_to_viewer(
+                canvas_points, self.coordinates)
+ 
+            self.annotations[key] = {
+                "coordinates": viewer_coords,
+                "point_types": point_types,
+            }
 
     # k3d Color Helper Method --------------------------------------------------
 
-    def _rgb_to_k3dcolor(self, colors):
-        """Converts a matplotlib color (RGB) into a hex integer for k3d.
-
-        If the given color is a matrix of RGB triples, then a list of
-        integers, one per row, is returned. 
+    @ staticmethod
+    def _rgb_to_k3dcolor(colors):
+        """Convert color input to k3d uint32 hex integers.
+ 
+        Accepts matplotlib color strings, float RGB/RGBA arrays in
+        [0, 1], or uint8 RGB/RGBA arrays in [0, 255].
+ 
+        Parameters
+        ----------
+        colors : str, array-like
+            Color input.  Scalars and 1D arrays are promoted to 2D.
+ 
+        Returns
+        -------
+        ndarray of uint32
+            One hex color integer per input row.
         """
         # Convert to numpy array for easier processing
         colors = np.array(colors)
@@ -128,30 +415,14 @@ class CortexViewerPanel(ipw.VBox):
         else:
             raise ValueError("Color matrices must be RGB (Nx3) or RGBA (Nx4).")
 
-    # Empty Value Methods ------------------------------------------------------
-
-    def _empty_coordinates(self):
-        """Helper method to create an empty matrix for initializing empty plots."""
-        return np.array([[0, 0, 0]], dtype = np.float32)
-
-
-    def _empty_indices(self):
-        """Helper method to create an empty matrix for initializing empty meshes."""
-        return np.array([[0, 0, 0]], dtype = np.uint32)
-
-
-    def _empty_colors(self):
-        """Helper method to create an empty color for initializing empty plots."""
-        return np.array([0x000000], dtype = np.uint32)
-
     # Initialize Methods -------------------------------------------------------
 
     def _init_mesh(self):
-        """Initialize an empty and invisible mesh."""
+        """Create an empty and invisible k3d mesh. """        
         mesh = k3d.mesh(
-            vertices     = self._empty_coordinates(), 
-            indices      = self._empty_indices(),
-            colors       = self._empty_colors(),
+            vertices     = self._EMPTY_COORDINATES.copy(), 
+            indices      = self._EMPTY_INDICES.copy(),
+            colors       = self._EMPTY_COLORS.copy(),
             wireframe    = False,
             flat_shading = False
         )
@@ -160,10 +431,10 @@ class CortexViewerPanel(ipw.VBox):
 
 
     def _init_points(self):
-        """Initialize an empty and invisible points plot."""
+        """Initialize an empty and invisible k3d points object."""
         points = k3d.points(
-            positions = self._empty_coordinates(),
-            colors    = self._empty_colors(), 
+            positions = self._EMPTY_COORDINATES.copy(),
+            colors    = self._EMPTY_COLORS.copy(), 
             shader    = "3d"
         )
         points.visible = False
@@ -171,51 +442,90 @@ class CortexViewerPanel(ipw.VBox):
 
 
     def _init_line(self):
-        """Initialize an empty and invisible line plot."""
+        """Initialize an empty and invisible k3d line object."""
         line = k3d.line(
-            vertices = self._empty_coordinates(),
-            colors   = self._empty_colors(), 
-            width    = float(self.state.viewer.style["line_width"]),
+            vertices = self._EMPTY_COORDINATES.copy(),
+            colors   = self._EMPTY_COLORS.copy(), 
+            width    = float(self.prefs.get_viewer_style("line_width")),
             shader   = "mesh"
         )
         line.visible = False
         return line
 
-
     # Prepare Cortex Methods ---------------------------------------------------
 
     def _prep_cortex(self):
-        """Prepare the data dict for the cortex mesh k3d object."""
-        curvature = self._rgb_to_k3dcolor(self.state.viewer.overlays["curvature"])
-        return { 
-            "vertices" : self.state.viewer.coordinates.astype(np.float32), 
-            "indices"  : self.state.viewer.faces.astype(np.uint32), 
-            "colors"   : curvature.astype(np.uint32) 
+        """Prepare vertex/face/color data for the base cortex mesh.
+ 
+        Returns
+        -------
+        dict
+            Keyword arguments for updating ``k3dmesh_cortex``.
+        """
+        curvature = self._rgb_to_k3dcolor(self.overlays["curvature"])
+        return {
+            "vertices": self.coordinates.astype(np.float32),
+            "indices":  self.faces.astype(np.uint32),
+            "colors":   curvature.astype(np.uint32),
         }
     
     # Prepare Overlay Methods --------------------------------------------------
 
     def _prep_overlay(self):
-        """Prepare the data dict for the cortex overlay mesh k3d object."""
+        """Prepare vertex/color data for the overlay mesh.
+ 
+        Returns ``None`` when the overlay is ``"curvature"`` (the base
+        mesh already shows curvature colors).
+ 
+        Returns
+        -------
+        dict or None
+            Keyword arguments for updating ``k3dmesh_overlay``, or
+            ``None`` if no overlay is needed.
+        """
         # If overlay style is curvature, no additional overlay
-        overlay_name = self.state.viewer.style["overlay"]
+        overlay_name = self.prefs.get_viewer_style("overlay")
         if overlay_name == "curvature": return None
 
-        # Else, get overlay values and return with opactity.
-        overlay_values = self.state.viewer.overlays[overlay_name]
+        # Else, get overlay values and return with opacity.
+        overlay_values = self.overlays[overlay_name]
         return {
             **self._prep_cortex(),
             "colors"  : self._rgb_to_k3dcolor(overlay_values),
-            "opacity" : float(self.state.viewer.style["overlay_alpha"])
+            "opacity" : float(self.prefs.get_viewer_style("overlay_alpha"))
         }
     
-    # Prepare Active Points Methods ---------------------------------------------------
+    # Prepare Single Annotation ------------------------------------------------
 
-    def _prep_active_annotation(self):
-        """Prepare the data for the active annotation."""
+    def _prep_single_annotation(self, annotation, style_key):
+        """Prepare line and point data for a single annotation.
+ 
+        Used for the active annotation layer.  Produces separate line
+        vertex and point position arrays with per-vertex/per-point
+        colors and per-point sizes (fixed points are drawn slightly
+        larger).
+ 
+        Parameters
+        ----------
+        annotation : str
+            Annotation name.
+ 
+        style_key : str or None
+            Key for ``prefs.get_annotation_style()``.  ``None`` for
+            the active annotation style.
+ 
+        Returns
+        -------
+        dict or None
+            ``{"line": {...}, "points": {...}}`` with k3d keyword
+            arguments, or ``None`` if the annotation has no cached
+            viewer data or is invisible.
+        """
         # Get the current active viewer annotation
-        annotation        = self.state.active
-        viewer_annotation = self.state.viewer.annotations[annotation]
+        viewer_annotation = self.annotations[annotation]
+
+        # If no viewer annotation, return None to skip plotting.
+        if viewer_annotation is None: return None
 
         # If no coordinates, return None to skip plotting.
         coordinates = viewer_annotation.get("coordinates", None)
@@ -223,7 +533,7 @@ class CortexViewerPanel(ipw.VBox):
 
         # Get the annotation style from the styler (active = None)
         # If not visible, return None to skip plotting.
-        annotation_style = self.state.style(None)
+        annotation_style = self.prefs.get_annotation_style(style_key)
         if not annotation_style["visible"]: return None
 
         # Get number of annotation vertex (line) coordinates and point types
@@ -232,18 +542,20 @@ class CortexViewerPanel(ipw.VBox):
         point_types = viewer_annotation.get("point_types", None)
 
         # Check if vertices are all fixed points, skip lines if so. 
-        if np.all(point_types == self.state.POINT_FIXED):
-            vertices = self._empty_coordinates() # set vertices to empty to skip line plotting
+        if np.all(point_types == self._POINT_FIXED):
+            # set vertices to empty to skip segment plotting
+            vertices = self._EMPTY_COORDINATES 
 
-        # Get annotation positions (for points) and point types
-        positions   = positions[point_types != self.state.POINT_INTERP]
-        point_types = point_types[point_types != self.state.POINT_INTERP]
+        # Get annotation user points and point types
+        interp_mask = point_types != self._POINT_INTERP
+        positions   = positions[interp_mask]
+        point_types = point_types[interp_mask]
         n_points    = positions.shape[0]
 
         # Prepare scatter sizes by points type (slightly larger fixed points)
-        point_sizes = np.full(n_points, self.state.viewer.style["point_size"])
-        point_sizes[point_types == self.state.POINT_FIXED] = \
-            self.state.viewer.style["point_size"] * 1.25
+        base_size   = self.prefs.get_viewer_style("point_size")
+        point_sizes = np.full(n_points, base_size)
+        point_sizes[point_types == self._POINT_FIXED] = base_size * 1.25
 
         # Prepare colors for each annotation point
         annotation_color = self._rgb_to_k3dcolor(annotation_style["color"])
@@ -252,7 +564,7 @@ class CortexViewerPanel(ipw.VBox):
         return { 
             "line": {
                 "vertices" : vertices.astype(np.float32),
-                "width"    : float(self.state.viewer.style["line_width"]),
+                "width"    : float(self.prefs.get_viewer_style("line_width")),
                 "colors"   : np.full(vertices.shape[0], annotation_color, dtype = np.uint32)
             },
             "points": {
@@ -262,36 +574,57 @@ class CortexViewerPanel(ipw.VBox):
             }
         }
 
-    # Prepare Background Points Methods ----------------------------------------
+    # Prepare Multiple Annotations ---------------------------------------------
 
-    def _prep_background_annotations(self):
-        """Prepare the data for the background annotations."""
-        # Get the list of annotations excluding the active one
-        annotation      = self.state.active
-        annotation_list = self.state.annot_cfg.names.copy()
-        annotation_list.remove(annotation)
-        
+    def _prep_multiple_annotations(self, annotation_list, size_scale = 0.5):
+        """Prepare line and point data for multiple annotations.
+ 
+        Used for background and dependent annotation layers.  All
+        annotations are concatenated into single vertex and position
+        arrays with NaN separators between line segments so k3d draws
+        them as disconnected paths.
+ 
+        Parameters
+        ----------
+        annotation_list : list of str
+            Annotation names to include.
+ 
+        size_scale : float, optional
+            Scale factor applied to ``line_width`` and ``point_size``
+            from viewer preferences.  Background/dependent annotations
+            are drawn smaller than the active annotation.
+            Defaults to ``0.5``.
+ 
+        Returns
+        -------
+        dict or None
+            ``{"line": {...}, "points": {...}}`` with k3d keyword
+            arguments, or ``None`` if no annotations had data to draw.
+        """
         # Initialize empty arrays for all coordinates and colors
-        all_vertices  = np.empty((0, 3)) 
+        all_vertices  = np.empty((0, 3))
         all_positions = np.empty((0, 3))
         all_lcolors   = np.empty((0,), dtype = np.uint32)
         all_pcolors   = np.empty((0,), dtype = np.uint32)
 
-        # Initailize NaN array to separate annotations (for line plotting)
+        # Initialize NaN array to separate annotations (for line plotting)
         coord_sep = np.full((1, 3), np.nan)
         color_sep = np.array([0], dtype = np.uint32)
 
         for annotation in annotation_list: # for each annotation
             # Get the current viewer annotation.
-            viewer_annotation = self.state.viewer.annotations[annotation]
-
+            viewer_annotation = self.annotations[annotation]
+          
+            # If no viewer annotation, skip processing.
+            if viewer_annotation is None: continue
+        
             # If no coordinates, skip processing.
             coordinates = viewer_annotation.get("coordinates", None)
             if coordinates is None or coordinates.shape[0] == 0: continue
 
             # Get the annotation style from the styler (active = None)
             # If not visible, return None to skip plotting.
-            annotation_style = self.state.style(annotation)
+            annotation_style = self.prefs.get_annotation_style(annotation)
             if not annotation_style["visible"]: continue
 
             # Get annotation color and point types for the current annotation
@@ -303,118 +636,196 @@ class CortexViewerPanel(ipw.VBox):
             positions = vertices.copy() # copy!
 
             # Check if not all vertices are all fixed points, all to lines.
-            if not np.all(point_types == self.state.POINT_FIXED):
+            if not np.all(point_types == self._POINT_FIXED):
                 # Prepare the vertices and line colors arrays
                 all_vertices  = np.vstack((all_vertices, vertices, coord_sep))
                 vertex_colors = np.full(vertices.shape[0], annotation_color)
                 all_lcolors   = np.hstack((all_lcolors, vertex_colors, color_sep))
 
-            # Get annotation positions (for points) and point types
-            positions   = positions[point_types != self.state.POINT_INTERP]
-            point_types = point_types[point_types != self.state.POINT_INTERP]
+            # Get annotation user points and point types
+            interp_mask = point_types != self._POINT_INTERP
+            positions   = positions[interp_mask]
+            point_types = point_types[interp_mask]
 
             # Prepare the positions and point colors arrays
-            all_positions = np.vstack((all_positions, positions))
             point_colors  = np.full(positions.shape[0], annotation_color)
+            all_positions = np.vstack((all_positions, positions))
             all_pcolors   = np.hstack((all_pcolors, point_colors))
     
         # If no coordinates, return None to skip plotting.
-        if all_vertices.shape[0] == 0: return None
+        if all_vertices.shape[0] == 0 and all_positions.shape[0] == 0: return None
+
+        # Define scaled down linewidth and pointsize
+        line_width = float(self.prefs.get_viewer_style("line_width") * size_scale)
+        point_size = float(self.prefs.get_viewer_style("point_size") * size_scale)
 
         return { 
             "line": {
                 "vertices" : all_vertices.astype(np.float32),
-                "width"    : float(self.state.viewer.style["line_width"] * 0.5), 
+                "width"    : float(line_width), 
                 "colors"   : all_lcolors.astype(np.uint32)
             },
             "points": {
                 "positions"  : all_positions.astype(np.float32), 
-                "point_size" : float(self.state.viewer.style["point_size"] * 0.5),
+                "point_size" : float(point_size),
                 "colors"     : all_pcolors.astype(np.uint32)
             }
         }
     
     # Figure Clear Method ------------------------------------------------------
 
-    def clear_figure(self):
-        """Clear the figure by setting layers to invisible."""
-        self.k3dmesh_cortex.visible       = False
-        self.k3dmesh_overlay.visible      = False
-        self.k3dline_active.visible       = False
-        self.k3dpoints_active.visible     = False
-        self.k3dline_background.visible   = False
-        self.k3dpoints_background.visible = False 
+    def _clear_figure(self):
+        """Hide all k3d layers."""
+        self._k3dmesh_cortex.visible       = False
+        self._k3dmesh_overlay.visible      = False
+        self._k3dline_background.visible   = False
+        self._k3dpoints_background.visible = False
+        self._k3dline_dependent.visible    = False
+        self._k3dpoints_dependent.visible  = False
+        self._k3dline_active.visible       = False
+        self._k3dpoints_active.visible     = False
 
     # Figure Refresh Methods ---------------------------------------------------
-
-    def refresh_cortex(self):
-        """Refresh the cortex mesh and overlay layers."""
-        # Update the cortex mesh.
+    
+    def _redraw_cortex(self):
+        """Update the cortex mesh and overlay layers from current data."""
+        # Update cortex mesh.
         cortex_kwargs = self._prep_cortex()
         for key, val in cortex_kwargs.items():
-            setattr(self.k3dmesh_cortex, key, val)
-        self.k3dmesh_cortex.visible = True
-
-        # Update the overlay mesh.
+            setattr(self._k3dmesh_cortex, key, val)
+        self._k3dmesh_cortex.visible = True
+ 
+        # Update overlay mesh.
         overlay_kwargs = self._prep_overlay()
         if overlay_kwargs is None:
-            self.k3dmesh_overlay.visible = False
+            self._k3dmesh_overlay.visible = False
         else:
             for key, val in overlay_kwargs.items():
-                setattr(self.k3dmesh_overlay, key, val)
-            self.k3dmesh_overlay.visible = True
+                setattr(self._k3dmesh_overlay, key, val)
+            self._k3dmesh_overlay.visible = True
     
 
-    def refresh_points(self, active = True, background = False):
-        """Refresh the active and background annotation layers."""
-        # Active annotation.
+    def _redraw_layer(self, k3d_line, k3d_points, kwargs = None):
+        """Apply prepared data to a line/points k3d layer pair.
+ 
+        Parameters
+        ----------
+        kwargs : dict or None
+            Output from ``_prep_single_annotation`` or
+            ``_prep_multiple_annotations``.  If ``None``, the layers
+            are hidden.
+
+        line_obj : k3d.Line
+            The k3d line object to update.
+
+        points_obj : k3d.Points
+            The k3d points object to update.
+        """
+        # If no kwargs, hide both line and points layers.  
+        if kwargs is None:
+            k3d_line.visible   = False
+            k3d_points.visible = False
+        else:
+            # Update the line layer (interpolated between points)
+            for key, val in kwargs["line"].items():
+                setattr(k3d_line, key, val)
+            k3d_line.visible = True
+
+            # Update the points layer (fixed + user points)
+            for key, val in kwargs["points"].items():
+                setattr(k3d_points, key, val)
+            k3d_points.visible = True
+ 
+
+    def _redraw_annotations(self, active = True, dependent = False,
+                            background = False):
+        """Refresh annotation layers from cached viewer annotations.
+ 
+        Parameters
+        ----------
+        active : bool, optional
+            Refresh the active annotation layers.  Defaults to ``True``.
+
+        dependent : bool, optional
+            Refresh the dependent annotation layers.
+            Defaults to ``False``.
+
+        background : bool, optional
+            Refresh the independent background annotation layers.
+            Defaults to ``False``.
+        """
+
+        # Seperate the annotaitons by type.
+        active_annotation     = self.editor.active
+        dependent_annotations = self.annot_cfg.fixed_dependencies.get(active_annotation, [])
+
+        nonbackground_annotations = set([active_annotation, *dependent_annotations])
+        background_annotations    = list(set(self.annot_cfg.names) - set(nonbackground_annotations))
+
         if active:
-            active_kwargs = self._prep_active_annotation()
-            if active_kwargs is None:
-                self.k3dline_active.visible   = False
-                self.k3dpoints_active.visible = False
-            else:
-                # Active annotation lines
-                for key, val in active_kwargs["line"].items(): 
-                    setattr(self.k3dline_active, key, val)
-                self.k3dline_active.visible = True
+            k3d_kwargs = self._prep_single_annotation(active_annotation, None)
+            self._redraw_layer(
+                k3d_line   = self._k3dline_active, 
+                k3d_points = self._k3dpoints_active, 
+                k3d_kwargs = k3d_kwargs
+            )
 
-                # Active annotation points
-                for key, val in active_kwargs["points"].items():
-                    setattr(self.k3dpoints_active, key, val)
-                self.k3dpoints_active.visible = True
-    
-        # Background annotations.
-        if background: 
-            background_kwargs = self._prep_background_annotations()
-            if background_kwargs is None:
-                self.k3dline_background.visible   = False
-                self.k3dpoints_background.visible = False
-            else:
-                # Background annotation lines
-                for key, val in background_kwargs["line"].items():
-                    setattr(self.k3dline_background, key, val)
-                self.k3dline_background.visible = True
+        if dependent: 
+            # Determine which annotations depend on the active annotation.
+            k3d_kwargs = self._prep_multiple_annotations(
+                dependent_annotations, size_scale = 0.5)
+            self._redraw_layer(
+                k3d_line   = self._k3dline_dependent,
+                k3d_points = self._k3dpoints_dependent,
+                k3d_kwargs = k3d_kwargs
+            )
 
-                # Background annotation points
-                for key, val in background_kwargs["points"].items():
-                    setattr(self.k3dpoints_background, key, val)
-                self.k3dpoints_background.visible = True
+        if background:
+            k3d_kwargs = self._prep_multiple_annotations(
+                background_annotations, size_scale = 0.5)
+            self._redraw_layer(
+                k3d_line   = self._k3dline_background,
+                k3d_points = self._k3dpoints_background,
+                k3d_kwargs = k3d_kwargs
+            )
 
 
-    # Redraw Viewer Method -----------------------------------------------------
-
-    def redraw_viewer(self, clear = False, cortex = False, active = True, background = False):
-        """Redraw the entire canvas panel."""
+    def redraw_viewer(self, clear = False, cortex = False, 
+                      active = True, dependent = False, background = False):
+        """Redraw the requested viewer layers.
+ 
+        This is the primary entry point called by ``FigurePanel``.
+        All updates are batched between ``auto_rendering`` toggles
+        to avoid intermediate renders.
+ 
+        Parameters
+        ----------
+        cortex : bool, optional
+            Refresh the cortex mesh and overlay layers.
+            Defaults to ``False``.
+        active : bool, optional
+            Refresh the active annotation layers.
+            Defaults to ``True``.
+        dependent : bool, optional
+            Refresh the dependent annotation layers.
+            Defaults to ``False``.
+        background : bool, optional
+            Refresh the independent background annotation layers.
+            Defaults to ``False``.
+        """
         # Disable auto-rendering to batch updates and avoid intermediate renders.
-        self.figure.auto_rendering = False
+        self._figure.auto_rendering = False
 
         # Apply updates to the figure layers based on the specified flags.
-        if clear:  self.clear_figure()
-        if cortex: self.refresh_cortex()
-        if active or background:
-            self.refresh_points(active = active, background = background)
+        if clear:  self._clear_figure()
+        if cortex: self._redraw_cortex()
+        if active or dependent or background:
+            self._redraw_annotations(
+                active     = active, 
+                dependent  = dependent, 
+                background = background
+            )
 
         # Re-enable auto-rendering and trigger render after all updates are applied.
-        self.figure.auto_rendering = True
-        self.figure.render()
+        self._figure.auto_rendering = True
+        self._figure.render()

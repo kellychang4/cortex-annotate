@@ -1,116 +1,106 @@
 # -*- coding: utf-8 -*-
 ################################################################################
 # annotate/figure/_loading.py
+
+"""Loading screen overlay for cortex-annotate.
  
-#DOCSTRING
+``LoadingOverlay`` displays a semi-transparent loading message over the
+entire ``FigurePanel`` (canvas + viewer) during long-running operations
+such as cache generation, target switching, or initial startup.
+ 
+Uses ``pointer-events: auto`` to block all mouse interaction with the
+underlying widgets, preventing canvas clicks or k3d viewer rotation
+while geometry or images are being swapped.
+ 
+``LoadingContext`` is a reference-counted context manager that wraps a
+``LoadingOverlay``.  Nested ``with`` blocks increment and decrement an
+internal counter; the overlay is shown on the first entry and hidden
+only when the outermost block exits.
+ 
+Stacking order is managed by the CSS Grid overlap in ``FigurePanel``.
+``LoadingOverlay`` is added to the DOM before ``MessageOverlay`` so
+that error messages can appear on top of an active loading screen.
+"""
 
 # Imports ----------------------------------------------------------------------
- 
-import ipywidgets as ipw
+
+from ._overlay import Overlay
 
 # Loading Overlay --------------------------------------------------------------
- 
-class LoadingOverlay(ipw.HTML):
-    """Semi-transparent HTML overlay for loading screens.
- 
-    Positioned absolutely over the entire ``FigurePanel`` (canvas +
-    viewer) via CSS, on top of ``MessageOverlay`` so that the loading 
-    screens always take visual priority.
- 
-    Uses ``pointer-events: auto`` to block all mouse interaction with
-    the underlying widgets, preventing the user from rotating the k3d
-    viewer or clicking the canvas while geometry or images are being
-    swapped.
- 
-    Managed exclusively through the ``LoadingContext`` context
-    manager, which provides reference counting for nested loading
-    operations.  Direct calls to ``show()`` / ``hide()`` are possible
-    but discouraged — use the context manager instead.
- 
-    This widget requires its parent container to have
-    ``position: relative`` in its layout so that the absolute
-    positioning anchors correctly.
- 
+
+class LoadingOverlay(Overlay):
+    """Semi-transparent overlay for loading screens.
+
+    Extends ``Overlay`` with a reference count (``_count``) used by
+    ``LoadingContext`` to support nested loading operations.  Direct
+    calls to ``show()`` / ``hide()`` are possible but discouraged —
+    use the context manager instead.
+
+    Parameters
+    ----------
+    z_index : int, optional
+        CSS ``z-index`` for the overlay.  Defaults to ``1``.
+
+    font_size : int, optional
+        Font size in pixels.  Defaults to ``32`` (larger than
+        ``MessageOverlay`` to distinguish loading screens visually).
+
     Attributes
     ----------
     _count : int
         Reference count of active loading contexts.  The overlay is
         visible whenever ``_count > 0``.
     """
- 
-    _CSS = (
-        # "position: absolute; top: 0; left: 0; "
-        "width: 100%; height: 100%; z-index: 20; "
-        "display: flex; align-items: center; justify-content: center; "
-        "background: rgba(255, 255, 255, 0.85); "
-        "font: 32px HelveticaNeue, sans-serif; "
-        "padding: 20px; text-align: center; "
-        "pointer-events: auto;"
-    )
- 
-    def __init__(self):
-        """Initialize the loading overlay (hidden)."""
-        self._count = 0
-        super().__init__(
-            value  = "",
-            layout = ipw.Layout(display = "none"),
-        )
- 
 
-    def show(self, message = "Loading..."):
-        """Display a loading message over the figure area.
- 
-        Parameters
-        ----------
-        message : str, optional
-            The loading message to display.  Defaults to
-            ``"Loading..."``.
-        """
-        self.value = f"<div style='{self._CSS}'>{message}</div>"
-        self.layout.display = "block"
- 
+    __slots__ = ( "_count", )
 
-    def hide(self):
-        """Hide the loading overlay."""
-        self.value = ""
-        self.layout.display = "none"
- 
+    def __init__(self, z_index = 1, font_size = 32):
+        """Initialize the loading overlay."""
+        self._count = 0 # initalize count for loading context
+        super().__init__(z_index = z_index, font_size = font_size)
+
 
 # Loading Context --------------------------------------------------------------
 
 class LoadingContext:
-    """Context manager for the loading overlay.
- 
+    """Reference-counted context manager for the loading overlay.
+
+    Each ``__enter__`` increments the reference count and shows the
+    overlay (on the first entry).  Each ``__exit__`` decrements the
+    count and hides the overlay only when it reaches zero.  This
+    allows nested loading operations (e.g. cache generation inside a
+    target switch) to share a single visible overlay.
+
     Parameters
     ----------
     overlay : LoadingOverlay
-        The loading overlay widget to show/hide.
+        The loading overlay widget to manage.
 
     message : str, optional
         The loading message to display.  Defaults to ``"Loading..."``.
- 
+
     Examples
     --------
-    >>> loading_context = figure_panel.loading_context
-    >>> with loading_context:          # shows "Loading..."
-    ...     with loading_context:      # ref count 2, still showing
-    ...         pass                   # inner exit, ref count 1
-    ...                                # outer exit, ref count 0 → hides
+    >>> ctx = figure_panel.loading_context
+    >>> with ctx:              # count 1 → shows "Loading..."
+    ...     with ctx:          # count 2 → still showing
+    ...         pass           # inner exit → count 1
+    ...                        # outer exit → count 0 → hides
     """
- 
+
     __slots__ = ( "_overlay", "_message" )
- 
+
     def __init__(self, overlay, message = "Loading..."):
         self._overlay = overlay
         self._message = message
- 
+
 
     def __enter__(self):
         self._overlay._count += 1
         if self._overlay._count == 1:
             self._overlay.show(self._message)
         return self
- 
+
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self._overlay._count -= 1

@@ -72,8 +72,9 @@ class AnnotationEditor:
         inserts before the cursor. 
     """
 
-    # Empty point matrix constant for annotations with no points.
+    # Define empty constants. 
     _EMPTY_POINT_MATRIX = np.zeros((0, 2), dtype = float)
+    _EMPTY_EDITABLE     = np.zeros((0,), dtype = int)
 
     __slots__ = (
         "annot_cfg", "target", "active", "annotations",
@@ -92,14 +93,13 @@ class AnnotationEditor:
         self.annotations = {}
         self.fixed_heads = {}
         self.fixed_tails = {}
-        self.editable    = np.zeros((0,), dtype = int)
+        self.editable    = self._EMPTY_EDITABLE.copy()
         self.cursor      = None
         self.insert      = "after"
 
     # Static Helpers -----------------------------------------------------------
     
-    @staticmethod
-    def _init_editable(x = None):
+    def _init_editable(self, x = None):
         """Create an initial editable-index array.
  
         Parameters
@@ -113,7 +113,7 @@ class AnnotationEditor:
         ndarray of int
             Length-0 or length-1 array of editable point indices.
         """
-        if x is None: return np.zeros((0,), dtype = int)
+        if x is None: return self._EMPTY_EDITABLE.copy()
         return np.array([x], dtype = int)
     
     # Fixed Point Methods ------------------------------------------------------
@@ -242,7 +242,7 @@ class AnnotationEditor:
         target_changed = prev_target != self.target
         
         # Determine which annotations need fixed point recalculation.
-        # On first call (empty dicts) or target change: recalculate all.
+        # On first call (empty dicts) or target change, recalculate all.
         if self.fixed_heads == {} or self.fixed_tails == {} or target_changed:
             self.fixed_heads = {}
             self.fixed_tails = {}
@@ -348,6 +348,7 @@ class AnnotationEditor:
  
         * ``insert = "after"`` (default): inserts **after** the
           cursor and advances the cursor to the new point.
+          
         * ``insert = "before"``: inserts **before** the cursor,
           placing the new point at the cursor's current index.
  
