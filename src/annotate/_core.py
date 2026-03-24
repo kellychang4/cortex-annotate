@@ -152,18 +152,25 @@ class AnnotationTool(ipw.HBox):
 
         # Prepare the control panel UI.
         self.control_panel = ControlPanel(
-            self.config, self.prefs,
+            config = self.config,
+            prefs = self.prefs,
             background_color = background_color,
-            button_color     = button_color,
+            button_color = button_color,
         )
 
         # Prepare the figure panel UI.
-        self.figure_panel = FigurePanel(self.prefs, self.editor, has_viewer=self.has_viewer)
+        self.figure_panel = FigurePanel(
+            prefs = self.prefs,
+            editor = self.editor,
+            has_viewer = self.has_viewer
+        )
 
         # Prepare figure caching functionality.
         self.cache = FigureCache(
-            self.config, self.paths, self.prefs,
-            self.figure_panel.loading_context
+            config = self.config,
+            paths = self.paths,
+            prefs = self.prefs,
+            loading_context = self.figure_panel.loading_context
         )
 
         # Declare the locked state of the annotation tool. When locked, the user
@@ -192,6 +199,18 @@ class AnnotationTool(ipw.HBox):
 
         # Refresh figure with initial values.
         self.refresh_figure()
+
+    # Properties ---------------------------------------------------------------
+
+    @property
+    def target(self):
+        """The currently selected target ID."""
+        return self.control_panel.target
+    
+    @property
+    def annotation(self):
+        """The currently selected annotation name."""
+        return self.control_panel.annotation
 
     # Lock / Unlock ------------------------------------------------------------
 
@@ -257,10 +276,10 @@ class AnnotationTool(ipw.HBox):
            grid/cortex data into the renderers, and redraws.
         """
         # Read current selection from the control panel.
-        target_id  = self.control_panel.target
+        target_id  = self.target
         if target_id is None: return # no target selected yet, wait for valid selection
 
-        annotation = self.control_panel.annotation
+        annotation = self.annotation
         if annotation is None: return # no annotation selected yet, wait for valid selection
 
         # Load the target's annotation coordinates.
@@ -415,12 +434,11 @@ class AnnotationTool(ipw.HBox):
             The target whose cortex data to load.
         """
         # Get the current target data from the config.
-        target_id = self.control_panel.target
-        target = self.config.targets[target_id]
+        target = self.config.targets[self.target]
 
         # Extract viewer data from the viewer config.
-        viewer_cfg       = self.config.viewer
-        faces            = viewer_cfg["faces"](target)
+        viewer_cfg = self.config.viewer
+        faces      = viewer_cfg["faces"](target)
 
         morph_between = viewer_cfg["morph_between"]
         if morph_between == "_default": 
@@ -462,10 +480,7 @@ class AnnotationTool(ipw.HBox):
         self.annotations.save()
 
         # Update the legend for the new selection.
-        self.control_panel.update_legend(
-            self.control_panel.target,
-            self.control_panel.annotation,
-        )
+        self.control_panel.update_legend(self.target, self.annotation)
 
         # Refresh figure for the new selection.
         self.refresh_figure()
@@ -492,7 +507,7 @@ class AnnotationTool(ipw.HBox):
         self.prefs.set_annotation_style(annotation, key, change.new)
 
         # Determine which annotation layers need to be redrawn
-        fixed_deps = self.config.annotations.fixed_dependence[self.control_panel.annotation] 
+        fixed_deps = self.config.annotations.fixed_dependencies[self.annotation] 
         if annotation is None:
             active, dependent, background = True, False, False
         elif annotation in fixed_deps:
@@ -606,7 +621,7 @@ class AnnotationTool(ipw.HBox):
     def _on_save(self, button):
         """Handle the Save button click.
 
-        Saves both annotations and preferences to disk.
+        Saves both annotations and preferences.
 
         Parameters
         ----------
@@ -614,7 +629,7 @@ class AnnotationTool(ipw.HBox):
             The clicked button (unused, required by ``on_click``
             signature).
         """
-        # Save annotations and preferences to disk.
+        # Save annotations and preferences.
         self.annotations.save()
         self.prefs.save()
 
