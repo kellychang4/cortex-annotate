@@ -49,12 +49,6 @@ class Config:
 
     Attributes
     ----------
-    config_path : str
-        The path that was loaded.
-
-    yaml : dict
-        The raw parsed YAML mapping (read-only reference).
-
     display : DisplayConfig
         Figure generation parameters and base style overrides.
 
@@ -76,43 +70,35 @@ class Config:
     """
     
     __slots__ = (
-        "config_path", "yaml", "display", "init", "targets", "annotations", 
-        "figures", "viewer" 
+        "display", "init", "targets", "annotations", "figures", "viewer" 
     )
     
     def __init__(self, config_path = "/config/config.yaml"):
-        # Load the configuration YAML file.
-        self.config_path = config_path
+        # Read the configuration YAML file.
         with open(config_path, "rt") as f:
-            self.yaml = yaml.safe_load(f)
+            config_yaml = yaml.safe_load(f)
 
         # Parse the display section (optional).
-        self.display = DisplayConfig(self.yaml.get("display", None))
+        display_yaml = config_yaml.get("display", None)
+        self.display = DisplayConfig(display_yaml)
 
         # Parse the init section (optional).
-        self.init = InitConfig(self.yaml.get("init", None))
+        init_yaml = config_yaml.get("init", None)
+        self.init = InitConfig(init_yaml)
 
         # Parse the targets section.
-        self.targets = TargetsConfig(
-            self.yaml.get("targets", None), 
-            self.init
-        )
+        targets_yaml = config_yaml.get("targets", None)
+        self.targets = TargetsConfig(targets_yaml, self.init)
 
         # Parse the annotations section.
-        self.annotations = AnnotationsConfig(
-            self.yaml.get("annotations", None), self.init)
+        annotations_yaml   = config_yaml.get("annotations", None)
+        self.annotations   = AnnotationsConfig(annotations_yaml, self.init)
+        annot_figure_names = self.annotations.figure_names
 
         # Parse the figures section.
-        self.figures = FiguresConfig(
-            self.yaml.get("figures", None),
-            self.annotations.figure_names, 
-            self.init
-        )
+        figures_yaml = config_yaml.get("figures", None)
+        self.figures = FiguresConfig(figures_yaml, annot_figure_names, self.init)
 
         # Parse the viewer section (optional).
-        self.viewer = ViewerConfig(
-            self.yaml.get("viewer", None),
-            self.annotations.figure_names, 
-            self.init
-        )
-
+        viewer_yaml = config_yaml.get("viewer", None)
+        self.viewer = ViewerConfig(viewer_yaml, annot_figure_names, self.init)

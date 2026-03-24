@@ -110,7 +110,7 @@ class FigurePanel(ipw.Box):
         "_figure", "has_viewer", "_loading", "loading_context", "_message" 
     )
 
-    def __init__(self, prefs, editor, has_viewer = False):
+    def __init__(self, prefs, editor, has_viewer):
         """Initialize the figure panel and its child renderers.
  
         Parameters
@@ -134,14 +134,11 @@ class FigurePanel(ipw.Box):
 
         # Build the 3D cortex viewer renderer, if specified.
         figure_children = [ self._canvas_panel ]
-        print("Inside FigurePanel:")
         if self.has_viewer:
             self._viewer_panel = ViewerPanel(editor, prefs)
             figure_children.append(self._viewer_panel)
         else:
             self._viewer_panel = None
-        print(f"Viewer enabled: {self.has_viewer}")
-        print(f"Viewer panel: {self._viewer_panel}")
 
         # Combine the canvas and viewer panels into a single panel for layout.
         self._figure = ipw.Box(
@@ -167,10 +164,10 @@ class FigurePanel(ipw.Box):
         ]
 
         # Create the figure panel (CSS Grid container). 
-        super().__init__(children)
+        super().__init__(children = children)
         super().add_class("annotate-figure-container")
 
-        # Wire canvas input events to private handlers.
+        # Wire canvas internal handlers.
         self._canvas_panel.observe_mouse(self._on_mouse_click)
         self._canvas_panel.observe_key(self._on_key_press)
 

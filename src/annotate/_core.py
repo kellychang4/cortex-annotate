@@ -43,7 +43,7 @@ from functools import partial
 from .config  import Config
 from ._paths  import PathManager
 from ._prefs  import PrefsManager
-from ._annots import AnnotationState
+from ._annots import AnnotationManager
 from ._editor import AnnotationEditor
 from ._cache  import FigureCache
 from .control import ControlPanel
@@ -90,7 +90,7 @@ class AnnotationTool(ipw.HBox):
     paths : PathManager
         File path construction for cache, save, and git directories.
 
-    state : AnnotationState
+    state : AnnotationManager
         In-memory annotation data with lazy loading and persistence.
 
     prefs : PrefsManager
@@ -115,8 +115,12 @@ class AnnotationTool(ipw.HBox):
     """
 
     __slots__ = (
+        # Configuration and data management
         "config", "paths", "prefs", "editor", "cache",
-        "control_panel", "figure_panel", "has_viewer", "locked",
+        # UI components
+        "control_panel", "figure_panel", 
+        # Annotation tool state flags
+        "has_viewer", "locked",
     )
 
     def __init__(
@@ -129,31 +133,23 @@ class AnnotationTool(ipw.HBox):
             background_color = "#f0f0f0",
             button_color     = "#e0e0e0",
         ):
-        # Read configuration file and construct path manager from arguments.
+        # Prepare the configuration file. 
         self.config = Config(config_path)
-        self.paths  = PathManager(cache_path, save_path, git_path, username)
-        self.prefs  = PrefsManager(self.config, self.paths)
-
         self.has_viewer = self.config.viewer != {}
 
-        # Prepare annotations and preferences manager (tool persistence).
-        self.annotations = AnnotationState(self.config, self.paths)
-        
-        print("Inside AnnotationTool __init__")
-        print("Configuration:")
-        print(f" -> display.figsize: {self.config.display.figsize}")
-        print(f" -> display.dpi: {self.config.display.dpi}")
+        # Prepare the path, preference, and annotation managers
+        self.paths = PathManager(cache_path, save_path, git_path, username)
+        self.prefs = PrefsManager(self.config, self.paths)
+        self.annotations = AnnotationManager(self.config, self.paths)        
 
-        print("Preferences:")
-        print(f" -> display.canvas_size: {self.prefs.get_display('canvas_size')}")
-
-        # Prepare the annotation editor functionality.
+        # Prepare the annotation editor.
         self.editor = AnnotationEditor(self.config)
 
         # Prepare the control panel UI.
         self.control_panel = ControlPanel(
             config = self.config,
             prefs = self.prefs,
+            has_viewer = self.has_viewer,
             background_color = background_color,
             button_color = button_color,
         )
@@ -440,15 +436,10 @@ class AnnotationTool(ipw.HBox):
         viewer_cfg = self.config.viewer
         faces      = viewer_cfg["faces"](target)
 
-        morph_between = viewer_cfg["morph_between"]
-        if morph_between == "_default": 
-            #TODO: test!
-            coordinates = viewer_cfg["coordinates"]["_default"](target)
-        else:
-            coordinates = [
-                viewer_cfg["coordinates"][x](target) 
-                for x in morph_between
-            ]
+        coordinates = [
+            viewer_cfg["coordinates"][x](target) 
+            for x in viewer_cfg["morph_between"]
+        ]
         
         overlays = {
             key: fn(target, key)

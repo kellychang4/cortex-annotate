@@ -15,6 +15,8 @@ omitted, ViewerConfig is an empty dict and the tool operates in 2D-only mode.
 
 # Imports ----------------------------------------------------------------------
 
+from functools import partial
+
 from ._error import ConfigError
             
 # Viewer Configuration ---------------------------------------------------------
@@ -69,27 +71,23 @@ class ViewerConfig(dict):
         coordinates.
     """
 
-    __slots__ = ( 
-        "faces", "coordinates", "morph_between", "overlays", "canvas_to_viewer" 
-    )
+    __slots__ = ( )
     
     def __init__(self, viewer_yaml, figure_names, init):
-        # The viewer section is optional.
-        if viewer_yaml is None: viewer_yaml = {}
-        
-        # If viewer section is provided, it must be a dictionary.
-        if not isinstance(viewer_yaml, dict):
-            raise ConfigError("viewer", "viewer section must contain a mapping.")
-        
-        # If viewer section is not empty, then we prepare the viewer dictionary.
-        viewer_dict = {} # initialize
-        if viewer_yaml != {}: 
+        # Initialize viewer_dict.
+        viewer_dict = {}
+
+        # The viewer section is optional, return empty dict if not provided.
+        if viewer_yaml is not None:
+            # If viewer section is provided, it must be a dictionary.
+            if not isinstance(viewer_yaml, dict):
+                raise ConfigError("viewer", "viewer section must contain a mapping.")
+
             # Prepare the faces field.
             viewer_dict["faces"] = self._init_faces(viewer_yaml, init)
 
             # Prepare the coordinates field.
-            viewer_dict["coordinates"] = self._init_coordinates(
-                viewer_yaml, init)
+            viewer_dict["coordinates"] = self._init_coordinates(viewer_yaml, init)
             
             # Prepare the morph_between field, optional.
             viewer_dict["morph_between"] = self._init_morph_between(
@@ -102,10 +100,12 @@ class ViewerConfig(dict):
             # Prepare the canvas_to_viewer field
             viewer_dict["canvas_to_viewer"] = self._init_canvas_to_viewer(
                 viewer_yaml, init)
-        
+            
         # Update ViewerConfig class dictionary.
         self.update(viewer_dict)
 
+
+    # Compile Figure Functions -------------------------------------------------
 
     @staticmethod
     def _compile_fn(init, argstr, code):
@@ -129,6 +129,7 @@ class ViewerConfig(dict):
         """
        return init.compile_fn(argstr, f"{code}")
 
+    # Initialize Viewer Fields -------------------------------------------------
 
     @staticmethod
     def _init_faces(viewer_yaml, init):
@@ -150,12 +151,22 @@ class ViewerConfig(dict):
         callable
             ``fn(target) → ndarray, shape (n_faces, 3)``.
         """
-        # Extract the faces field from the yaml.
+        # Prepare ConfigError for any errors that arise in this function.
+        err = partial(ConfigError, "viewer.faces")
+
+        # If viewer_yaml is None, there is no viewer configuration. Return None.
+        if viewer_yaml is None: return None
+
+        # If there is viewer configuration...
         faces = viewer_yaml.get("faces", None)
+
+        # The faces field is required for any viewer configuration.
+        if faces is None:
+            raise err("faces is a required field.")
 
         # Check that faces is a string/code
         if not isinstance(faces, str):
-            raise ConfigError("viewer.faces", "faces must be a code string.")
+            raise err("faces must be a code string.")
 
         # Compile the faces code string into a function.
         faces = ViewerConfig._compile_fn(init, "target", faces)
@@ -186,16 +197,25 @@ class ViewerConfig(dict):
             Maps coordinate set names to compiled functions
             ``fn(target) → ndarray, shape (n_vertices, 3)``.
         """
+        # Prepare ConfigError for any errors that arise in this function.
+        err = partial(ConfigError, "viewer.coordinates")
+
+        # If viewer_yaml is None, there is no viewer configuration. Return None.
+        if viewer_yaml is None: return None
+
         # Extract the coordinates field from the yaml.
         coordinates = viewer_yaml.get("coordinates", None)
 
+        # The coordinates field is required for any viewer configuration.
+        if coordinates is None:
+            raise err("coordinates is a required field.")
+
         # Check that coordinates is a string/code
         if not isinstance(coordinates, (str, dict)):
-            raise ConfigError("viewer.coordinates", 
-                "`coordinates` must be a code string or mapping."
-            )
+            raise err("`coordinates` must be a code string or mapping.")
         
-        # If coordinates is a string, then conform to dictionary mapping.
+        # If coordinates is a string, then only one coordinate set is provided, 
+        # confirm to dictionary storage under the key '_default'.
         if isinstance(coordinates, str):
             coordinates = { "_default" : coordinates }
     
@@ -234,24 +254,29 @@ class ViewerConfig(dict):
         list of str or None
             A two-element list of coordinate set names, or ``None``.
         """
+        # Prepare ConfigError for any errors that arise in this function.
+        err = partial(ConfigError, "viewer.morph_between")
+
+        # If viewer_yaml is None, there is no viewer configuration. Return None.
+        if viewer_yaml is None: return None
+
         # Extract the coordinates field from the yaml.
         morph_between = viewer_yaml.get("morph_between", None)
 
-        # This is an optional field, so if None, return None.
-        if morph_between is None: return None
+        # This is an optional field, so if None, return first coordinate set.
+        if morph_between is None: 
+            return list(coordinates.keys())[0:1]
         
         # If provided, must be a list of length two.
         if not isinstance(morph_between, list) or len(morph_between) != 2:
-            raise ConfigError("viewer.morph_between", 
-                "`morph_between` must be a list of length two.")
+            raise err("`morph_between` must be a list of length two.")
 
-        # If provided, both surfaces must be available in the coordinates dict.
+        # If provided, coordinates names must be given in the coordinates dict.
         for surface_name in morph_between: 
             if surface_name not in coordinates:
-                raise ConfigError("viewer.morph_between", 
-                    f"Unable to find `{surface_name}` coordinates.")
+                raise err(f"Unable to find `{surface_name}` coordinates.")
         
-        # Return inflate between list.
+        # Return morph_between list.
         return morph_between
         
     
@@ -285,21 +310,33 @@ class ViewerConfig(dict):
             Maps overlay names to compiled functions
             ``fn(target, key) → ndarray, shape (n_vertices, 3)``.
         """
+        # Prepare ConfigError for any errors that arise in this function.
+        err = partial(ConfigError, "viewer.overlays")
+
+        # If viewer_yaml is None, there is no viewer configuration. Return None.
+        if viewer_yaml is None: return None
+
         # If there is a wildcard key, extract out.
         overlays = viewer_yaml.get("overlays", None)
 
-        # Check that overlays is a string/code
+        # The overlays field is required for any viewer configuration.
+        if overlays is None:
+            raise err("`overlays` is a required field.")
+        
+        # Check that overlays is a string/code or mapping.
         if not isinstance(overlays, (str, dict)):
-            raise ConfigError("viewer.overlays", 
-                "`overlays` must be a code string or mapping."
-            )
+            raise err("`overlays` must be a code string or mapping.")
 
         # If overlays is a string, then assuming it is for the curvature.
         if isinstance(overlays, str):
             overlays = { "curvature" : overlays }
 
+        # If overlays is a dict, it must contain a curvature or a wildcard key.
+        if "curvature" not in overlays and "_" not in overlays:
+            raise err("Overlays must include a 'curvature' entry or a wildcard '_'.")
+
         # If overlays is a dict, then we compile the code for each key.
-        # Check that all mappings are strings/code.
+        # Check that all mapping values are strings/code.
         for key, value in overlays.items():
             if not isinstance(value, str):
                 raise ConfigError(f"viewer.overlays.{key}", 
@@ -313,7 +350,7 @@ class ViewerConfig(dict):
         # Prepare valid figure names for the overlays, including curvature.
         figure_names = { "curvature" } | set(figure_names)
 
-        # Prepare and return overlays dictionary
+        # Prepare overlays dictionary
         overlays_dict = {}
         for key in figure_names:
             if key not in overlays.keys():
@@ -328,6 +365,8 @@ class ViewerConfig(dict):
                 key_fn = ViewerConfig._compile_fn(
                     init, "target, key", overlays[key])
             overlays_dict[key] = key_fn
+        
+        # Return compiled overlays dictionary.
         return overlays_dict
 
 
@@ -353,16 +392,25 @@ class ViewerConfig(dict):
             (n_points, 3)`` where *points* is ``(n_points, 2)`` and
             *mesh_coordinates* is ``(n_vertices, 3)``.
         """
+        # Prepare ConfigError for any errors that arise in this function.
+        err = partial(ConfigError, "viewer.canvas_to_viewer")
+
+        # If viewer_yaml is None, there is no viewer configuration. Return None.
+        if viewer_yaml is None: return None
+
         # Extract the canvas_to_viewer field from the yaml.
         canvas_to_viewer = viewer_yaml.get("canvas_to_viewer", None)
 
+        # The canvas_to_viewer field is required for any viewer configuration.
+        if canvas_to_viewer is None:
+            raise err("`canvas_to_viewer` is a required field.")
+
         # Check that canvas_to_viewer is a string/code
         if not isinstance(canvas_to_viewer, str):
-            raise ConfigError("viewer.canvas_to_viewer", 
-                "`canvas_to_viewer` must be a code string."
-            )
+            raise err("`canvas_to_viewer` must be a code string.")
     
-        # Compile the faces code string into a function.
+        # Compile the canvas_to_viewer code string into a function.
+        # NOTE: canvas_to_viewer(target, points, mesh_coordinates <internal>)
         canvas_to_viewer = ViewerConfig._compile_fn(
             init, "target, points, mesh_coordinates", canvas_to_viewer)
          

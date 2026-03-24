@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 ################################################################################
-# annotate/_state.py
+# annotate/_annots.py
 
 """Annotation data management for cortex-annotate.
  
-AnnotationState owns the in-memory annotation coordinate data for all
+AnnotationManager owns the in-memory annotation coordinate data for all
 targets. It handles lazy loading from TSV files on disk and saving
 modified annotations back. Each annotation is an N x 2 numpy array of
 (x, y) canvas coordinates.
@@ -25,7 +25,7 @@ from ._util import ldict, delay
 
 # Annotation State Class -------------------------------------------------------
 
-class AnnotationState(ldict):
+class AnnotationManager(ldict):
     """Manages in-memory annotation data with lazy loading and persistence.
  
      
@@ -124,12 +124,18 @@ class AnnotationState(ldict):
         ldict
             Lazy dict mapping annotation names to coordinate arrays.
         """
+        # Get the current target's data.
+        target = self.config.targets[target_id]
+
+        # Build the lazy dictionary for the current target's annotations.
         target_annotations = ldict() # initialize
         for annotation, annotation_info in self.config.annotations.items():
             if annotation_info.filter is None or \
-                annotation_info.filter(self.config.targets[target_id]):
+                annotation_info.filter(target):
                 target_annotations[annotation] = delay(
                     self._load_target_annotation, target_id, annotation)
+        
+        # Return the lazy dictionary.
         return target_annotations
 
     
@@ -147,7 +153,7 @@ class AnnotationState(ldict):
         """
         return ldict({
             target_id: delay(self._load_target_annotations, target_id)
-                for target_id in self.config.targets.keys()
+                for target_id in self.config.targets.target_keys
             })
 
 
@@ -169,30 +175,30 @@ class AnnotationState(ldict):
         # Get the target's annotations.
         target_annotations = self[target_id]
 
-        for annotation_name in target_annotations.keys(): 
-            # Skip anything lazy. We never want to save anything that's still
-            # lazy because that means that the original file hasn't been read in
-            # (and thus can't have any updates).
-            if target_annotations.is_lazy(annotation_name): continue
+        for annotation in target_annotations.keys(): 
+            # Skip anything lazy. We never want to save anything that is still
+            # lazy because that means that the original file has not been read 
+            # in (and thus cannot have any updates).
+            if target_annotations.is_lazy(annotation): continue
             
             # Get this annotation's coordinates.
-            coords = np.asarray(target_annotations.get(annotation_name))
+            coords = np.asarray(target_annotations.get(annotation))
 
-            # Make sure they are the right shape.
+            # Make sure the coordinates are the right shape.
             if len(coords.shape) != 2 or coords.shape[1] != 2:
                 raise RuntimeError(
-                    f"Annotation '{annotation_name}' for target "
+                    f"Annotation '{annotation}' for target "
                     f"{target_id} has invalid shape: {coords.shape}"
                 )
             
-            # If they're empty, no need to save them.
-            tsv_file = self.paths.get_annotation_path(target_id, annotation_name)
+            # If the coordinates are empty, no need to save them. 
+            tsv_file = self.paths.get_annotation_path(target_id, annotation)
             if coords.shape[0] == 0: 
-                # delete the file if it exists instead.
+                # Delete the file if it exists instead.
                 if op.isfile(tsv_file): os.remove(tsv_file)
                 continue
 
-            # Save them using pandas.
+            # Save the coordinates using pandas.
             df = pd.DataFrame(coords)
             df.to_csv(tsv_file, index = False, header = None, sep = "\t")
     

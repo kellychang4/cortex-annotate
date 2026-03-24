@@ -22,7 +22,7 @@ import numpy as np
 # Annotation Editor ------------------------------------------------------------
  
 class AnnotationEditor:
-    """Annotation editing class.
+    """Annotation editor class.
  
     Maintains the annotation coordinate arrays, cursor position,
     editable point indices, fixed-head/tail points, and insertion
@@ -77,8 +77,8 @@ class AnnotationEditor:
     _EMPTY_EDITABLE     = np.zeros((0,), dtype = int)
 
     __slots__ = (
-        "annot_cfg", "target", "active", "annotations",
-        "fixed_heads", "fixed_tails", "editable", "cursor",
+        "annot_cfg", "target", "active", "dependents", 
+        "annotations", "fixed_heads", "fixed_tails", "editable", "cursor",
         "insert"
     )
 
@@ -90,6 +90,7 @@ class AnnotationEditor:
         # Initialize internal variables.
         self.target      = None
         self.active      = None
+        self.dependents  = None
         self.annotations = {}
         self.fixed_heads = {}
         self.fixed_tails = {}
@@ -236,6 +237,7 @@ class AnnotationEditor:
         # Update the target, active annotation, and annotations.
         self.target      = target_id
         self.active      = annotation
+        self.dependents  = self.annot_cfg.fixed_dependencies[annotation]
         self.annotations = target_annotations
 
         # Determine if the target changed.
@@ -429,11 +431,10 @@ class AnnotationEditor:
         self.annotations[self.active] = points
 
         # Update dependent annotations, if this active annotation has them.
-        fixed_deps = self.annot_cfg.fixed_dependencies[self.active]
-        if len(fixed_deps) > 0: self._recalculate_deps(self.active)
+        if len(self.dependents) > 0: self._recalculate_deps(self.active)
 
         # Return fixed dependencies
-        return fixed_deps
+        return self.dependents
 
     # Toggle Cursor Method -----------------------------------------------------
     
@@ -511,15 +512,15 @@ class AnnotationEditor:
         # Check if there are any LIVE dependencies on this annotation. If so, 
         # we cannot delete the last point of this annotation because the 
         # dependent annotations rely on it. 
-        fixed_deps = self.annot_cfg.fixed_dependencies[self.active]
-        if len(fixed_deps) > 0 and self.editable.shape[0] == 1:
+        if len(self.dependents) > 0 and self.editable.shape[0] == 1:
             # Determine the number of fixed points for each dependent 
             # annotation. This number is the minimum number of points that the 
             # annotation must have be considered LIVE.
-            n_fixed = [ len(self.annot_cfg.fixed_points[fd]) for fd in fixed_deps ]
+            n_fixed = [ len(self.annot_cfg.fixed_points[fd]) 
+                        for fd in self.dependents ]
 
             live_deps = [
-                fd for fd, n in zip(fixed_deps, n_fixed) 
+                fd for fd, n in zip(self.dependents, n_fixed) 
                 if self.annotations[fd] is not None
                 and self.annotations[fd].shape[0] > n
             ]
@@ -566,7 +567,7 @@ class AnnotationEditor:
         self.annotations[self.active] = points
 
         # Update dependent annotations, if this active annotation has them.
-        if len(fixed_deps) > 0: self._recalculate_deps(self.active)
+        if len(self.dependents) > 0: self._recalculate_deps(self.active)
 
         # Return fixed dependencies
-        return ( fixed_deps, None )
+        return ( self.dependents, None )

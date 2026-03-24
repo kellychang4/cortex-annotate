@@ -46,6 +46,15 @@ init: |
   fsa_cortex["lh"] = fsa.hemis["lh"].copy()
   fsa_cortex["rh"] = fsa.hemis["rh"].copy()
 
+  # prepare fsaverage flatmaps
+  fsa_flatmap = {} # initialize
+  fsa_flatmap["lh"] = fsa_cortex["lh"].mask_flatmap(**FLATMAP_KWARGS)
+  fsa_flatmap["rh"] = fsa_cortex["rh"].mask_flatmap(**FLATMAP_KWARGS)
+
+  # initalize search tree for flatmap address lookup (see canvas_to_viewer)
+  fsa_flatmap["lh"].address(np.array([[0, 0]]))
+  fsa_flatmap["rh"].address(np.array([[0, 0]]))
+
   # define function to read participant (packed) data files
   def read_property(filename):
       with open(filename, "rb") as f:

@@ -34,7 +34,7 @@ class AnnotateTab(ipw.VBox):
     buttons : ButtonSection
     info : InfoSection
     """
-
+    
     __slots__ = ( "_lockable", )
 
     def __init__(self, config, prefs, button_color):

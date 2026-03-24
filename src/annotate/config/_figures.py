@@ -49,11 +49,10 @@ class FiguresConfig(dict):
     __slots__ = ( )    
     
     def __init__(self, figures_yaml, figure_names, init):
-        # The figures section is required as a mapping (dictionary).
-        if not isinstance(figures_yaml, dict):
-            raise ConfigError("figures", "figures section must contain a mapping.")
+        # Validate the figures YAML.
+        figures_yaml = self._validate_figures_yaml(figures_yaml)
         
-        # Prepare the figures yaml and the figure compiling functions.
+        # Prepare the figures_yaml and the figure compiling functions.
         figures_yaml, compile_fn, wildfn = self._prep_yaml(figures_yaml, init)
 
         # Prepare the figure dictionary.
@@ -63,6 +62,26 @@ class FiguresConfig(dict):
         # Update FiguresConfig class dictionary.
         self.update(figures_dict)
 
+    # Validate YAML ------------------------------------------------------------
+
+    @staticmethod
+    def _validate_figures_yaml(figures_yaml):
+        """DOCSTRING."""
+        # Prepare ConfigError for any errors that arise in this function.
+        err = partial(ConfigError, "figures")
+
+        # The figures section is required.
+        if figures_yaml is None:
+            raise err("figures section is required.")
+
+        # The figures section must be a mapping (dictionary).
+        if not isinstance(figures_yaml, dict):
+            raise err("figures section must be a mapping.")
+
+        # Return the figures_yaml if it is valid.
+        return figures_yaml
+
+    # Compile Figure Functions -------------------------------------------------
 
     @staticmethod
     def _compile_fn(init, initcode, termcode, code):
@@ -121,10 +140,8 @@ class FiguresConfig(dict):
         # Check that the all fields are code strings if they are not None.
         for key, value in figures_yaml.items():
             if not isinstance(value, str):
-                raise ConfigError(
-                    f"figures.{key}", 
-                    f"'{key}' value must be a code string."
-                )
+                raise ConfigError(f"figures.{key}", 
+                                  f"'{key}' value must be a code string.")
 
         # Prepare the special fields (init, term, and wildcard).
         special_dict = {
@@ -138,8 +155,8 @@ class FiguresConfig(dict):
             special_dict["init"], special_dict["term"]
         )
 
-        # Compile the wildcard field if not None.
-        wildfn = None
+        # Compile the wildcard field, if exists.
+        wildfn = None # initialize
         if special_dict["_"] is not None:
             wildfn = compile_fn(special_dict["_"])
 

@@ -350,9 +350,6 @@ class CanvasPanel(ipw.HBox):
         if dependent: self.dependent_canvas.clear()
         if background: self.background_canvas.clear()
 
-        # Determine which annotations depend on the active annotation.
-        deps_annotations = self.annot_cfg.fixed_dependencies[self.editor.active]
-
         # Step through all annotations and draw them.
         for annotation, points in self.editor.annotations.items():
             # If there are no points, we can skip.
@@ -366,7 +363,7 @@ class CanvasPanel(ipw.HBox):
                 styletag = None
                 cursor   = self.editor.cursor
                 insert   = self.editor.insert
-            elif annotation in deps_annotations:
+            elif annotation in self.editor.dependents:
                 # Skip dependent annotations if dependent is False.
                 if not dependent: continue
                 canvas   = self.dependent_canvas

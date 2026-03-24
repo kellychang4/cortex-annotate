@@ -55,19 +55,22 @@ class DisplayConfig():
     """
 
     __slots__ = ( 
-        "figsize", "dpi", "active_style", "default_style", 
-        "viewer_size", "layout" 
+        "figsize", "dpi", "canvas_size", "active_style", "default_style", 
+        "viewer_size",  "layout" 
     )
     
     def __init__(self, display_yaml):
         # The display section is optional. If None, return empty dictionary.
         if display_yaml is None: display_yaml = {}
         
-        # Initialize the figure size.
+        # Initialize the figsize.
         self.figsize = self._init_figsize(display_yaml)
 
-        # Initialize the DPI. 
+        # Initialize the dpi. 
         self.dpi = self._init_dpi(display_yaml)
+
+        # Initialize the canvas size.
+        self.canvas_size = self._init_canvas_size(display_yaml)
 
         # Initialize the active style.
         self.active_style = self._init_style(
@@ -101,24 +104,24 @@ class DisplayConfig():
         tuple of float or None
             A ``(width, height)`` tuple, or ``None`` if not specified.
         """
-        # Prepare ConfigError arguments for any errors that may arise in this function.
+        # Prepare ConfigError for any errors that arise in this function.
         err = partial(ConfigError, "display.figsize")
 
-        # Extract the figure size from the yaml. 
+        # Extract the figsize from the yaml. 
         figsize = display_yaml.get("figsize", None)
 
-        # If the figure size is None, return None (will use defaults)
+        # If the figsize is None, return None (will use defaults)
         if figsize is None: return None
 
-        # Check that the figure size is not a string.
+        # Check that the figsize is not a string.
         if isinstance(figsize, str):
             raise err(f"figsize cannot be a string: {figsize}")
 
-        # If the figure size is a single number, use both for the dimensions.
+        # If the figsize is a single number, use both for the dimensions.
         if isinstance(figsize, (int, float)):
             figsize = [figsize, figsize]
 
-        # If the figure size is a list/tuple, check there are two dimensions.
+        # If the figsize is a list/tuple, check there are two dimensions.
         if isinstance(figsize, (list, tuple)):
             # Check that there are two dimensions.
             if len(figsize) != 2:
@@ -127,14 +130,14 @@ class DisplayConfig():
                     f"{figsize}"
                 )
             
-            # Check that the figure size elements are positive numbers.
+            # Check that the figsize elements are positive numbers.
             if not all(isinstance(u, Real) and u > 0 for u in figsize):
                 raise err(
                     f"figsize elements must be positive numbers: "
                     f"{figsize}",
                 )
         
-        # Return the figure size as a tuple in the form (width, height).
+        # Return the figsize as a tuple in the form (width, height).
         return tuple(figsize)
 
 
@@ -152,7 +155,7 @@ class DisplayConfig():
         int or None
             A positive integer, or ``None`` if not specified.
         """
-        # Prepare ConfigError arguments for any errors that may arise in this function.
+        # Prepare ConfigError for any errors that arise in this function.
         err = partial(ConfigError, "display.dpi")
 
         # Extract the DPI from the yaml.
@@ -168,6 +171,37 @@ class DisplayConfig():
         # Return the DPI.
         return dpi
     
+
+    @staticmethod
+    def _init_canvas_size(display_yaml):
+        """Validate the ``canvas_size`` value.
+
+        Parameters
+        ----------
+        display_yaml : dict
+            The display YAML mapping.
+
+        Returns
+        -------
+        int or None
+            A positive integer, or ``None`` if not specified.
+        """
+        # Prepare ConfigError for any errors that arise in this function.
+        err = partial(ConfigError, "display.canvas_size")
+
+        # Extract the canvas size from the yaml.
+        canvas_size = display_yaml.get("canvas_size", None)
+
+        # If the canvas size is None, return None (will use defaults)
+        if canvas_size is None: return None
+
+        # Check that the canvas size is a positive integer of at least size 128
+        if not isinstance(canvas_size, Integral) or canvas_size < 128:
+            raise err(f"canvas_size must be a positive integer of at least size 128: {canvas_size}")
+        
+        # Return the canvas size.
+        return canvas_size
+
 
     @staticmethod
     def _init_style(display_yaml, style_name, default = {}):
@@ -224,7 +258,7 @@ class DisplayConfig():
         int or None
             A positive integer, or ``None`` if not specified.
         """
-        # Prepare ConfigError arguments for any errors that may arise in this function.
+        # Prepare ConfigError for any errors that arise in this function.
         err = partial(ConfigError, "display.viewer_size")
 
         # Extract the viewer size from the yaml.
@@ -233,15 +267,14 @@ class DisplayConfig():
         # If the viewer size is None, return None (will use defaults)
         if viewer_size is None: return None
 
-        # Check that the viewer size is a positive integer.
-        if not isinstance(viewer_size, Integral) or viewer_size < 1:
-            raise err(f"viewer_size must be a positive integer: {viewer_size}")
+        # Check that the viewer size is a positive integer of at least size 128
+        if not isinstance(viewer_size, Integral) or viewer_size < 128:
+            raise err(f"viewer_size must be a positive integer of at least size 128: {viewer_size}")
         
         # Return the viewer size.
         return viewer_size
 
     
-
     @staticmethod
     def _init_layout(display_yaml):
         """Validate the ``layout`` value.
@@ -257,7 +290,7 @@ class DisplayConfig():
             ``"horizontal"``, ``"vertical"``, or ``None`` if not
             specified.
         """
-        # Prepare ConfigError arguments for any errors that may arise in this function.
+        # Prepare ConfigError for any errors that arise in this function.
         err = partial(ConfigError, f"display.layout")
 
         # Extract the layout option from the yaml.

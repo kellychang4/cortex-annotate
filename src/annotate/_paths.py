@@ -62,6 +62,8 @@ class PathManager:
         The resolved username (from ``username`` argument or git
         detection). Empty string if no username could be determined.
     """
+
+    __slots__ = ( "cache_path", "save_path", "git_path", "username" )
     
     def __init__(
             self, 
@@ -80,7 +82,7 @@ class PathManager:
         if self.username is None:
             (self.username, _) = self.gitdata
         if not isinstance(self.username, str):
-            raise RuntimeError("username must be a string or None.")
+            raise RuntimeError("'username' must be a string or None.")
 
         # Update the save_path.
         if self.username != "": 
@@ -91,7 +93,7 @@ class PathManager:
         os.makedirs(self.cache_path, mode = 0o755, exist_ok = True)
         os.makedirs(self.save_path, mode = 0o755, exist_ok = True)
         
-    # Git Methods ---------------------------------------------------------------
+    # Property -----------------------------------------------------------------
 
     @property
     def gitdata(self):
@@ -139,7 +141,7 @@ class PathManager:
             warn(f"Error finding gitdata: {e}")
             return ( "" , "" ) 
         
-    # Path Methods -------------------------------------------------------------
+    # Internal Helpers ---------------------------------------------------------
 
     def _build_path(self, target_id, base_dir, subdir = None, filename = None):
         """Build a filesystem path for a target and optional filename.
@@ -173,22 +175,23 @@ class PathManager:
  
         Examples
         --------
-        >>> pm._build_path(("sub-01", "ses-02"), "/cache", "figures", "V1.png")
+        >>> paths._build_path(("sub-01", "ses-02"), "/cache", "figures", "V1.png")
         '/cache/figures/sub-01/ses-02/V1.png'
  
-        >>> pm._build_path(("sub-01", "ses-02"), "/cache")
+        >>> paths._build_path(("sub-01", "ses-02"), "/cache")
         '/cache/sub-01/ses-02'
         """
         path = op.join(*target_id) # target relative path
         if subdir is None: path = op.join(base_dir, path)
         else: path = op.join(base_dir, subdir, path) 
-        # NOTE: We always create the directory here so callers don't need to
+        # NOTE: We always create the directory here so callers do not need to
         # worry about whether the path exists yet. This means even "get" calls
         # have the side effect of creating directories.
         os.makedirs(path, mode = 0o755, exist_ok = True)
         if filename is not None: path = op.join(path, filename)
         return path
-
+    
+    # [Public] Path Methods ----------------------------------------------------
 
     def get_figure_path(self, target_id, figure = None):
         """Return the cache path for a target's figure image.

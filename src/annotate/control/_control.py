@@ -92,18 +92,22 @@ class ControlPanel(ipw.VBox):
             self,
             config,
             prefs,
+            has_viewer, 
             background_color = "#f0f0f0",
             button_color     = "#e0e0e0",
         ):
+        # Store the viewer-enabled flag for use in subpanels. 
+        self.has_viewer = has_viewer
+
         # Create the required subtabs/subpanels widgets.
+        #TODO: I also want to automate this.
         self._annotate_tab = AnnotateTab(config, prefs, button_color)
         self._style_tab    = StyleTab(config, prefs)
  
         # Declare the tab registry and register the default tabs.
         self._tabs = []
 
-        # Populate the tab register with the defaults. 
-        # The loop allows for easy extension to more default tabs in the future, if desired.
+        # Populate the tab register with the defaults 
         for tab in [ self._annotate_tab, self._style_tab ]:
             # TODO: I dop not like how the tab name is derived from the class. 
             tab_name = type(tab).__name__.removesuffix("Tab").title()

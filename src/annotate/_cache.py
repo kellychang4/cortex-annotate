@@ -83,7 +83,7 @@ class FigureCache:
         self.paths  = paths 
         self.prefs  = prefs
 
-        # Store the loading control if we have one.
+        # Store the loading context. 
         if loading_context is None:
             loading_context = NoOpContext()
         self.loading_context = loading_context   

@@ -6,7 +6,7 @@
 
 AnnotationsConfig is a dict subclass that parses the ``annotations`` section
 of config.yaml. Each annotation defines a contour, boundary, or point to be
-drawn on each target, along with its figure grid layout, fixed-point
+drawn on each target, along with its figure grid layout, fixed point
 dependencies, and optional target filter.
 
 The parsed annotations are stored as Annotation namedtuples and indexed by
@@ -25,7 +25,6 @@ from ._error import ConfigError
 
 # Annotation <namedtuple> ------------------------------------------------------
 
-#NOTE: might want to add `style` back in at some point.
 Annotation = namedtuple(
     typename    = "Annotation",
     field_names = ( "type", "fixed_head", "fixed_tail", "figure_grid", "filter" ),
@@ -54,7 +53,7 @@ class AnnotationsConfig(dict):
         annotation specification mapping.
 
     init : InitConfig
-        The init environment, used to compile filter and fixed-point
+        The init environment, used to compile filter and fixed point
         calculation functions.
 
     Attributes
@@ -100,22 +99,22 @@ class AnnotationsConfig(dict):
     )
     
     def __init__(self, annotations_yaml, init):
-        # The annotations section is required as a mapping (dictionary)
-        if not isinstance(annotations_yaml, dict):
-            raise ConfigError("annotations", "annotations must contain a mapping.")
+        # Validate the annotations YAML. 
+        annotations_yaml = self._validate_annotations_yaml(annotations_yaml)
 
-        # Go through and build up the annotation data.
+        # Go through and build up the annotation dictionary.
         annotations_dict = {}
-        for (key, value) in annotations_yaml.items():
+        for key, value in annotations_yaml.items():
+            # Prepare ConfigError arguments for errors that arise in this loop.
+            err = partial(ConfigError, f"annotations.`{key}`")
+
             # Check that the annotation value is a list or mapping.
             if not isinstance(value, (list, dict)):
-                raise ConfigError(f"annotations.`{key}`",
-                    f"annotation `{key}` must be a list or mapping.")
+                raise err(f"annotation `{key}` must be a list or mapping.")
         
             if isinstance(value, list):
                 # If the value is a list, then this is treated as a figure_grid.
-                figure_grid = self._init_figure_grid(
-                    value, partial(ConfigError, f"annotations.`{key}`"))
+                figure_grid = self._init_figure_grid(value, err)
                 annotations_dict[key] = Annotation(figure_grid = figure_grid)
             else: 
                 # If the value is a mapping, then this is treated as an annotation
@@ -126,6 +125,7 @@ class AnnotationsConfig(dict):
         self.update(annotations_dict)
 
         # Prepare annotation attribute information for easy access later.
+        # These are static once the annotation are configured, so compute only once here.
         self.names       = list(self.keys())
         self.type        = self._get_type()
         self.figure_grid = self._get_figure_grid()
@@ -135,15 +135,15 @@ class AnnotationsConfig(dict):
         self.fixed_heads = self._get_fixed_names("fixed_head")
         self.fixed_tails = self._get_fixed_names("fixed_tail")
 
-        # Combine the fixed head and tails into one dictionary for ease.
-        # <key> : [ <fixed_head>, <fixed_tail> ] needed to have valid points.
+        # Combine the fixed heads and tails into one dictionary for ease.
+        # <annotation> : [ <fixed_head>, <fixed_tail> ].
         self.fixed_points = {
             k: [ *self.fixed_heads[k], *self.fixed_tails[k] ] for k in self.keys()
         }
 
         # Create the fixed dependencies dictionary, which is the reverse of the 
         # fixed points dictionary.
-        # <key> : [ <annotations that have downstream dependencies> ]
+        # <annotations> : [ <annotations that have downstream dependencies> ]
         self.fixed_dependencies = { k: [] for k in self.keys() }
         for key in self.fixed_dependencies.keys():
             for src, value in self.fixed_points.items():
@@ -156,6 +156,25 @@ class AnnotationsConfig(dict):
             for row in annotation.figure_grid
             for x in row if x is not None
         ])
+
+    # Validate YAML ------------------------------------------------------------
+
+    @staticmethod
+    def _validate_annotations_yaml(annotations_yaml):
+        """DOCSTRING."""
+        # Prepare ConfigError for any errors that arise in this function.
+        err = partial(ConfigError, "annotations")
+
+        # The annotations section is required.
+        if annotations_yaml is None:
+            raise err("annotations section is required.")
+
+        # The annotations section must be a mapping (dictionary).
+        if not isinstance(annotations_yaml, dict):
+            raise err("annotations section must be a mapping.")
+        
+        # Return the annotations YAML if it is valid.
+        return annotations_yaml
 
     # Initialization Methods ---------------------------------------------------
 
@@ -216,8 +235,8 @@ class AnnotationsConfig(dict):
     
 
     @staticmethod
-    def _init_fixed_points(key, fixed_point, err, init):
-        """Validate and compile a fixed-point specification.
+    def _init_fixed_point(key, fixed_point, err, init):
+        """Validate and compile a fixed point specification.
 
         A fixed point can be ``None`` (no fixed point), a string
         (shorthand: use the last point of the named annotation), or a
@@ -265,7 +284,7 @@ class AnnotationsConfig(dict):
         requires  = fixed_point.get("requires", [])
         calculate = fixed_point.get("calculate", None)
 
-        # Check that the requires field is a string.
+        # Check that the requires field is a string, if so, wrap in a list.
         if isinstance(requires, str):
             requires = [ requires ]
         
@@ -296,14 +315,14 @@ class AnnotationsConfig(dict):
             The annotation's YAML mapping with optional keys: ``type``,
             ``fixed_head``, ``fixed_tail``, ``figure_grid``, ``filter``.
         init : InitConfig
-            The init environment for compiling filter and fixed-point code.
+            The init environment for compiling filter and fixed point code.
 
         Returns
         -------
         Annotation
             A validated Annotation namedtuple.
         """
-        # Prepare ConfigError arguments for any errors that may arise in this loop.
+        # Prepare ConfigError for any errors that arise in this function.
         err = partial(ConfigError, f"annotations.`{annotation_name}`")
 
         # Check that the key is a valid annotation option.
@@ -312,34 +331,34 @@ class AnnotationsConfig(dict):
                 raise err(f"Invalid annotation key: {key}")
 
         # Extract annotation values or assign default values.
-        ctype         = annotation_spec.get("type", "contour")
-        fixed_head    = annotation_spec.get("fixed_head", None)
-        fixed_tail    = annotation_spec.get("fixed_tail", None)
-        figure_grid   = annotation_spec.get("figure_grid", None)
-        filter_fn     = annotation_spec.get("filter", None)
+        atype       = annotation_spec.get("type", None)
+        fixed_head  = annotation_spec.get("fixed_head", None)
+        fixed_tail  = annotation_spec.get("fixed_tail", None)
+        figure_grid = annotation_spec.get("figure_grid", None)
+        filter_fn   = annotation_spec.get("filter", None)
         
         # Check that the annotation type is valid.
-        if ctype not in ( "contour", "boundary", "point"):
-            raise err("Type must be one of 'contour', 'boundary', or 'point'.")
+        if atype not in ( "contour", "boundary", "point"):
+            raise err("Annotation type must be one of 'contour', 'boundary', or 'point'.")
 
         # Check and initialize the fixed points.
-        fixed_head = self._init_fixed_points("fixed_head", fixed_head, err, init)
-        fixed_tail = self._init_fixed_points("fixed_tail", fixed_tail, err, init)
+        fixed_head = self._init_fixed_point("fixed_head", fixed_head, err, init)
+        fixed_tail = self._init_fixed_point("fixed_tail", fixed_tail, err, init)
 
         # Prepare and check the figure grid.
         figure_grid = self._init_figure_grid(figure_grid, err)
 
         # Check that the filter is a string or None.
         if filter_fn is not None and not isinstance(filter_fn, str):
-            raise err(f"filter must be null or a Python code string.")
+            raise err(f"filter must be null or a code string.")
 
-        # We have extracted the data now; go ahead and compile the filter.
+        # If a filter is provided, go ahead and compile it.
         if filter_fn is not None:
             filter_fn = init.compile_fn("target", filter_fn)
 
         # Return the annotation as an Annotation object.    
         return Annotation(
-            type        = ctype,
+            type        = atype,
             fixed_head  = fixed_head,
             fixed_tail  = fixed_tail,
             figure_grid = figure_grid,
@@ -357,7 +376,7 @@ class AnnotationsConfig(dict):
             Keys are annotation names; values are ``'contour'``,
             ``'boundary'``, or ``'point'``.
         """
-        return { key: value.type for (key, value) in self.items() }
+        return { key: value.type for key, value in self.items() }
 
 
     def _get_figure_grid(self):
@@ -368,7 +387,7 @@ class AnnotationsConfig(dict):
         dict of {str: list of list}
             Keys are annotation names; values are figure grid matrices.
         """
-        return { key: value.figure_grid for (key, value) in self.items() }
+        return { key: value.figure_grid for key, value in self.items() }
 
 
     def _get_grid_shape(self):
@@ -380,11 +399,11 @@ class AnnotationsConfig(dict):
             Keys are annotation names; values are ``(rows, cols)``
             tuples.
         """
-        return { key: np.shape(value.figure_grid) for (key, value) in self.items() }
+        return { key: np.shape(value.figure_grid) for key, value in self.items() }
     
 
     def _get_fixed_info(self, fixed_point):
-        """Build a dict mapping annotation names to fixed-point info.
+        """Build a dict mapping annotation names to fixed point info.
 
         Parameters
         ----------
@@ -403,7 +422,7 @@ class AnnotationsConfig(dict):
             
         # Returns a dict mapping annotation names to their fixed point information.
         return { 
-            key: getattr(value, fixed_point) for (key, value) in self.items() 
+            key: getattr(value, fixed_point) for key, value in self.items() 
         }
     
 
@@ -429,5 +448,5 @@ class AnnotationsConfig(dict):
         return { 
             key: [] if getattr(value, fixed_point) is None 
             else getattr(value, fixed_point)["requires"]
-            for (key, value) in self.items() 
+            for key, value in self.items() 
         }

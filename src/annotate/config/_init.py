@@ -49,9 +49,10 @@ class InitConfig:
 
     __slots__ = ( "code", "env" )
     
-    def __init__(self, code, globals_env = None, locals_env = None):
-        # Initialize the code string.
-        self.code = self._init_code(code)
+    def __init__(self, init_yaml, globals_env = None, locals_env = None):
+        # Initialize the code string. 
+        # The init section is optional. If None, return "None" string.
+        self.code = self._init_code(init_yaml)
 
         # Prepare the given globals and locals for the merged environment.
         self.env = self._init_env(globals_env, locals_env)
@@ -61,12 +62,12 @@ class InitConfig:
 
 
     @ staticmethod
-    def _init_code(code):
+    def _init_code(init_yaml):
         """Validate and normalize the init code string.
 
         Parameters
         ----------
-        code : str or None
+        init_yaml : str or None
             Raw code from config.yaml. ``None`` is replaced with the
             inert expression ``"None"``.
 
@@ -76,14 +77,15 @@ class InitConfig:
             The validated code string.
         """
         # The code is optional. If None, we just use an empty code block.
-        if code is None: code = "None"
+        if init_yaml is None: init_yaml = "None"
 
         # Check that the code is a string.
-        if not isinstance(code, str):
-            raise ConfigError("init", f"init section must be a string: {code}")
+        if not isinstance(init_yaml, str):
+            raise ConfigError(
+                "init", f"init section must be a string: {init_yaml}")
         
         # Return the code string. 
-        return code
+        return init_yaml
 
 
     @staticmethod

@@ -16,6 +16,8 @@ compute derived metadata from the partially-built target dict.
 
 # Imports ----------------------------------------------------------------------
 
+from functools import partial
+
 from .._util import ldict, delay
 from ._error import ConfigError
     
@@ -58,13 +60,8 @@ class TargetsConfig(ldict):
     __slots__ = ( "item_generators", "concrete_keys", "target_keys" )    
 
     def __init__(self, targets_yaml, init):
-        # The targets section is required.
-        if targets_yaml is None:
-            raise ConfigError("targets", "targets section is required.")
-
-        # The targets section must be a mapping (dictionary).
-        if not isinstance(targets_yaml, dict):
-            raise ConfigError("targets", "targets section must be a mapping.")
+        # Validate the targets YAML.
+        targets_yaml = self._validate_targets_yaml(targets_yaml)
 
         # First, we step through and compile the keys when necessary.
         self.item_generators = {} # initialize
@@ -72,7 +69,7 @@ class TargetsConfig(ldict):
         for (key, value) in targets_yaml.items():
             self._parse_target(key, value, init)
 
-        # Second, we build the product of all concrete keys
+        # Second, we build the target keys (= product of all concrete keys).
         self.target_keys = self._build_targets_keys()
 
         # Third, we then fill these out into a lazy dict that reifies each target
@@ -90,7 +87,25 @@ class TargetsConfig(ldict):
         # Finally, we update this object with the target data.
         self.update(targets_dict)
 
-   
+    # Validate YAML ------------------------------------------------------------
+
+    @staticmethod
+    def _validate_targets_yaml(targets_yaml):
+        """DOCSTRING."""
+        # Prepare ConfigError for any errors that arise in this function.
+        err = partial(ConfigError, "targets")
+
+        # The targets section is required.
+        if targets_yaml is None:
+            raise err("targets section is required.")
+
+        # The targets section must be a mapping (dictionary).
+        if not isinstance(targets_yaml, dict):
+            raise err("targets section must be a mapping.")
+
+        # Return the targets_yaml if it is valid.
+        return targets_yaml
+
     # Parsing Methods ----------------------------------------------------------
 
     def _parse_dict_target(self, key, value, init):

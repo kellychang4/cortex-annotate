@@ -40,22 +40,18 @@ from ._style import (
 # Constants --------------------------------------------------------------------
 
 # Default display preferences.
-# NOTE: canvas_size is not included here because it is computed from
-# figsize and dpi in _build_defaults(). 
 DEFAULT_DISPLAY_PREFS = {
     "figsize"       : [4, 4],
     "dpi"           : 128,
-    "viewer_size"   : 512,
+    "canvas_size"   : 256,  
+    "viewer_size"   : 256,
     "viewer_camera" : [],
     "layout"        : "horizontal",
 }
  
-# All valid display preference keys (for get_display validation).
-# Includes canvas_size which is computed, not stored in the constant above.
-DISPLAY_PREFS_KEYS = ( 
-    "figsize", "dpi", "canvas_size", "viewer_size", "viewer_camera", "layout" 
-)
- 
+# Display style key names.
+DISPLAY_PREFS_KEYS = tuple(DEFAULT_DISPLAY_PREFS.keys())
+
 # Keys that can be modified at runtime via set_display().
 _SETTABLE_DISPLAY_KEYS = ( "canvas_size", "viewer_size", "viewer_camera", "layout" )
  
@@ -101,7 +97,7 @@ class PrefsManager:
         # Store the arguments.
         self.config = config
  
-        # Resolve the preferences file path.
+        # Define the preferences file path.
         self.file = paths.get_preferences_path(filename)
  
         # Load the preferences (from file if it exists, otherwise default).
@@ -159,24 +155,17 @@ class PrefsManager:
         }
  
         # Extract the display preferences from the config, if they exist.
-        config_display = {}
-        for key in ( "figsize", "dpi", "viewer_size", "layout" ):
-            print(key, getattr(self.config.display, key))
-            if getattr(self.config.display, key) is not None:
-                config_display[key] = getattr(self.config.display, key)
- 
+        config_display = {
+            key : getattr(self.config.display, key)
+            for key in DISPLAY_PREFS_KEYS
+            if getattr(self.config.display, key) is not None
+        }
+  
         # Build the display prefs: module defaults + config overrides.
-        display_prefs = {
+        preferences["display"] = {
             **DEFAULT_DISPLAY_PREFS.copy(),
             **config_display,
         }
- 
-        # Calculate the figure size in pixels from the display prefs.
-        canvas_size = int(display_prefs["figsize"][0] * display_prefs["dpi"])
-        display_prefs["canvas_size"] = canvas_size
- 
-        # Store the display prefs in the main preferences dict.
-        preferences["display"] = display_prefs
  
         # Build the annotation style: module defaults + config overrides.
         annotation_style = {
@@ -184,7 +173,7 @@ class PrefsManager:
             **self.config.display.default_style,
         }
  
-        # Set each annotation to the base style.
+        # Set each annotation to the default style.
         for annotation in self.config.annotations.keys():
             preferences["annotation_style"][annotation] = annotation_style.copy()
  
