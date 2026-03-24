@@ -35,7 +35,9 @@ class ButtonSection(ipw.HBox):
         Clears all annotations from the active figure.
     """
 
-    __slots__ = ( "save_button", "clear_current_button", "clear_all_button", )
+    __slots__ = ( 
+        "save_button", "clear_current_button", "clear_all_button", 
+    )
 
     def __init__(self, button_color = "#e0e0e0"):
         # Define the save button

@@ -41,9 +41,9 @@ import numpy as np
 import ipywidgets as ipw
 from matplotlib.colors import to_rgb
  
-# Cortex Viewer Figure Panel ---------------------------------------------------
+# Viewer Subpanel --------------------------------------------------------------
 
-class CortexViewerPanel(ipw.VBox):
+class ViewerPanel(ipw.VBox):
     """3D k3d cortex viewer for mesh display and annotation rendering.
  
     Manages a k3d ``Plot`` with 8 drawable objects (2 meshes +
@@ -128,7 +128,7 @@ class CortexViewerPanel(ipw.VBox):
         "_k3dline_active", "_k3dpoints_active",
     )
 
-    def __init__(self, editor, prefs, width = 512, height = 512):
+    def __init__(self, editor, prefs):
         """Initialize the cortex viewer panel.
  
         Parameters
@@ -156,16 +156,23 @@ class CortexViewerPanel(ipw.VBox):
         # Initialize viewer annotations dictionary.
         self.annotations = {}
 
+        # Get viewer size from preferences and set width/height.
+        viewer_size = self.prefs.get_display("viewer_size")
+
         # Create the k3d plot.
         self._figure = k3d.plot(
-            height            = height,
+            height            = viewer_size,
             grid_visible      = False,
-            camera_auto_fit   = False,
             menu_visibility   = False,
             camera_fov        = 60,
             axes_helper       = 0,
             camera_zoom_speed = 1.5,
         )
+
+        # Get the camera from preferences if it exists (overrides auto-fit).
+        if self.prefs.get_display("viewer_camera") != []:
+            self._figure.camera_auto_fit = False
+            self._figure.camera = self.prefs.get_display("viewer_camera")
 
         # Initialize all k3d layers (start empty/invisible).
         self._k3dmesh_cortex       = self._init_mesh()
@@ -187,19 +194,50 @@ class CortexViewerPanel(ipw.VBox):
         self._figure += self._k3dline_active
         self._figure += self._k3dpoints_active
 
-        # Set initial camera values
-        self._figure.camera = [-160, -10, -6, 15, -30, 0, 0, 0, 1]
-
         # Initialize the VBox with the figure as the child 
         super().__init__(
             children = [ self._figure ], 
             layout = {
-                "width"   : f"{width}px", 
-                "height"  : f"{height}px", 
+                "width"   : f"{viewer_size}px", 
+                "height"  : f"{viewer_size}px", 
                 "border"  : "1px solid magenta",
                 "overflow": "hidden"
             }
         )
+
+        # Wire internal observers
+        self._figure.observe(self._on_camera_change, names = "camera")
+
+    # Set Method ---------------------------------------------------------------
+
+    def set_viewer(self, faces = None, coordinates = None, overlays = None, canvas_to_viewer = None):
+        """Set the viewer mesh data and coordinate transform.
+ 
+        Parameters
+        ----------
+        faces : ndarray, shape (n_faces, 3)
+            Triangle face indices for the cortex mesh.
+ 
+        coordinates : list of ndarray, each of shape (n_vertices, 3)
+            List of vertex coordinate sets.  One set for static meshes,
+            two sets for morph blending.
+ 
+        overlays : dict of {str: ndarray}
+            Per-vertex RGB color arrays keyed by overlay name.
+ 
+        canvas_to_viewer : callable
+            ``fn(points, mesh_coords) → ndarray (n, 3)``.  Converts 2D
+            canvas coordinates to 3D viewer coordinates.
+        """
+        print("Viewer set_viewer called with data:")
+        print(f"  faces: {faces.shape if faces is not None else None}")
+        print(f"  coordinates: {[c.shape for c in coordinates] if coordinates is not None else None}")
+        print(f"  overlays: {list(overlays.keys()) if overlays is not None else None}")
+        print(f"  canvas_to_viewer: {canvas_to_viewer is not None}")
+        self.faces            = faces
+        self._coordinates     = coordinates
+        self.overlays         = overlays
+        self.canvas_to_viewer = canvas_to_viewer
     
     # Properties ---------------------------------------------------------------
  
@@ -312,15 +350,16 @@ class CortexViewerPanel(ipw.VBox):
             Annotation names to update.  If ``None``, updates all
             annotations.
         """
-        if annotations is None:
-            annotations = list(self.annot_cfg.names)
+        # If no specific annotations provided, update all annotations.
+        if annotations is None: annotations = list(self.annot_cfg.names)
  
-        for key in annotations:
-            canvas_points = self.editor.annotations.get(key, None)
+        for annotation in annotations:
+            # Get the canvas coordiantes for current annotation
+            canvas_points = self.editor.annotations.get(annotation, None)
  
-            # No points → clear the viewer annotation.
+            # If no points, no viewer coordinates or point types.
             if canvas_points is None or canvas_points.shape[0] == 0:
-                self.annotations[key] = {
+                self.annotations[annotation] = {
                     "coordinates": None,
                     "point_types": None,
                 }
@@ -329,23 +368,26 @@ class CortexViewerPanel(ipw.VBox):
             # Determine point types (fixed vs. user).
             n_points    = canvas_points.shape[0]
             point_types = np.full(n_points, self._POINT_USER)
-            has_fixed_head = bool(self.annot_cfg.fixed_heads[key])
-            has_fixed_tail = bool(self.annot_cfg.fixed_tails[key])
-            if has_fixed_head:
-                point_types[0] = self._POINT_FIXED
-            if has_fixed_tail:
-                point_types[-1] = self._POINT_FIXED
+            has_fixed_head = bool(self.annot_cfg.fixed_heads[annotation])
+            has_fixed_tail = bool(self.annot_cfg.fixed_tails[annotation])
+            if has_fixed_head: point_types[0]  = self._POINT_FIXED
+            if has_fixed_tail: point_types[-1] = self._POINT_FIXED
  
-            # Interpolate if there are segments and not all-fixed.
+            # Interpolate if there are segments and not all fixed points.
             if n_points > 1 and not np.all(point_types == self._POINT_FIXED):
                 canvas_points, point_types = (
                     self._interpolate_coordinates(canvas_points, point_types))
  
-            # Convert 2D → 3D.
+            # Convert 2D → 3D with the `canvas_to_viewer` function.
+            print(f"canvas_points: {canvas_points.shape}")
+            print(f"point_types: {point_types.shape}")
+            print(f"canvas_to_viewer: {self.canvas_to_viewer}")
+            print(f"coordinates: {self.coordinates.shape}")  
             viewer_coords = self.canvas_to_viewer(
                 canvas_points, self.coordinates)
- 
-            self.annotations[key] = {
+
+            # Store the current annotation's viewer coordinates and point types.
+            self.annotations[annotation] = {
                 "coordinates": viewer_coords,
                 "point_types": point_types,
             }
@@ -488,7 +530,7 @@ class CortexViewerPanel(ipw.VBox):
         if overlay_name == "curvature": return None
 
         # Else, get overlay values and return with opacity.
-        overlay_values = self.overlays[overlay_name]
+        overlay_values =  s[overlay_name]
         return {
             **self._prep_cortex(),
             "colors"  : self._rgb_to_k3dcolor(overlay_values),
@@ -705,12 +747,12 @@ class CortexViewerPanel(ipw.VBox):
             self._k3dmesh_overlay.visible = True
     
 
-    def _redraw_layer(self, k3d_line, k3d_points, kwargs = None):
+    def _redraw_layer(self, k3d_line, k3d_points, k3d_kwargs = None):
         """Apply prepared data to a line/points k3d layer pair.
  
         Parameters
         ----------
-        kwargs : dict or None
+        k3d_kwargs : dict or None
             Output from ``_prep_single_annotation`` or
             ``_prep_multiple_annotations``.  If ``None``, the layers
             are hidden.
@@ -722,17 +764,17 @@ class CortexViewerPanel(ipw.VBox):
             The k3d points object to update.
         """
         # If no kwargs, hide both line and points layers.  
-        if kwargs is None:
+        if k3d_kwargs is None:
             k3d_line.visible   = False
             k3d_points.visible = False
         else:
             # Update the line layer (interpolated between points)
-            for key, val in kwargs["line"].items():
+            for key, val in k3d_kwargs["line"].items():
                 setattr(k3d_line, key, val)
             k3d_line.visible = True
 
             # Update the points layer (fixed + user points)
-            for key, val in kwargs["points"].items():
+            for key, val in k3d_kwargs["points"].items():
                 setattr(k3d_points, key, val)
             k3d_points.visible = True
  
@@ -829,3 +871,37 @@ class CortexViewerPanel(ipw.VBox):
         # Re-enable auto-rendering and trigger render after all updates are applied.
         self._figure.auto_rendering = True
         self._figure.render()
+
+
+    def resize(self):
+        """Resize the viewer figure.
+ 
+        Parameters
+        ----------
+        new_size : tuple of (width, height)
+            New figure size in pixels.
+        """
+        # Update the viewer size.
+        new_size = self.prefs.get_display("viewer_size")
+        
+        # Set k3d figure height
+        self._figure.height = new_size
+
+        # Set new VBox layout height
+        self.layout.height = f"{new_size}px"
+        self.layout.width  = f"{new_size}px"
+
+        # TODO: somethign about the camera resetting on resize? not sure yet.
+
+
+    def _on_camera_change(self, change):
+        """Handle camera changes from user interaction.
+ 
+        Parameters
+        ----------
+        change : dict
+            Camera change event from k3d.  Contains new camera parameters
+            in ``change["new"]``.
+        """
+        # Update preferences with camera parameters as it changes.
+        self.prefs.set_display("viewer_camera", change.new)

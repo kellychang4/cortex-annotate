@@ -25,13 +25,13 @@ from ._util import ldict, delay
 
 # Annotation State Class -------------------------------------------------------
 
-class AnnotationState:
+class AnnotationState(ldict):
     """Manages in-memory annotation data with lazy loading and persistence.
  
-    Annotation coordinates are lazily loaded from TSV files on first
-    access. Only annotations that have been accessed (and therefore
-    potentially modified) are written back on save — unaccessed lazy
-    entries are skipped.
+     
+        Nested lazy dict: ``{target_id: {annotation_name: ndarray}}``.
+        Outer and inner dicts are both :class:`~annotate._util.ldict`
+        instances that reify on first access.
  
     Parameters
     ----------
@@ -49,12 +49,10 @@ class AnnotationState:
  
     paths : PathManager
         The path manager.
- 
-    annotations : ldict
-        Nested lazy dict: ``{target_id: {annotation_name: ndarray}}``.
-        Outer and inner dicts are both :class:`~annotate._util.ldict`
-        instances that reify on first access.
+
     """
+
+    __slots__ = ( "config", "paths" )
 
     def __init__(self, config, paths):
         # Store the config and paths.
@@ -62,11 +60,12 @@ class AnnotationState:
         self.paths  = paths
  
         # (Lazily) load the annotations.
-        self.annotations = self.load_annotations()
+        # TODO: is there a syntax friendly way to do this...?
+        self.update(self._load_annotations())
 
     # Annotation Methods -------------------------------------------------------
 
-    def load_target_annotation(self, target_id, annotation):
+    def _load_target_annotation(self, target_id, annotation):
         """Load a single annotation's coordinates from disk.
  
         Reads a headerless, tab-separated file containing an N x 2 matrix
@@ -107,7 +106,7 @@ class AnnotationState:
         return coords
     
     
-    def load_target_annotations(self, target_id):
+    def _load_target_annotations(self, target_id):
         """Lazily load all annotations for a single target.
  
         Creates an :class:`~annotate._util.ldict` with one entry per
@@ -130,11 +129,11 @@ class AnnotationState:
             if annotation_info.filter is None or \
                 annotation_info.filter(self.config.targets[target_id]):
                 target_annotations[annotation] = delay(
-                    self.load_target_annotation, target_id, annotation)
+                    self._load_target_annotation, target_id, annotation)
         return target_annotations
 
     
-    def load_annotations(self):
+    def _load_annotations(self):
         """Lazily load all annotations for all targets.
  
         Creates a nested :class:`~annotate._util.ldict` where the
@@ -147,12 +146,12 @@ class AnnotationState:
             ``{target_id: ldict({annotation_name: ndarray})}``.
         """
         return ldict({
-            target_id: delay(self.load_target_annotations, target_id)
+            target_id: delay(self._load_target_annotations, target_id)
                 for target_id in self.config.targets.keys()
             })
 
 
-    def save_target_annotations(self, target_id):
+    def _save_target_annotations(self, target_id):
         """Save all modified annotations for a single target to disk.
 
         Only annotations that have been accessed (i.e., whose lazy
@@ -168,7 +167,7 @@ class AnnotationState:
             Target identifier tuple.
         """
         # Get the target's annotations.
-        target_annotations = self.annotations[target_id]
+        target_annotations = self[target_id]
 
         for annotation_name in target_annotations.keys(): 
             # Skip anything lazy. We never want to save anything that's still
@@ -198,7 +197,7 @@ class AnnotationState:
             df.to_csv(tsv_file, index = False, header = None, sep = "\t")
     
     
-    def save_annotations(self):
+    def save(self):
         """Save all modified annotations across all targets.
  
         Iterates over all targets and calls
@@ -206,8 +205,7 @@ class AnnotationState:
         accessed. Targets whose lazy values have not been reified
         are skipped.
         """
-        annotations = self.annotations
-        for target_id in annotations.keys():
+        for target_id in self.keys():
             # Skip lazy keys; these targets have not even been loaded yet.
-            if not annotations.is_lazy(target_id):
-                self.save_target_annotations(target_id)
+            if not self.is_lazy(target_id):
+                self._save_target_annotations(target_id)

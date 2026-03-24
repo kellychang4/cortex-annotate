@@ -88,7 +88,7 @@ class CanvasPanel(ipw.HBox):
     prefs : PrefsManager
         Reference to the user preferences manager.
 
-    figure_size : ndarray, shape (2,)
+    canvas_size : ndarray, shape (2,)
         Pixel dimensions ``[width, height]`` of one grid cell.
 
     canvas_size : ndarray, shape (2,)
@@ -112,6 +112,10 @@ class CanvasPanel(ipw.HBox):
     ylim : tuple of (float, float) or None
         Y-axis figure limits for coordinate conversion.
     """
+    
+    __slots__ = ( "editor", "prefs", "canvas_size", "image", "grid",
+                 "grid_shape", "xlim", "ylim", "multicanvas", "image_canvas",
+                 "background_canvas", "dependent_canvas", "active_canvas" )
  
     def __init__(self, editor, prefs):
         """Initialize the canvas panel.
@@ -129,10 +133,6 @@ class CanvasPanel(ipw.HBox):
         self.prefs     = prefs
         self.annot_cfg = editor.annot_cfg
  
-        # Store the figure size (pixels per grid cell).
-        image_pixel = self.prefs.get_display("image_pixel")
-        self.figure_size = np.array([image_pixel, image_pixel])
- 
         # Rendering variables.
         self.image      = None
         self.grid       = None
@@ -144,7 +144,8 @@ class CanvasPanel(ipw.HBox):
         grid_shape0 = self.annot_cfg.grid_shape[self.annot_cfg.names[0]]
  
         # Calculate the canvas size (pixels) from figure size and grid shape.
-        self.canvas_size = self.figure_size * grid_shape0
+        canvas_size = self.prefs.get_display("canvas_size")
+        self.canvas_size = np.array([canvas_size, canvas_size]) * grid_shape0
  
         # Build the multicanvas (4 layers: image, background, dependent, active).
         canvas_width, canvas_height = self.canvas_size
@@ -166,6 +167,41 @@ class CanvasPanel(ipw.HBox):
             children = [ self.multicanvas ],
             layout   = { "border": "1px solid blue" }
         )
+
+    # Set Canvas ------------------------------------------------------------
+
+    def set_canvas(self, image = None, grid = None, grid_shape = None, xlim = None, ylim = None):
+        """Update the canvas rendering data and redraw all layers.
+ 
+        This is a convenience method that updates all canvas rendering
+        data and redraws all layers in one call.  It is called by
+        ``FigurePanel`` when the target or active annotation changes.
+ 
+        Parameters
+        ----------
+        image : ipywidgets.Image
+            The new grid image to draw on layer 0.
+
+        grid : list of list
+            The new figure grid layout (2D list where ``None`` marks
+            empty cells).
+
+        grid_shape : tuple of (int, int)
+            The new grid shape as (n_rows, n_cols).
+
+        xlim : tuple of (float, float) or None
+            X-axis figure limits for coordinate conversion.
+
+        ylim : tuple of (float, float) or None
+            Y-axis figure limits for coordinate conversion.
+        """
+        # Update the canvas rendering variables.
+        self.image      = image 
+        self.grid       = grid 
+        self.grid_shape = grid_shape
+        self.xlim       = xlim 
+        self.ylim       = ylim 
+
 
     # Image Layer --------------------------------------------------------------
  
@@ -212,7 +248,7 @@ class CanvasPanel(ipw.HBox):
             return self.canvas_to_figure([points])[0]
 
         # Apply grid mod to wrap points into a single cell.
-        (figure_width, figure_height) = self.figure_size
+        (figure_width, figure_height) = self.canvas_size
         points = points % [figure_width, figure_height]
 
         # Resolve figure limits (default to pixel extents).
@@ -253,7 +289,7 @@ class CanvasPanel(ipw.HBox):
             return self.figure_to_canvas([points])[0]
 
         # Resolve figure limits.
-        (figure_width, figure_height) = self.figure_size
+        (figure_width, figure_height) = self.canvas_size
         xlim = (0, figure_width)  if self.xlim is None else self.xlim
         ylim = (0, figure_height) if self.ylim is None else self.ylim
 
@@ -556,7 +592,7 @@ class CanvasPanel(ipw.HBox):
                     dependent  = dependent,
                     background = background,
                 )
-    
+
     # Observer Methods ---------------------------------------------------------
 
     def observe_mouse(self, fn):
@@ -593,3 +629,29 @@ class CanvasPanel(ipw.HBox):
             is the key identifier string.
         """
         self.multicanvas.on_key_down(fn)
+
+
+    def resize(self):
+        """Resize the canvas to the new size (in pixels).
+ 
+        Parameters
+        ----------
+        new_size : tuple of (int, int)
+            The new canvas size in pixels: (width, height).
+        """
+        # Update the canvas size.
+        new_size = self.prefs.get_display("canvas_size")
+        self.canvas_size = np.array([new_size, new_size]) * self.grid_shape
+        canvas_width, canvas_height = self.canvas_size.astype(int)
+
+        # First resize the canvas (this clears it).
+        self.multicanvas.width  = canvas_width
+        self.multicanvas.height = canvas_height
+
+        # Then we also resize the layout component.
+        self.multicanvas.layout.width  = f"{canvas_width}px"
+        self.multicanvas.layout.height = f"{canvas_height}px"
+
+        # Redraw canvas due to resizing.
+        self.redraw_canvas(
+            image = True, active = True, dependent = True, background = True)

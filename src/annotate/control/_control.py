@@ -30,7 +30,7 @@ Actions
 Observers
     ``observe_target``, ``observe_annotation``,
     ``observe_annotation_style``, ``observe_viewer_style``,
-    ``observe_image_pixel``, ``observe_layout``,
+    ``observe_figure_size``, ``observe_layout``,
     ``observe_save``, ``observe_clear_current``, ``observe_clear_all``
 """
 
@@ -40,7 +40,7 @@ import ipywidgets as ipw
 
 from ._annotate import AnnotateTab
 from ._style    import StyleTab
-from .._widgets import make_hline, darken_color
+from .._widgets import darken_color
 
 # The Control Panel Widget -----------------------------------------------------
 
@@ -261,13 +261,13 @@ class ControlPanel(ipw.VBox):
     @property
     def target(self):
         """The current target selection as a tuple of dropdown values."""
-        return self._selection_panel.target
+        return self._annotate_tab.target
 
 
     @property
     def annotation(self):
         """The currently selected annotation name."""
-        return self._selection_panel.annotation
+        return self._annotate_tab.annotation
 
     # Lock / Unlock ------------------------------------------------------------
 
@@ -290,40 +290,40 @@ class ControlPanel(ipw.VBox):
         for _, panel, lockable in self._tabs:
             if lockable: panel.unlock()
 
-    # Selection Panel Observers ------------------------------------------------
-
-    def observe_target(self, fn):
-        """Register a callback for target-selection changes.
+    # Annotation Tab: Selection Panel Observers --------------------------------
+    
+    def observe_selection(self, fn):
+        """Register a callback for target and annotation selection changes.
 
         Parameters
         ----------
         fn : callable
             Called as ``fn(concrete_key, change)``.
         """
-        self._selection_panel.observe_target(fn)
+        self._annotate_tab._selection.observe_selection(fn)
 
+    # Annotation Tab: Display Panel Observers ----------------------------------
 
-    def observe_annotation(self, fn):
-        """Register a callback for annotation-selection changes.
-
-        Parameters
-        ----------
-        fn : callable
-            Called as ``fn(change)``.
-        """
-        self._selection_panel.observe_annotation(fn)
-
-    # Display Panel Observers ---------------------------------------------------
-
-    def observe_image_pixel(self, fn):
-        """Register a callback for figure pixel-size changes.
+    def observe_canvas_size(self, fn):
+        """Register a callback for canvas size changes.
 
         Parameters
         ----------
         fn : callable
             Called as ``fn(change)``.
         """
-        self._display_panel.observe_image_pixel(fn)
+        self._annotate_tab._display.observe_canvas_size(fn)
+
+
+    def observe_viewer_size(self, fn):
+        """Register a callback for viewer size changes.
+
+        Parameters
+        ----------
+        fn : callable
+            Called as ``fn(change)``.
+        """
+        self._annotate_tab._display.observe_viewer_size(fn)
 
 
     def observe_layout(self, fn):
@@ -334,9 +334,9 @@ class ControlPanel(ipw.VBox):
         fn : callable
             Called as ``fn(change)``.
         """
-        self._display_panel.observe_layout(fn)
+        self._annotate_tab._display.observe_layout(fn)
 
-    # Legend Panel Update ------------------------------------------------------
+    # Annotation Tab: Legend Panel Update --------------------------------------
 
     def update_legend(self, target_id, annotation):
         """Update the legend image for the given target and annotation.
@@ -349,9 +349,9 @@ class ControlPanel(ipw.VBox):
         annotation : str
             The annotation name.
         """
-        self._legend_panel.update(target_id, annotation)
+        self._annotate_tab._legend.update(target_id, annotation)
 
-    # Button Panel Observers ---------------------------------------------------
+    # Annotation Tab: Button Panel Observers -----------------------------------
 
     def observe_save(self, fn):
         """Register a callback for the Save button.
@@ -361,7 +361,7 @@ class ControlPanel(ipw.VBox):
         fn : callable
             Called as ``fn()`` when the Save button is clicked.
         """
-        self._button_panel.save_button.on_click(fn)
+        self._annotate_tab._button.save_button.on_click(fn)
 
 
     def observe_clear_current(self, fn):
@@ -372,7 +372,7 @@ class ControlPanel(ipw.VBox):
         fn : callable
             Called as ``fn()`` when the Clear Current button is clicked.
         """
-        self._button_panel.clear_current_button.on_click(fn)
+        self._annotate_tab._button.clear_current_button.on_click(fn)
 
 
     def observe_clear_all(self, fn):
@@ -383,10 +383,10 @@ class ControlPanel(ipw.VBox):
         fn : callable
             Called as ``fn()`` when the Clear All button is clicked.
         """
-        self._button_panel.clear_all_button.on_click(fn)
+        self._annotate_tab._button.clear_all_button.on_click(fn)
 
-    # Style Panel Observers ----------------------------------------------------
- 
+    # Style Tab: Style Panel Observers -----------------------------------------
+
     def observe_annotation_style(self, fn):
         """Register a callback for annotation style changes.
 
@@ -400,7 +400,7 @@ class ControlPanel(ipw.VBox):
             ``"linestyle"``, ``"markersize"``, and *change* is the
             ipywidgets change object.
         """
-        self._style_panel.observe_annotation_style(fn)
+        self._style_tab.observe_annotation_style(fn)
  
  
     def observe_viewer_style(self, fn):
@@ -414,5 +414,5 @@ class ControlPanel(ipw.VBox):
             Called as ``fn(key, change)`` where *key* is the
             viewer style key that changed.
         """
-        self._style_panel.observe_viewer_style(fn)
+        self._style_tab.observe_viewer_style(fn)
  

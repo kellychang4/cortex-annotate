@@ -58,7 +58,6 @@ class ReviewConfig:
 
 # From _figure.py
 def review_start(self, msg, wrap = True):
-    from ._util import wrap as wordwrap
     self.review_msg = msg
     self.redraw_canvas(redraw_review = True)
 

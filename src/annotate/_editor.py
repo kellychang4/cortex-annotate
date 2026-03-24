@@ -82,10 +82,10 @@ class AnnotationEditor:
         "insert"
     )
 
-    def __init__(self, annot_cfg):
+    def __init__(self, config):
         """Initialize the annotation editor."""
         # Store the annotation configuration. 
-        self.annot_cfg = annot_cfg
+        self.annot_cfg = config.annotations
 
         # Initialize internal variables.
         self.target      = None

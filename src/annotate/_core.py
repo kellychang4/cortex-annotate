@@ -2,12 +2,10 @@
 ################################################################################
 # annotate/_core.py
 
-"""Orchestrator for the cortex-annotate annotation tool.
+"""Core orchestrator for the cortex-annotate annotation tool.
 
 ``AnnotationTool`` is the top-level widget that wires together the
 configuration, persistence, editing, rendering, and control layers.
-It owns no domain logic itself — its sole job is construction,
-event routing, and coordination.
 
 Construction Chain
 ------------------
@@ -40,14 +38,16 @@ dropdowns, so users can navigate away from errors) and
 
 import numpy as np
 import ipywidgets as ipw
+from functools import partial
 
-from .config   import Config
-from ._paths   import PathManager
-from ._prefs   import PrefsManager
-from ._state   import AnnotationState
-from ._cache   import FigureCache
-from .control  import ControlPanel
-from .figure   import AnnotationEditor, FigurePanel
+from .config  import Config
+from ._paths  import PathManager
+from ._prefs  import PrefsManager
+from ._annots import AnnotationState
+from ._editor import AnnotationEditor
+from ._cache  import FigureCache
+from .control import ControlPanel
+from .figure  import FigurePanel
 
 # The Annotation Tool ----------------------------------------------------------
 
@@ -115,8 +115,8 @@ class AnnotationTool(ipw.HBox):
     """
 
     __slots__ = (
-        "config", "paths", "state", "prefs", "editor",
-        "figure_panel", "cache", "control_panel", "locked",
+        "config", "paths", "prefs", "editor", "cache",
+        "control_panel", "figure_panel", "has_viewer", "locked",
     )
 
     def __init__(
@@ -129,89 +129,123 @@ class AnnotationTool(ipw.HBox):
             background_color = "#f0f0f0",
             button_color     = "#e0e0e0",
         ):
-        # -- 1. Foundation -----------------------------------------------------
+        # Read configuration file and construct path manager from arguments.
         self.config = Config(config_path)
         self.paths  = PathManager(cache_path, save_path, git_path, username)
+        self.prefs  = PrefsManager(self.config, self.paths)
 
-        # -- 2. State + Persistence --------------------------------------------
-        self.state = AnnotationState(self.config, self.paths)
-        self.prefs = PrefsManager(self.config, self.paths)
+        self.has_viewer = self.config.viewer != {}
 
-        # -- 3. Figure model (pure data — no widgets) --------------------------
-        self.editor = AnnotationEditor(self.config.annotations)
+        # Prepare annotations and preferences manager (tool persistence).
+        self.annotations = AnnotationState(self.config, self.paths)
+        
+        print("Inside AnnotationTool __init__")
+        print("Configuration:")
+        print(f" -> display.figsize: {self.config.display.figsize}")
+        print(f" -> display.dpi: {self.config.display.dpi}")
 
-        # -- 4. Figure UI (facade builds renderers internally) -----------------
-        self.figure_panel = FigurePanel(self.config, self.prefs, self.editor)
+        print("Preferences:")
+        print(f" -> display.canvas_size: {self.prefs.get_display('canvas_size')}")
 
-        # -- 5. Cache (needs loading_context from figure_panel) ----------------
-        self.cache = FigureCache(
-            self.config, self.paths, self.prefs,
-            self.figure_panel.loading_context,
-        )
+        # Prepare the annotation editor functionality.
+        self.editor = AnnotationEditor(self.config)
 
-        # -- 6. Control UI -----------------------------------------------------
+        # Prepare the control panel UI.
         self.control_panel = ControlPanel(
             self.config, self.prefs,
             background_color = background_color,
             button_color     = button_color,
         )
 
-        # -- 7. Tool-wide state ------------------------------------------------
-        self.locked = False
+        # Prepare the figure panel UI.
+        self.figure_panel = FigurePanel(self.prefs, self.editor, has_viewer=self.has_viewer)
 
-        # -- 8. Initialize the HBox widget -------------------------------------
-        super().__init__(
-            children = [ self.control_panel, self.figure_panel ],
-            layout   = ipw.Layout(border = "1px solid black"),
+        # Prepare figure caching functionality.
+        self.cache = FigureCache(
+            self.config, self.paths, self.prefs,
+            self.figure_panel.loading_context
         )
 
-        # -- 9. Wire control panel events --------------------------------------
-        self.control_panel.observe_target(self._on_target_change)
-        self.control_panel.observe_annotation(self._on_annotation_change)
+        # Declare the locked state of the annotation tool. When locked, the user
+        # cannot interact with the figure panel and some control panel options 
+        # are disabled. This is used when there is an error with the current
+        # selection that prevents the figure from being properly displayed.
+        self.locked = False
+
+        # Initialize the Annotation Tool (= control panel + figure panel).
+        super().__init__(
+            children = [ self.control_panel, self.figure_panel ],
+            layout   = { "border": "2px solid black" }
+        )
+
+        # Wire the control panel observers to their handlers.
+        self.control_panel.observe_selection(self._on_selection_change) #TODO
         self.control_panel.observe_annotation_style(
-            self._on_annotation_style_change)
+            self._on_annotation_style_change) # TODO
         self.control_panel.observe_viewer_style(self._on_viewer_style_change)
-        self.control_panel.observe_image_pixel(self._on_image_pixel_change)
+        self.control_panel.observe_canvas_size(self._on_canvas_size_change)
+        self.control_panel.observe_viewer_size(self._on_viewer_size_change)
         self.control_panel.observe_layout(self._on_layout_change)
         self.control_panel.observe_save(self._on_save)
-        self.control_panel.observe_clear_current(self._on_clear_current)
-        self.control_panel.observe_clear_all(self._on_clear_all)
+        # self.control_panel.observe_clear_current(self._on_clear_current)
+        # self.control_panel.observe_clear_all(self._on_clear_all)
 
-        # -- 10. Initial load --------------------------------------------------
-        self._refresh_figure()
+        # Refresh figure with initial values.
+        self.refresh_figure()
 
     # Lock / Unlock ------------------------------------------------------------
 
-    def _lock_tool(self):
+    def lock(self):
         """Lock the tool, disabling user interaction.
 
-        Sets the tool-wide ``locked`` flag and propagates to both
-        facades.  Selection dropdowns remain enabled so the user can
-        navigate away from an error state.
+        Sets the tool-wide ``locked`` flag and propagates to both control
+        and figure panels.
         """
         self.locked = True
         self.control_panel.lock()
         self.figure_panel.lock()
 
 
-    def _unlock_tool(self):
+    def unlock(self):
         """Unlock the tool, re-enabling user interaction.
 
-        Clears the tool-wide ``locked`` flag and propagates to both
-        facades.
+        Clears the tool-wide ``locked`` flag and propagates to both control
+        and figure panels.
         """
         self.locked = False
         self.control_panel.unlock()
         self.figure_panel.unlock()
 
+    # Messages -----------------------------------------------------------------
+
+    def write_message(self, message, timeout = None):
+        """Write a message to the figure panel.
+
+        Parameters
+        ----------
+        message : str
+            The message text to display.  May contain HTML markup.
+
+        timeout : float or None, optional
+            If a number of seconds, clears the message after that time.
+            If ``None``, leaves the message until the next update.
+            Defaults to ``None``.
+        """
+        self.figure_panel.write_message(message, timeout)
+
+    def clear_message(self):
+        """Clear any message from the figure panel."""
+        self.figure_panel.clear_message()
+
     # Core Orchestration -------------------------------------------------------
 
-    def _refresh_figure(self):
+    def refresh_figure(self):
         """Load and display the figure for the current selection.
 
         This is the central orchestration method, called on every
-        target or annotation change.  It:
-
+        target or annotation change.  
+        
+        The actions performed are:
         1. Reads the current target and annotation from the control
            panel.
         2. Loads the target's annotation data from ``AnnotationState``
@@ -224,57 +258,55 @@ class AnnotationTool(ipw.HBox):
         """
         # Read current selection from the control panel.
         target_id  = self.control_panel.target
-        annotation = self.control_panel.annotation
+        if target_id is None: return # no target selected yet, wait for valid selection
 
-        # Load the target's annotation coordinates (lazy — first access
-        # triggers disk read).
-        target_annots = self.state.annotations[target_id]
+        annotation = self.control_panel.annotation
+        if annotation is None: return # no annotation selected yet, wait for valid selection
+
+        # Load the target's annotation coordinates.
+        target_annots = self.annotations[target_id]
 
         # Validate that all fixed-point dependencies can be resolved.
-        error = self._validate_dependencies(
-            annotation, target_id, target_annots)
+        error = self._validate_fixed_dependencies(
+            target_id, annotation, target_annots)
 
+        # If there is an error, lock the tool and display the error.
         if error is not None:
-            # Lock the tool and display the error.  The user can still use
-            # the selection dropdowns to navigate to a valid state.
-            self._lock_tool()
+            # Lock the tool and write the message
+            self.lock()
             self.figure_panel.write_message(error)
             return
 
-        # Dependencies OK — clear any lingering error and unlock.
-        self._unlock_tool()
+        # There was no error, unlock and clear any lingering error messages.
+        self.unlock()
         self.figure_panel.clear_message()
 
-        # Update the editor.  Returns True if the target changed (need to
-        # reload base data), False if only the annotation changed, or None
-        # if nothing changed.
+        # Update the annotation editor. 
         target_changed = self.editor.update(
             target_id, annotation, target_annots)
 
-        # If nothing changed, no work to do.
+        # If the target did not changed, no work to do.
         if target_changed is None: return
 
-        # If the target changed, load new grid and cortex data.
-        if target_changed:
-            self._load_grid_context(target_id, annotation)
-            self._load_cortex_data(target_id)
+        # If the target changed, load new canvas and viewer data.
+        self._load_canvas(target_id, annotation)
+        if self.has_viewer: self._load_viewer(target_id)
 
         # Update viewer annotations from editor state (needed on both
         # target and annotation changes, since the active annotation
         # determines which annotations are "dependent" vs "background").
-        if self.figure_panel.viewer_panel is not None:
-            self.figure_panel.update_viewer_annotations()
+        if self.has_viewer: self.figure_panel.update_viewer()
 
         # Full redraw.
         self.figure_panel.redraw(
-            base       = target_changed,
+            base       = True,
             active     = True,
             dependent  = True,
             background = True,
         )
 
 
-    def _validate_dependencies(self, annotation, target_id, target_annots):
+    def _validate_fixed_dependencies(self, target_id, annotation, target_annots):
         """Check that fixed-point dependencies can be resolved.
 
         For each annotation that the active annotation depends on
@@ -300,21 +332,21 @@ class AnnotationTool(ipw.HBox):
             An error message if validation fails, or ``None`` if all
             dependencies are satisfiable.
         """
+        # Get the annotation configuration for fixed point dependencies.
         annot_cfg = self.config.annotations
 
         # Check each annotation that this annotation's fixed points require.
         for fp in annot_cfg.fixed_points[annotation]:
-            # Get the fixed-point type (head or tail) for this dependency.
+            # Get the fixed point type (head or tail) for this dependency.
             fp_type = (
                 "fixed_head"
                 if fp in annot_cfg.fixed_heads[annotation]
                 else "fixed_tail"
             )
 
-            # For non-point annotations, check that the dependency has
+            # For non point type annotations, check that the dependency has
             # enough data points to be considered "live."
-            atype = annot_cfg.type[fp]
-            if atype != "point":
+            if annot_cfg.type[fp] != "point":
                 n_required = len(annot_cfg.fixed_points[fp])
                 fp_points  = target_annots.get(fp)
                 if fp_points is None or fp_points.shape[0] <= n_required:
@@ -324,22 +356,23 @@ class AnnotationTool(ipw.HBox):
                         f"{target_id}."
                     )
 
-            # Verify the fixed-point calculation succeeds.
+            # Verify that the fixed point can be calculated without error.
             try:
                 self.editor.calc_fixed_point(
                     annotation, target_annots, fp_type)
-            except Exception as exc:
+            except Exception as e:
                 return (
                     f"Annotation '{annotation}' requires fixed point "
                     f"'{fp}' which cannot be calculated for target: "
-                    f"{target_id} — {exc}"
+                    f"{target_id} — {e}"
                 )
 
+        # Verified all dependencies, return None (= no error)
         return None
 
 
-    def _load_grid_context(self, target_id, annotation):
-        """Load grid image and metadata from cache into the canvas.
+    def _load_canvas(self, target_id, annotation):
+        """Load canvas image and metadata from cache into the canvas.
 
         Parameters
         ----------
@@ -349,7 +382,7 @@ class AnnotationTool(ipw.HBox):
         annotation : str
             The annotation whose figure grid layout to use.
         """
-        # Retrieve the assembled grid image and axis-limit metadata.
+        # Get the image data and figure limits from the cache.
         image_data, meta_data = self.cache.grid(target_id, annotation)
 
         # Get the figure grid layout from the annotation config.
@@ -361,14 +394,17 @@ class AnnotationTool(ipw.HBox):
         xlim = tuple(meta_data["xlim"]) if meta_data else None
         ylim = tuple(meta_data["ylim"]) if meta_data else None
 
-        # Set the canvas rendering context via the figure facade.
-        # NOTE: FigurePanel.set_grid_context() is a thin pass-through
-        # to CanvasPanel.  It needs to be added to _figure.py.
-        self.figure_panel.set_grid_context(
-            image_data, grid, grid_shape, xlim, ylim)
+        # Set the canvas rendering variables.
+        self.figure_panel.set_canvas(
+            image = ipw.Image(value = image_data, format = "png"), 
+            grid = grid, 
+            grid_shape = grid_shape, 
+            xlim = xlim, 
+            ylim = ylim
+        )
 
 
-    def _load_cortex_data(self, target_id):
+    def _load_viewer(self, target_id):
         """Load cortex geometry and overlays into the viewer.
 
         No-op if the viewer is not configured.
@@ -378,32 +414,38 @@ class AnnotationTool(ipw.HBox):
         target_id : tuple of str
             The target whose cortex data to load.
         """
-        # Skip if no viewer.
-        if self.figure_panel.viewer_panel is None:
-            return
-
-        # Resolve the target object from config.
+        # Get the current target data from the config.
+        target_id = self.control_panel.target
         target = self.config.targets[target_id]
 
-        # Extract cortex data from the viewer config and target.
-        # NOTE: The exact extraction logic depends on the ViewerConfig
-        # and target structure.  This mirrors the old ViewerState
-        # initialization pattern.  FigurePanel.set_cortex_data() is a
-        # thin pass-through to CortexViewerPanel that needs to be added.
-        viewer_cfg = self.config.viewer
+        # Extract viewer data from the viewer config.
+        viewer_cfg       = self.config.viewer
+        faces            = viewer_cfg["faces"](target)
 
-        faces            = viewer_cfg.faces(target)
-        coordinates      = viewer_cfg.coordinates(target)
-        overlays         = viewer_cfg.overlays(target)
-        canvas_to_viewer = viewer_cfg.canvas_to_viewer(target)
-
-        self.figure_panel.set_cortex_data(
+        morph_between = viewer_cfg["morph_between"]
+        if morph_between == "_default": 
+            #TODO: test!
+            coordinates = viewer_cfg["coordinates"]["_default"](target)
+        else:
+            coordinates = [
+                viewer_cfg["coordinates"][x](target) 
+                for x in morph_between
+            ]
+        
+        overlays = {
+            key: fn(target, key)
+            for key, fn in viewer_cfg["overlays"].items()
+        }
+        canvas_to_viewer = partial(viewer_cfg["canvas_to_viewer"], target)
+   
+        print()
+        self.figure_panel.set_viewer(
             faces, coordinates, overlays, canvas_to_viewer)
 
     # Control Panel Event Handlers ---------------------------------------------
 
-    def _on_target_change(self, key, change):
-        """Handle a target-selection change.
+    def _on_selection_change(self, key, change):
+        """Handle a target and annotation selection change.
 
         Saves current annotations, updates the legend, and refreshes
         the figure for the new target.
@@ -416,8 +458,8 @@ class AnnotationTool(ipw.HBox):
         change : traitlets.Bunch
             The ipywidgets change object.
         """
-        # Save annotations for the previous target before switching.
-        self.state.save_annotations()
+        # Save annotations for the previous selection before switching.
+        self.annotations.save()
 
         # Update the legend for the new selection.
         self.control_panel.update_legend(
@@ -425,62 +467,49 @@ class AnnotationTool(ipw.HBox):
             self.control_panel.annotation,
         )
 
-        # Load and display the new target.
-        self._refresh_figure()
-
-
-    def _on_annotation_change(self, change):
-        """Handle an annotation-selection change.
-
-        Updates the legend and refreshes the figure for the new
-        annotation.
-
-        Parameters
-        ----------
-        change : traitlets.Bunch
-            The ipywidgets change object.
-        """
-        # Update the legend for the new annotation.
-        self.control_panel.update_legend(
-            self.control_panel.target,
-            self.control_panel.annotation,
-        )
-
-        # Refresh the figure.
-        self._refresh_figure()
+        # Refresh figure for the new selection.
+        self.refresh_figure()
 
 
     def _on_annotation_style_change(self, annotation, key, change):
-        """Handle an annotation-style change from the style panel.
+        """Handle an annotation style change from the style panel.
 
-        Persists the new style value and redraws annotation layers.
+        `fn(annotation, key, change)`` is the signature of the style change handlers passed to
 
         Parameters
         ----------
         annotation : str or None
             The annotation whose style changed, or ``None`` for the
-            active-annotation style.
+            active annotation style.
 
         key : str
-            The style key that changed (e.g. ``"color"``,
-            ``"linewidth"``).
+            The style key that changed (e.g. ``"color"``, ``"linewidth"``).
 
         change : traitlets.Bunch
             The ipywidgets change object.
         """
-        # Persist the style change.
-        self.prefs.set_annotation_style(annotation, {key: change.new})
+        # Update the annotation's style in the preferences manager.
+        self.prefs.set_annotation_style(annotation, key, change.new)
 
-        # Redraw all annotation layers (active + dependent + background).
+        # Determine which annotation layers need to be redrawn
+        fixed_deps = self.config.annotations.fixed_dependence[self.control_panel.annotation] 
+        if annotation is None:
+            active, dependent, background = True, False, False
+        elif annotation in fixed_deps:
+            active, dependent, background = False, True, False
+        else:
+            active, dependent, background = False, False, True
+
+        # Redraw the current annotation's layer.
         self.figure_panel.redraw(
-            active     = True,
-            dependent  = True,
-            background = True,
+            active     = active,
+            dependent  = dependent,
+            background = background,
         )
 
 
     def _on_viewer_style_change(self, key, change):
-        """Handle a viewer-style change from the style panel.
+        """Handle a viewer style change from the style panel.
 
         Persists the new viewer style value and redraws the viewer.
         No-op if the viewer is not configured.
@@ -494,20 +523,28 @@ class AnnotationTool(ipw.HBox):
         change : traitlets.Bunch
             The ipywidgets change object.
         """
-        # Persist the style change.
+        # Update the viewer's style in the preferences manager.
         self.prefs.set_viewer_style(key, change.new)
 
+        if key == "morph_percent":
+            base, active, dependent, background = True, True, True, True
+        elif key in ( "overlay" , "overlay_alpha" ):
+            base, active, dependent, background = True, False, False, False
+        elif key in ( "point_size", "line_width", "line_interp" ):
+            base, active, dependent, background = False, True, True, True
+
         # Redraw the viewer (cortex + all annotation layers).
+        #TODO: only redraw the viewer panel! need a new argument for that option.
         self.figure_panel.redraw(
-            base       = True,
-            active     = True,
-            dependent  = True,
-            background = True,
+            base       = base,
+            active     = active,
+            dependent  = dependent,
+            background = background,
         )
 
 
-    def _on_image_pixel_change(self, change):
-        """Handle a figure pixel-size change from the display panel.
+    def _on_canvas_size_change(self, change):
+        """Handle a canvas size change from the display panel.
 
         Persists the new size, resizes the canvas, and triggers a
         full redraw.
@@ -517,28 +554,36 @@ class AnnotationTool(ipw.HBox):
         change : traitlets.Bunch
             The ipywidgets change object.
         """
-        # Persist the display preference.
-        self.prefs.set_display("image_pixel", change.new)
+        # Update the display setting in the preferences manager.
+        self.prefs.set_display("canvas_size", change.new)
 
-        # Resize the figure panel (canvas + viewer in future).
-        # NOTE: FigurePanel.resize() needs to be added to _figure.py.
-        self.figure_panel.resize(change.new)
+        # Resize the canvas. 
+        self.figure_panel.resize_canvas()
 
-        # Reload the grid image at the new size and redraw.
-        target_id  = self.control_panel.target
-        annotation = self.control_panel.annotation
-        self._load_grid_context(target_id, annotation)
 
-        self.figure_panel.redraw(
-            base       = True,
-            active     = True,
-            dependent  = True,
-            background = True,
-        )
+    def _on_viewer_size_change(self, change):
+        """Handle a viewer size change from the display panel.
+
+        Persists the new size, resizes the viewer, and triggers a
+        full redraw.
+
+        Parameters
+        ----------
+        change : traitlets.Bunch
+            The ipywidgets change object.
+        """
+        # If there is no viewer, do nothing!
+        if not self.has_viewer: return
+
+        # Update the display setting in the preferences manager.
+        self.prefs.set_display("viewer_size", change.new)
+
+        # Resize the viewer.
+        self.figure_panel.resize_viewer()
 
 
     def _on_layout_change(self, change):
-        """Handle a layout-toggle change from the display panel.
+        """Handle a layout toggle change from the display panel.
 
         Persists the new layout and updates the figure panel
         arrangement.
@@ -548,12 +593,14 @@ class AnnotationTool(ipw.HBox):
         change : traitlets.Bunch
             The ipywidgets change object.
         """
-        # Persist the display preference.
-        layout = change.new
-        self.prefs.set_display("layout", layout)
+        # Determine the new layout string.
+        new_layout = "horizontal" if change.new else "vertical"
+
+        # Update the display layout in the preferences manager.
+        self.prefs.set_display("layout", new_layout)
 
         # Update the figure panel layout.
-        self.figure_panel.set_layout(layout)
+        self.figure_panel.switch_layout()
 
 
     def _on_save(self, button):
@@ -567,9 +614,12 @@ class AnnotationTool(ipw.HBox):
             The clicked button (unused, required by ``on_click``
             signature).
         """
-        self.state.save_annotations()
+        # Save annotations and preferences to disk.
+        self.annotations.save()
         self.prefs.save()
-        self.figure_panel.write_message("Saved.", timeout = 2.0)
+
+        # Write a temporary "Save" message to the figure panel.
+        self.write_message("Saved annotations.", timeout = 2.0)
 
 
     def _on_clear_current(self, button):
@@ -583,19 +633,22 @@ class AnnotationTool(ipw.HBox):
         button : ipywidgets.Button
             The clicked button.
         """
-        target_id  = self.control_panel.target
-        annotation = self.control_panel.annotation
+        pass
+        # Get the current target and annotation.
+        # target_id  = self.control_panel.target
+        # annotation = self.control_panel.annotation
 
-        # Reset the annotation to an empty coordinate array.
-        self.state.annotations[target_id][annotation] = (
-            np.zeros((0, 2), dtype = float))
+        # # Reset the annotation to an empty coordinate array.
+        #TODO: There needs to be a validity check here to prevent fixed errors.
+        # self.annotations.annotations[target_id][annotation] = (
+        #     np.zeros((0, 2), dtype = float))
 
-        # Refresh the figure to reflect the cleared annotation.
-        self._refresh_figure()
+        # # Refresh the figure to reflect the cleared annotation.
+        # self.refresh_figure()
 
 
     def _on_clear_all(self, button):
-        """Handle the Clear All button click.
+        """Handle the "Clear All" button click.
 
         Clears every annotation's points for the current target and
         redraws.
@@ -605,12 +658,12 @@ class AnnotationTool(ipw.HBox):
         button : ipywidgets.Button
             The clicked button.
         """
-        target_id = self.control_panel.target
+        pass
+        # # Clear the annotations for the current target.
+        # target_id = self.control_panel.target # current target id
+        # for annotation in self.annotations[target_id].keys():
+        #     self.annotations[target_id][annotation] = (
+        #         self.figure_panel.empty_point_matrix())
 
-        # Reset every annotation for this target.
-        for name in self.state.annotations[target_id]:
-            self.state.annotations[target_id][name] = (
-                np.zeros((0, 2), dtype = float))
-
-        # Refresh the figure to reflect the cleared annotations.
-        self._refresh_figure()
+        # # Refresh the figure to show the cleared annotations.
+        # self.refresh_figure()

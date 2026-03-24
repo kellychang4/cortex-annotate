@@ -44,7 +44,6 @@ _figure
 
 # ------------------------------------------------------------------------------
 
-from ._editor import AnnotationEditor
 from ._figure import FigurePanel
 
-__all__ = ( "AnnotationEditor", "FigurePanel" )
+__all__ = ( "FigurePanel" )

@@ -54,7 +54,10 @@ class DisplayConfig():
         ``"vertical"``. ``None`` if not specified.
     """
 
-    __slots__ = ( "figsize", "dpi", "active_style", "default_style", "layout" )
+    __slots__ = ( 
+        "figsize", "dpi", "active_style", "default_style", 
+        "viewer_size", "layout" 
+    )
     
     def __init__(self, display_yaml):
         # The display section is optional. If None, return empty dictionary.
@@ -73,6 +76,9 @@ class DisplayConfig():
         # Initialize the default style.
         self.default_style = self._init_style(
             display_yaml, style_name = "default_style", default = {})
+        
+        # Initialize the viewer size.
+        self.viewer_size = self._init_viewer_size(display_yaml)
         
         # Initialize the layout option. 
         self.layout = self._init_layout(display_yaml)
@@ -204,6 +210,38 @@ class DisplayConfig():
         return style
 
     
+    @staticmethod
+    def _init_viewer_size(display_yaml):
+        """Validate the ``viewer_size`` value.
+
+        Parameters
+        ----------
+        display_yaml : dict
+            The display YAML mapping.
+
+        Returns
+        -------
+        int or None
+            A positive integer, or ``None`` if not specified.
+        """
+        # Prepare ConfigError arguments for any errors that may arise in this function.
+        err = partial(ConfigError, "display.viewer_size")
+
+        # Extract the viewer size from the yaml.
+        viewer_size = display_yaml.get("viewer_size", None)
+
+        # If the viewer size is None, return None (will use defaults)
+        if viewer_size is None: return None
+
+        # Check that the viewer size is a positive integer.
+        if not isinstance(viewer_size, Integral) or viewer_size < 1:
+            raise err(f"viewer_size must be a positive integer: {viewer_size}")
+        
+        # Return the viewer size.
+        return viewer_size
+
+    
+
     @staticmethod
     def _init_layout(display_yaml):
         """Validate the ``layout`` value.

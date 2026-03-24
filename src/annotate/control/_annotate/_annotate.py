@@ -38,9 +38,12 @@ class AnnotateTab(ipw.VBox):
     __slots__ = ( "_lockable", )
 
     def __init__(self, config, prefs, button_color):
+        # Determine if the viewer is enabled.
+        has_viewer = config.viewer != {}
+
         # Create the required subsection widgets.
         self._selection = SelectionSection(config)
-        self._display   = DisplaySection(prefs)
+        self._display   = DisplaySection(prefs, has_viewer)
         self._legend    = LegendSection(config)
         self._button    = ButtonSection(button_color)
         self._info      = InfoSection()
@@ -51,7 +54,7 @@ class AnnotateTab(ipw.VBox):
             self._button 
         ]
 
-
+        # Create the annotate tab.
         super().__init__(
             children = [
                 self._selection,
@@ -65,6 +68,22 @@ class AnnotateTab(ipw.VBox):
                 self._info,
             ],
         )
+
+    # Properties ---------------------------------------------------------------
+
+    @property
+    def target(self):
+        return self._selection.target
+ 
+
+    @property
+    def annotation(self):
+        return self._selection.annotation
+ 
+
+    @property
+    def selection(self):
+        return self._selection.selection
 
     # Lock / Unlock ------------------------------------------------------------
 

@@ -9,7 +9,7 @@ persist between annotation sessions. Preferences are organized into three
 sections:
  
     display          : general tool layout, sizing, and figure generation
-                       parameters (figsize, dpi, image_pixel, layout)
+                       parameters (figsize, dpi, canvas_size, layout)
     annotation_style : per-annotation visual properties (color, linewidth, etc.)
     viewer_style     : 3D cortex viewer settings (morph, overlay, etc.)
  
@@ -40,20 +40,24 @@ from ._style import (
 # Constants --------------------------------------------------------------------
 
 # Default display preferences.
-# NOTE: image_pixel is not included here because it is computed from
+# NOTE: canvas_size is not included here because it is computed from
 # figsize and dpi in _build_defaults(). 
 DEFAULT_DISPLAY_PREFS = {
-    "figsize" : [4, 4],
-    "dpi"     : 128,
-    "layout"  : "horizontal",
+    "figsize"       : [4, 4],
+    "dpi"           : 128,
+    "viewer_size"   : 512,
+    "viewer_camera" : [],
+    "layout"        : "horizontal",
 }
  
 # All valid display preference keys (for get_display validation).
-# Includes image_pixel which is computed, not stored in the constant above.
-DISPLAY_PREFS_KEYS = ( "figsize", "dpi", "image_pixel", "layout" )
+# Includes canvas_size which is computed, not stored in the constant above.
+DISPLAY_PREFS_KEYS = ( 
+    "figsize", "dpi", "canvas_size", "viewer_size", "viewer_camera", "layout" 
+)
  
 # Keys that can be modified at runtime via set_display().
-_SETTABLE_DISPLAY_KEYS = ( "image_pixel", "layout" )
+_SETTABLE_DISPLAY_KEYS = ( "canvas_size", "viewer_size", "viewer_camera", "layout" )
  
 # Preference Manager Class -----------------------------------------------------
 
@@ -71,7 +75,7 @@ class PrefsManager:
     paths : PathManager
         Path manager, used to resolve the preferences file location.
  
-    preferences_file : str
+    filename : str
         Preferences filename (default ``".annot-prefs.yaml"``). Resolved
         against the save path via ``paths.get_preferences_path()``.
  
@@ -83,7 +87,7 @@ class PrefsManager:
     paths : PathManager
         The path manager.
  
-    preferences_file : str
+    file : str
         Absolute filesystem path to the preferences YAML file.
  
     preferences : dict
@@ -91,15 +95,14 @@ class PrefsManager:
         ``"annotation_style"``, and ``"viewer_style"``.
     """
 
-    __slots__ = ( "config", "paths", "preferences_file", "preferences" )
+    __slots__ = ( "config", "file", "preferences" )
  
-    def __init__(self, config, paths, preferences_file = ".annot-prefs.yaml"):
+    def __init__(self, config, paths, filename = ".annot-prefs.yaml"):
         # Store the arguments.
         self.config = config
-        self.paths  = paths
  
         # Resolve the preferences file path.
-        self.preferences_file = self.paths.get_preferences_path(preferences_file)
+        self.file = paths.get_preferences_path(filename)
  
         # Load the preferences (from file if it exists, otherwise default).
         self.preferences = self._load()
@@ -115,8 +118,8 @@ class PrefsManager:
             The preferences dict with keys ``"display"``,
             ``"annotation_style"``, and ``"viewer_style"``.
         """
-        if op.isfile(self.preferences_file):
-            with open(self.preferences_file, "rt") as f:
+        if op.isfile(self.file):
+            with open(self.file, "rt") as f:
                 return yaml.safe_load(f)
         return self._build_defaults()
 
@@ -157,7 +160,8 @@ class PrefsManager:
  
         # Extract the display preferences from the config, if they exist.
         config_display = {}
-        for key in ( "figsize", "dpi", "layout" ):
+        for key in ( "figsize", "dpi", "viewer_size", "layout" ):
+            print(key, getattr(self.config.display, key))
             if getattr(self.config.display, key) is not None:
                 config_display[key] = getattr(self.config.display, key)
  
@@ -168,8 +172,8 @@ class PrefsManager:
         }
  
         # Calculate the figure size in pixels from the display prefs.
-        image_pixel = int(display_prefs["figsize"][0] * display_prefs["dpi"])
-        display_prefs["image_pixel"] = image_pixel
+        canvas_size = int(display_prefs["figsize"][0] * display_prefs["dpi"])
+        display_prefs["canvas_size"] = canvas_size
  
         # Store the display prefs in the main preferences dict.
         preferences["display"] = display_prefs
@@ -195,10 +199,10 @@ class PrefsManager:
     def save(self):
         """Write the current preferences to disk as YAML.
  
-        The file is written to :attr:`preferences_file`. Overwrites
+        The file is written to :attr:`file`. Overwrites
         any existing file.
         """
-        with open(self.preferences_file, "wt") as f:
+        with open(self.file, "wt") as f:
             yaml.dump(self.preferences, f)
 
     # Display Methods ----------------------------------------------------------
@@ -228,20 +232,20 @@ class PrefsManager:
     def set_display(self, key, value):
         """Set a display preference.
  
-        Only ``image_pixel`` and ``layout`` can be modified at runtime.
+        Only ``canvas_size`` and ``layout`` can be modified at runtime.
         The ``figsize`` and ``dpi`` keys are config-level generation
         parameters and cannot be changed after initialization.
  
         Validation constraints:
  
-        - ``image_pixel``: positive integer.
+        - ``canvas_size``: positive integer.
         - ``layout``: one of ``("horizontal", "vertical")``.
  
         Parameters
         ----------
         key : str
             Must be one of ``_SETTABLE_DISPLAY_KEYS``
-            (``"image_pixel"`` or ``"layout"``).
+            (``"canvas_size"`` or ``"layout"``).
  
         value : int or str
             The new value for this key.
@@ -278,7 +282,7 @@ class PrefsManager:
         return styles.get(annotation, )
  
  
-    def set_annotation_style(self, annotation, updates):
+    def set_annotation_style(self, annotation, key, value):
         """Merge style updates into an annotation's style dict.
  
         Validates incoming style options before merging. See 
@@ -298,12 +302,13 @@ class PrefsManager:
             The full updated style dict for this annotation.
         """
         # Validate the incoming keys and values.
-        validate_annotation_style(updates)
+        new_styledict = { key : value }
+        new_styledict = validate_annotation_style(new_styledict)
  
         # Merge into existing style.
         styles = self.preferences["annotation_style"]
         current = styles.get(annotation)
-        styles[annotation] = { **current, **updates }
+        styles[annotation] = { **current, **new_styledict }
         return styles[annotation]
  
    # Viewer Style Methods -----------------------------------------------------

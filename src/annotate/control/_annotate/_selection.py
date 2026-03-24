@@ -289,7 +289,7 @@ class SelectionSection(ipw.VBox):
  
     # Observer Registration ----------------------------------------------------
  
-    def observe_target(self, fn):
+    def _observe_target(self, fn):
         """Register a callback for target dropdown changes.
  
         Parameters
@@ -302,7 +302,7 @@ class SelectionSection(ipw.VBox):
         self.target_observers.append(fn)
  
 
-    def observe_annotation(self, fn):
+    def _observe_annotation(self, fn):
         """Register a callback for annotation dropdown changes.
  
         Parameters
@@ -312,3 +312,16 @@ class SelectionSection(ipw.VBox):
             change object.
         """
         self.annotation_observers.append(fn)
+
+    
+    def observe_selection(self, fn):
+        """Register a callback for any selection change (target or annotation).
+ 
+        Parameters
+        ----------
+        fn : callable
+            Called as ``fn(concrete_key, change)`` for target changes and
+            ``fn(None, change)`` for annotation changes.
+        """
+        self._observe_target(fn)
+        self._observe_annotation(partial(fn, None))

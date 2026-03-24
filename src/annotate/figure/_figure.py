@@ -29,9 +29,8 @@ secondary stacking guarantee.
 import ipywidgets as ipw
  
 from ._canvas  import CanvasPanel
-from ._viewer  import CortexViewerPanel
-from ._loading import LoadingOverlay, LoadingContext
-from ._message import MessageOverlay
+from ._viewer  import ViewerPanel
+from ._overlay import Overlay, LoadingContext
 
 # Figure Panel Class -----------------------------------------------------------
 
@@ -60,7 +59,7 @@ class FigurePanel(ipw.Box):
  
     prefs : PrefsManager
         User preferences.  Used to read the initial canvas tile size
-        via ``prefs.get_display("image_pixel")``.
+        via ``prefs.get_display("canvas_size")``.
  
     editor : AnnotationEditor
         The shared annotation editing model.  ``FigurePanel`` reads
@@ -75,7 +74,7 @@ class FigurePanel(ipw.Box):
     canvas_panel : CanvasPanel
         The 2D ipycanvas renderer.
  
-    viewer_panel : CortexViewerPanel or None
+    viewer_panel : ViewerPanel or None
         The 3D k3d renderer, or ``None`` if the viewer section was
         omitted from config.yaml.
  
@@ -106,7 +105,12 @@ class FigurePanel(ipw.Box):
         border      = "1px solid deeppink",
     )
 
-    def __init__(self, config, prefs, editor):
+    __slots__ = (
+        "prefs", "editor", "locked", "_canvas_panel", "_viewer_panel",
+        "_figure", "has_viewer", "_loading", "loading_context", "_message" 
+    )
+
+    def __init__(self, prefs, editor, has_viewer = False):
         """Initialize the figure panel and its child renderers.
  
         Parameters
@@ -121,21 +125,23 @@ class FigurePanel(ipw.Box):
             The shared annotation editing model.
         """
         # Store the editor reference for internal use.
+        self.prefs  = prefs
         self.editor = editor
-
-        # Define the figure locked/unlocked state.
-        self.locked = False
+        self.has_viewer = has_viewer
 
         # Build the 2D canvas renderer.
-        self.canvas_panel = CanvasPanel(editor, prefs)
+        self._canvas_panel = CanvasPanel(editor, prefs)
 
         # Build the 3D cortex viewer renderer, if specified.
-        figure_children = [ self.canvas_panel ]
-        if config.viewer != {}:
-            self.viewer_panel = CortexViewerPanel(editor, prefs)
-            figure_children.append(self.viewer_panel)
+        figure_children = [ self._canvas_panel ]
+        print("Inside FigurePanel:")
+        if self.has_viewer:
+            self._viewer_panel = ViewerPanel(editor, prefs)
+            figure_children.append(self._viewer_panel)
         else:
-            self.viewer_panel = None
+            self._viewer_panel = None
+        print(f"Viewer enabled: {self.has_viewer}")
+        print(f"Viewer panel: {self._viewer_panel}")
 
         # Combine the canvas and viewer panels into a single panel for layout.
         self._figure = ipw.Box(
@@ -144,14 +150,12 @@ class FigurePanel(ipw.Box):
         )
         self._figure.add_class("annotate-figure-item")
 
-        # Build the loading overlay and its context manager.
-        self._loading = LoadingOverlay()
-        self._loading.add_class("annotate-figure-item")
+        # Create the loading overlay and its context manager.
+        self._loading = Overlay(css_classes = "annotate-figure-item")
         self.loading_context = LoadingContext(self._loading)
 
-         # Build the message overlay.
-        self._message = MessageOverlay()
-        self._message.add_class("annotate-figure-item")
+        # Create the message overlay.
+        self._message = Overlay(css_classes = "annotate-figure-item")
 
         # Assemble children: canvas + (optional) viewer, loading overlay, and 
         # message overlay.
@@ -167,8 +171,8 @@ class FigurePanel(ipw.Box):
         super().add_class("annotate-figure-container")
 
         # Wire canvas input events to private handlers.
-        self.canvas_panel.observe_mouse(self._on_mouse_click)
-        self.canvas_panel.observe_key(self._on_key_press)
+        self._canvas_panel.observe_mouse(self._on_mouse_click)
+        self._canvas_panel.observe_key(self._on_key_press)
 
     # CSS Helper ---------------------------------------------------------------
     
@@ -195,6 +199,20 @@ class FigurePanel(ipw.Box):
                     grid-row: row-start / row-end;
                     margin: 0px;
                     padding: 0px;
+                }
+                .annotate-figure-item > .widget-html-content {
+                    width: 100%;
+                    height: 100%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    background: rgba(255, 255, 255, 0.85);
+                    padding: 20px;
+                    text-align: center;
+                    pointer-events: auto;
+                    font-family: HelveticaNeue, sans-serif;
+                    font-size: 32px;
+                    z-index: 10;
                 }
                 canvas {
                     cursor: crosshair !important;
@@ -244,7 +262,7 @@ class FigurePanel(ipw.Box):
  
     # Layout -------------------------------------------------------------------
  
-    def set_layout(self, layout):
+    def switch_layout(self):
         """Switch between horizontal and vertical arrangement.
  
         Changes the inner figure box layout (canvas + viewer).  The
@@ -255,6 +273,7 @@ class FigurePanel(ipw.Box):
         layout : {"horizontal", "vertical"}
             The layout direction for the canvas and viewer.
         """
+        layout = self.prefs.get_display("layout")
         if layout == "horizontal":
             self._figure.layout = self._HORIZONTAL_LAYOUT
         elif layout == "vertical":
@@ -299,7 +318,7 @@ class FigurePanel(ipw.Box):
             Defaults to ``False``.
         """
         # Redraw the 2D canvas.
-        self.canvas_panel.redraw_canvas(
+        self._canvas_panel.redraw_canvas(
             image      = base,
             active     = active,
             dependent  = dependent,
@@ -307,9 +326,9 @@ class FigurePanel(ipw.Box):
         )
  
         # Redraw the 3D viewer, if present.
-        if self.viewer_panel is not None:
+        if self.has_viewer is not None:
             # TODO: might need to bring back clear for target refreshing.
-            self.viewer_panel.redraw_viewer(
+            self._viewer_panel.redraw_viewer(
                 cortex     = base,
                 active     = active,
                 dependent  = dependent,
@@ -397,3 +416,80 @@ class FigurePanel(ipw.Box):
  
         # Redraw active annotation (redraw dependent layer if deps changed).
         self.redraw(active = True, dependent = len(fixed_deps) > 0)
+
+
+
+    def resize_canvas(self):
+        """Handle a change in the canvas tile size display preference.
+
+        Parameters
+        ----------
+        new_size : int
+            The new canvas tile size.
+            The ipywidgets change object.
+        """
+        self._canvas_panel.resize()
+
+
+    def set_canvas(self, image, grid, grid_shape, xlim, ylim):
+        """Set the canvas image and metadata for the given target and annotation.
+
+        Parameters
+        ----------
+        image : ndarray
+            The image data to display.
+
+        grid : ndarray
+            The grid data for the figure.
+
+        grid_shape : tuple
+            The shape of the grid.
+
+        xlim : tuple
+            The x-axis limits for the figure.
+
+        ylim : tuple
+            The y-axis limits for the figure.
+        """
+        self._canvas_panel.set_canvas(
+            image = image, grid = grid, grid_shape = grid_shape, xlim = xlim, ylim = ylim
+        )
+
+    def set_viewer(self, faces, coordinates, overlays, canvas_to_viewer):
+        """Set the cortex geometry and overlay data for the viewer.
+
+        Parameters
+        ----------
+        faces : ndarray
+            The cortex mesh faces.
+
+        coordinates : ndarray
+            The cortex mesh vertex coordinates.
+
+        overlays : dict
+            A mapping from overlay names to overlay data arrays.
+
+        canvas_to_viewer : dict
+            A mapping from canvas coordinate keys to viewer coordinate keys.
+        """
+        self._viewer_panel.set_viewer(
+            faces, coordinates, overlays, canvas_to_viewer
+        )
+
+
+    def update_viewer(self, annotations = None):
+        """Update a specific overlay in the viewer."""
+        
+        self._viewer_panel.update(annotations)
+
+
+    def resize_viewer(self):
+        """Handle a change in the viewer tile size display preference.
+
+        Parameters
+        ----------
+        new_size : int
+            The new viewer tile size.
+            The ipywidgets change object.
+        """
+        self._viewer_panel.resize()
