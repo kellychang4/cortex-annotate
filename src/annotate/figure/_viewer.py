@@ -162,6 +162,7 @@ class ViewerPanel(ipw.VBox):
         # Create the k3d plot.
         self._figure = k3d.plot(
             height            = viewer_size,
+            camera_auto_fit   = False,
             grid_visible      = False,
             menu_visibility   = False,
             camera_fov        = 60,
@@ -533,7 +534,7 @@ class ViewerPanel(ipw.VBox):
         if overlay_name == "curvature": return None
 
         # Else, get overlay values and return with opacity.
-        overlay_values =  s[overlay_name]
+        overlay_values = self.overlays[overlay_name]
         return {
             **self._prep_cortex(),
             "colors"  : self._rgb_to_k3dcolor(overlay_values),

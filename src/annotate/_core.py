@@ -314,6 +314,7 @@ class AnnotationTool(ipw.HBox):
 
         # Full redraw.
         self.figure_panel.redraw(
+            clear      = target_changed, 
             base       = True,
             active     = True,
             dependent  = True,

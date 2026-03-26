@@ -180,6 +180,13 @@ class PrefsManager:
         # Set active annotation style (key = None).
         active_style = { **annotation_style, **self.config.display.active_style }
         preferences["annotation_style"][None] = active_style.copy()
+
+        # Extract the viewer style from the config, if it exists. (Currently
+        # no viewer style config options, but this is here for future expansion.)
+        config_viewer = {
+            key : getattr(self.config.display, key)
+            for key in VIEWER_STYLE_KEYS    
+        }
  
         # Return the fully built preferences dict.
         return preferences

@@ -285,6 +285,7 @@ class FigurePanel(ipw.Box):
  
     def redraw(
             self,
+            clear      = False,
             base       = False,
             active     = True,
             dependent  = False,
@@ -324,8 +325,8 @@ class FigurePanel(ipw.Box):
  
         # Redraw the 3D viewer, if present.
         if self.has_viewer is not None:
-            # TODO: might need to bring back clear for target refreshing.
             self._viewer_panel.redraw_viewer(
+                clear      = clear, 
                 cortex     = base,
                 active     = active,
                 dependent  = dependent,
