@@ -331,7 +331,7 @@ class AnnotationsConfig(dict):
                 raise err(f"Invalid annotation key: {key}")
 
         # Extract annotation values or assign default values.
-        atype       = annotation_spec.get("type", None)
+        atype       = annotation_spec.get("type", "contour")
         fixed_head  = annotation_spec.get("fixed_head", None)
         fixed_tail  = annotation_spec.get("fixed_tail", None)
         figure_grid = annotation_spec.get("figure_grid", None)

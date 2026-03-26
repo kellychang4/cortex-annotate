@@ -158,7 +158,7 @@ class PrefsManager:
         config_display = {
             key : getattr(self.config.display, key)
             for key in DISPLAY_PREFS_KEYS
-            if getattr(self.config.display, key) is not None
+            if getattr(self.config.display, key, None) is not None
         }
   
         # Build the display prefs: module defaults + config overrides.

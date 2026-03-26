@@ -168,10 +168,10 @@ class ViewerPanel(ipw.VBox):
             axes_helper       = 0,
             camera_zoom_speed = 1.5,
         )
+        self._figure.add_class("annotate-viewer-figure")
 
         # Get the camera from preferences if it exists (overrides auto-fit).
         if self.prefs.get_display("viewer_camera") != []:
-            self._figure.camera_auto_fit = False
             self._figure.camera = self.prefs.get_display("viewer_camera")
 
         # Initialize all k3d layers (start empty/invisible).
@@ -194,9 +194,12 @@ class ViewerPanel(ipw.VBox):
         self._figure += self._k3dline_active
         self._figure += self._k3dpoints_active
 
+        # Intialize CSS for the viewer
+        self._css = ipw.HTML() 
+
         # Initialize the VBox with the figure as the child 
         super().__init__(
-            children = [ self._figure ], 
+            children = [ self._css, self._figure ], 
             layout = {
                 "width"   : f"{viewer_size}px", 
                 "height"  : f"{viewer_size}px", 
@@ -883,16 +886,23 @@ class ViewerPanel(ipw.VBox):
         """
         # Update the viewer size.
         new_size = self.prefs.get_display("viewer_size")
-        
-        # Set k3d figure height
-        self._figure.height = new_size
 
         # Set new VBox layout height
         self.layout.height = f"{new_size}px"
         self.layout.width  = f"{new_size}px"
 
-        # TODO: somethign about the camera resetting on resize? not sure yet.
-
+        # Update the k3d figure size (hack through CSS)
+        self._css.value = f"""
+        <style>
+            .annotate-viewer-figure > div {{
+                height: {new_size}px !important;
+            }}
+            .annotate-viewer-figure canvas {{
+                height: {new_size}px !important;
+                width: {new_size}px !important;
+            }}
+        </style>
+        """
 
     def _on_camera_change(self, change):
         """Handle camera changes from user interaction.

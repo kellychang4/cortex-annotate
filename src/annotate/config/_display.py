@@ -56,7 +56,7 @@ class DisplayConfig():
 
     __slots__ = ( 
         "figsize", "dpi", "canvas_size", "active_style", "default_style", 
-        "viewer_size",  "layout" 
+        "viewer_size", "layout" 
     )
     
     def __init__(self, display_yaml):
