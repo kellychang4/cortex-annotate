@@ -88,10 +88,10 @@ class CanvasPanel(ipw.HBox):
     prefs : PrefsManager
         Reference to the user preferences manager.
 
-    canvas_size : ndarray, shape (2,)
+    figure_size : ndarray, shape (2,)
         Pixel dimensions ``[width, height]`` of one grid cell.
 
-    canvas_size : ndarray, shape (2,)
+    figure_size : ndarray, shape (2,)
         Total pixel dimensions of the multicanvas.
 
     image : ipywidgets.Image or None
@@ -113,9 +113,10 @@ class CanvasPanel(ipw.HBox):
         Y-axis figure limits for coordinate conversion.
     """
     
-    __slots__ = ( "editor", "prefs", "canvas_size", "image", "grid",
-                 "grid_shape", "xlim", "ylim", "multicanvas", "image_canvas",
-                 "background_canvas", "dependent_canvas", "active_canvas" )
+    __slots__ = ( "editor", "prefs", "figure_size", "canvas_size", "image", 
+                 "grid", "grid_shape", "xlim", "ylim", "multicanvas", 
+                 "image_canvas", "background_canvas", "dependent_canvas", 
+                 "active_canvas" )
  
     def __init__(self, editor, prefs):
         """Initialize the canvas panel.
@@ -139,13 +140,15 @@ class CanvasPanel(ipw.HBox):
         self.grid_shape = None
         self.xlim       = None
         self.ylim       = None
- 
+
+        # Get the initial figure size (pixels) from preferences.
+        self.figure_size = self.prefs.get_display("figure_size")
+
         # Get first grid shape from the first annotation for initial sizing.
-        grid_shape0 = self.annot_cfg.grid_shape[self.annot_cfg.names[0]]
+        self.grid_shape = self.annot_cfg.grid_shape[self.annot_cfg.names[0]]
  
         # Calculate the canvas size (pixels) from figure size and grid shape.
-        canvas_size = self.prefs.get_display("canvas_size")
-        self.canvas_size = np.array([canvas_size, canvas_size]) * grid_shape0
+        self.canvas_size = self._calc_canvas_size()
  
         # Build the multicanvas (4 layers: image, background, dependent, active).
         canvas_width, canvas_height = self.canvas_size
@@ -248,19 +251,18 @@ class CanvasPanel(ipw.HBox):
             return self.canvas_to_figure([points])[0]
 
         # Apply grid mod to wrap points into a single cell.
-        (figure_width, figure_height) = self.canvas_size
-        points = points % [figure_width, figure_height]
+        points = points % [self.figure_size, self.figure_size]
 
         # Resolve figure limits (default to pixel extents).
-        xlim = (0, figure_width)  if self.xlim is None else self.xlim
-        ylim = (0, figure_height) if self.ylim is None else self.ylim
+        xlim = (0, self.figure_size)  if self.xlim is None else self.xlim
+        ylim = (0, self.figure_size) if self.ylim is None else self.ylim
 
         # Invert y-axis (canvas origin is top-left, figure origin is bottom-left).
-        points[:, 1] = figure_height - points[:, 1]
+        points[:, 1] = self.figure_size - points[:, 1]
 
         # Now, make the conversion.
-        points *= [(xlim[1] - xlim[0]) / figure_width,
-                   (ylim[1] - ylim[0]) / figure_height]
+        points *= [(xlim[1] - xlim[0]) / self.figure_size,
+                   (ylim[1] - ylim[0]) / self.figure_size]
         points += [xlim[0], ylim[0]]
 
         # Return the converted points.
@@ -289,22 +291,21 @@ class CanvasPanel(ipw.HBox):
             return self.figure_to_canvas([points])[0]
 
         # Resolve figure limits.
-        (figure_width, figure_height) = self.canvas_size
-        xlim = (0, figure_width)  if self.xlim is None else self.xlim
-        ylim = (0, figure_height) if self.ylim is None else self.ylim
+        xlim = (0, self.figure_size)  if self.xlim is None else self.xlim
+        ylim = (0, self.figure_size) if self.ylim is None else self.ylim
 
         # Scale to pixel coordinates.
         points  = points - [xlim[0], ylim[0]]
-        points *= [figure_width  / (xlim[1] - xlim[0]),
-                   figure_height / (ylim[1] - ylim[0])]
+        points *= [self.figure_size  / (xlim[1] - xlim[0]),
+                   self.figure_size / (ylim[1] - ylim[0])]
 
         # Invert the y axis.
-        points[:, 1] = figure_height - points[:, 1]
+        points[:, 1] = self.figure_size - points[:, 1]
 
         # And build up the point matrices for each (not None) grid element.
         (n_rows, n_cols) = self.grid_shape
         return [
-            points + [ii * figure_width, jj * figure_height]
+            points + [ii * self.figure_size, jj * self.figure_size]
             for ii in np.arange(n_cols)
             for jj in np.arange(n_rows)
             if self.grid[jj][ii] is not None
@@ -608,7 +609,9 @@ class CanvasPanel(ipw.HBox):
         # Then call the callback with the converted points.
         def _convert_xy_to_points(x, y):
             # Convert canvas pixel coordinates to figure coordinates.
+            print(f"Canvas click at pixel coordinates: ({x}, {y})")
             canvas_point = np.array([[x, y]]) # must be (N, 2) matrix
+            print(f"Canvas click as (N, 2) array: {canvas_point}")
             figure_point = self.canvas_to_figure(canvas_point)
             fn(figure_point) # form: fn(points)
         
@@ -628,6 +631,12 @@ class CanvasPanel(ipw.HBox):
         self.multicanvas.on_key_down(fn)
 
 
+    def _calc_canvas_size(self):
+        """Get the current canvas size in pixels as (width, height)."""
+        canvas_size = np.array([self.figure_size, self.figure_size]) 
+        return canvas_size * self.grid_shape
+
+
     def resize(self):
         """Resize the canvas to the new size (in pixels).
  
@@ -636,10 +645,12 @@ class CanvasPanel(ipw.HBox):
         new_size : tuple of (int, int)
             The new canvas size in pixels: (width, height).
         """
+        # Get the figure size from preferences. 
+        self.figure_size = self.prefs.get_display("figure_size")
+        
         # Update the canvas size.
-        new_size = self.prefs.get_display("canvas_size")
-        self.canvas_size = np.array([new_size, new_size]) * self.grid_shape
-        canvas_width, canvas_height = self.canvas_size.astype(int)
+        self.canvas_size = self._calc_canvas_size()
+        canvas_width, canvas_height = self.canvas_size
 
         # First resize the canvas (this clears it).
         self.multicanvas.width  = canvas_width

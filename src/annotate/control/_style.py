@@ -84,11 +84,12 @@ class StyleTab(ipw.VBox):
         "readout": False,
     }
 
-    def __init__(self, config, prefs):
+    def __init__(self, config, prefs, has_viewer):
         # Store arguments and determine if has_viewer from config information.
         self.prefs      = prefs
         self.config     = config
-        self.has_viewer = config.viewer != {}
+        self.has_viewer = has_viewer
+        # self.has_morph  = at least get the flag 
         self._updating  = False
 
         # Initialize annotation style widgets.

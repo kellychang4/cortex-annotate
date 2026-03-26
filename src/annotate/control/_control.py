@@ -102,7 +102,7 @@ class ControlPanel(ipw.VBox):
         # Create the required subtabs/subpanels widgets.
         #TODO: I also want to automate this.
         self._annotate_tab = AnnotateTab(config, prefs, button_color)
-        self._style_tab    = StyleTab(config, prefs)
+        self._style_tab    = StyleTab(config, prefs, self.has_viewer)
  
         # Declare the tab registry and register the default tabs.
         self._tabs = []
@@ -133,7 +133,7 @@ class ControlPanel(ipw.VBox):
                 ),
                 self._accordion,
             ],
-            layout = { "border": "0px" },
+            layout = { "border" : "0px" },
         )
  
 
@@ -308,7 +308,7 @@ class ControlPanel(ipw.VBox):
 
     # Annotation Tab: Display Panel Observers ----------------------------------
 
-    def observe_canvas_size(self, fn):
+    def observe_figure_size(self, fn):
         """Register a callback for canvas size changes.
 
         Parameters
@@ -316,7 +316,7 @@ class ControlPanel(ipw.VBox):
         fn : callable
             Called as ``fn(change)``.
         """
-        self._annotate_tab._display.observe_canvas_size(fn)
+        self._annotate_tab._display.observe_figure_size(fn)
 
 
     def observe_viewer_size(self, fn):

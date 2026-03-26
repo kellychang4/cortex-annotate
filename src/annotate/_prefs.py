@@ -9,7 +9,7 @@ persist between annotation sessions. Preferences are organized into three
 sections:
  
     display          : general tool layout, sizing, and figure generation
-                       parameters (figsize, dpi, canvas_size, layout)
+                       parameters (figsize, dpi, figure_size, layout)
     annotation_style : per-annotation visual properties (color, linewidth, etc.)
     viewer_style     : 3D cortex viewer settings (morph, overlay, etc.)
  
@@ -43,7 +43,7 @@ from ._style import (
 DEFAULT_DISPLAY_PREFS = {
     "figsize"       : [4, 4],
     "dpi"           : 128,
-    "canvas_size"   : 256,  
+    "figure_size"   : 256, 
     "viewer_size"   : 256,
     "viewer_camera" : [],
     "layout"        : "horizontal",
@@ -53,7 +53,7 @@ DEFAULT_DISPLAY_PREFS = {
 DISPLAY_PREFS_KEYS = tuple(DEFAULT_DISPLAY_PREFS.keys())
 
 # Keys that can be modified at runtime via set_display().
-_SETTABLE_DISPLAY_KEYS = ( "canvas_size", "viewer_size", "viewer_camera", "layout" )
+_SETTABLE_DISPLAY_KEYS = ( "figure_size", "viewer_size", "viewer_camera", "layout" )
  
 # Preference Manager Class -----------------------------------------------------
 
@@ -180,13 +180,6 @@ class PrefsManager:
         # Set active annotation style (key = None).
         active_style = { **annotation_style, **self.config.display.active_style }
         preferences["annotation_style"][None] = active_style.copy()
-
-        # Extract the viewer style from the config, if it exists. (Currently
-        # no viewer style config options, but this is here for future expansion.)
-        config_viewer = {
-            key : getattr(self.config.display, key)
-            for key in VIEWER_STYLE_KEYS    
-        }
  
         # Return the fully built preferences dict.
         return preferences
@@ -228,20 +221,20 @@ class PrefsManager:
     def set_display(self, key, value):
         """Set a display preference.
  
-        Only ``canvas_size`` and ``layout`` can be modified at runtime.
+        Only ``figure_size`` and ``layout`` can be modified at runtime.
         The ``figsize`` and ``dpi`` keys are config-level generation
         parameters and cannot be changed after initialization.
  
         Validation constraints:
  
-        - ``canvas_size``: positive integer.
+        - ``figure_size``: positive integer.
         - ``layout``: one of ``("horizontal", "vertical")``.
  
         Parameters
         ----------
         key : str
             Must be one of ``_SETTABLE_DISPLAY_KEYS``
-            (``"canvas_size"`` or ``"layout"``).
+            (``"figure_size"`` or ``"layout"``).
  
         value : int or str
             The new value for this key.

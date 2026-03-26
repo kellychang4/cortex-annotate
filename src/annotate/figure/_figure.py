@@ -59,7 +59,7 @@ class FigurePanel(ipw.Box):
  
     prefs : PrefsManager
         User preferences.  Used to read the initial canvas tile size
-        via ``prefs.get_display("canvas_size")``.
+        via ``prefs.get_display("figure_size")``.
  
     editor : AnnotationEditor
         The shared annotation editing model.  ``FigurePanel`` reads
@@ -89,21 +89,22 @@ class FigurePanel(ipw.Box):
     """
 
     # Define the horizontal and vertical layouts for the canvas + viewer panel.
-    _HORIZONTAL_LAYOUT = ipw.Layout(
-        display     = "flex", 
-        flex_flow   = "row", 
-        align_items = "stretch",
-        overflow    = "hidden",
-        border      = "1px solid deeppink",
-    )
-
-    _VERTICAL_LAYOUT = ipw.Layout(
-        display     = "flex", 
-        flex_flow   = "column", 
-        align_items = "stretch",
-        overflow    = "hidden",
-        border      = "1px solid deeppink",
-    )
+    _LAYOUTS = {
+        "horizontal": ipw.Layout(
+            display     = "flex", 
+            flex_flow   = "row", 
+            align_items = "stretch",
+            overflow    = "hidden",
+            border      = "1px solid deeppink",
+        ),
+        "vertical": ipw.Layout(
+            display     = "flex", 
+            flex_flow   = "column", 
+            align_items = "stretch",
+            overflow    = "hidden",
+            border      = "1px solid deeppink",
+        ),
+    }
 
     __slots__ = (
         "prefs", "editor", "locked", "_canvas_panel", "_viewer_panel",
@@ -141,9 +142,10 @@ class FigurePanel(ipw.Box):
             self._viewer_panel = None
 
         # Combine the canvas and viewer panels into a single panel for layout.
+        layout = prefs.get_display("layout")
         self._figure = ipw.Box(
             children = figure_children,
-            layout   = self._HORIZONTAL_LAYOUT,
+            layout   = self._LAYOUTS[layout], 
         )
         self._figure.add_class("annotate-figure-item")
 
@@ -264,22 +266,9 @@ class FigurePanel(ipw.Box):
  
         Changes the inner figure box layout (canvas + viewer).  The
         outer grid container is unaffected.
- 
-        Parameters
-        ----------
-        layout : {"horizontal", "vertical"}
-            The layout direction for the canvas and viewer.
         """
         layout = self.prefs.get_display("layout")
-        if layout == "horizontal":
-            self._figure.layout = self._HORIZONTAL_LAYOUT
-        elif layout == "vertical":
-            self._figure.layout = self._VERTICAL_LAYOUT
-        else:
-            raise ValueError(
-                f"Invalid layout direction: {layout!r}. "
-                f"Expected 'horizontal' or 'vertical'."
-            )
+        self._figure.layout = self._LAYOUTS[layout]
  
     # Redraw -------------------------------------------------------------------
  
@@ -352,6 +341,9 @@ class FigurePanel(ipw.Box):
  
         # Push the point and get back any dependent annotations that changed.
         fixed_deps = self.editor.push_point(points)
+
+        # Update viewer annotation if present. TODO: annotations arguments
+        if self.has_viewer: self.update_viewer(annotations = fixed_deps)
  
         # Redraw active annotation (redraw dependent layer if deps changed).
         self.redraw(active = True, dependent = len(fixed_deps) > 0)
@@ -397,7 +389,7 @@ class FigurePanel(ipw.Box):
             if error_msg is not None:
                 self.write_message(error_msg, timeout = 3.0)
                 return
- 
+
         elif key == "ArrowLeft":
             # Switch insertion direction to "before" cursor.
             self.editor.insert = "before"
@@ -412,6 +404,9 @@ class FigurePanel(ipw.Box):
             # Unhandled key, do nothing.
             return
  
+        # Update viewer annotation if present. TODO: annotations arguments
+        if self.has_viewer: self.update_viewer(annotations = fixed_deps)
+
         # Redraw active annotation (redraw dependent layer if deps changed).
         self.redraw(active = True, dependent = len(fixed_deps) > 0)
 
@@ -477,8 +472,8 @@ class FigurePanel(ipw.Box):
 
     def update_viewer(self, annotations = None):
         """Update a specific overlay in the viewer."""
-        
-        self._viewer_panel.update(annotations)
+        #TODO: do something clever about which annotations to update
+        self._viewer_panel.update()
 
 
     def resize_viewer(self):

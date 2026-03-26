@@ -455,7 +455,7 @@ viewer:
     fs_hemi    = f"{hemisphere[0].lower()}h"
 
     # convert canvas (2d) coordinates to barycentric coordinates
-    flatmap_address  = fsa_flatmap[fs_hemi].address(points)
+    flatmap_address  = fsa_flatmap[fs_hemi].address(points.T)
     bary_faces       = flatmap_address["faces"]       # (3, n_faces)
     bary_coordinates = flatmap_address["coordinates"] # (2, n_points)
     

@@ -356,7 +356,8 @@ class ViewerPanel(ipw.VBox):
         """
         # If no specific annotations provided, update all annotations.
         if annotations is None: annotations = list(self.annot_cfg.names)
- 
+
+        print("Updating viewer annotations:")
         for annotation in annotations:
             # Get the canvas coordiantes for current annotation
             canvas_points = self.editor.annotations.get(annotation, None)
@@ -368,7 +369,8 @@ class ViewerPanel(ipw.VBox):
                     "point_types": None,
                 }
                 continue
- 
+            
+            print("  -> Annotation:", annotation)
             # Determine point types (fixed vs. user).
             n_points    = canvas_points.shape[0]
             point_types = np.full(n_points, self._POINT_USER)
@@ -376,6 +378,11 @@ class ViewerPanel(ipw.VBox):
             has_fixed_tail = bool(self.annot_cfg.fixed_tails[annotation])
             if has_fixed_head: point_types[0]  = self._POINT_FIXED
             if has_fixed_tail: point_types[-1] = self._POINT_FIXED
+
+            print(f"    canvas_points: {canvas_points.shape}")
+            print(f"    point_types: {point_types.shape}")
+            print(f"    fixed head: {has_fixed_head}")
+            print(f"    fixed tail: {has_fixed_tail}")
  
             # Interpolate if there are segments and not all fixed points.
             if n_points > 1 and not np.all(point_types == self._POINT_FIXED):
@@ -389,6 +396,8 @@ class ViewerPanel(ipw.VBox):
             print(f"coordinates: {self.coordinates.shape}")  
             viewer_coords = self.canvas_to_viewer(
                 canvas_points, self.coordinates)
+            
+            print(f"viewer_coords: {viewer_coords.shape}")
 
             # Store the current annotation's viewer coordinates and point types.
             self.annotations[annotation] = {

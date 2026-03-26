@@ -7,7 +7,7 @@
 Provides the ``DisplaySection`` widget, which exposes two controls that
 affect the overall tool layout:
 
-    canvas_size_slider : pixel size of one figure tile in the annotation
+    figure_size_slider : pixel size of one figure tile in the annotation
                          grid (drives canvas and image sizing).
 
     layout_toggle      : switches between horizontal and vertical
@@ -32,7 +32,7 @@ class DisplaySection(ipw.VBox):
 
     Attributes
     ----------
-    canvas_size_slider : ipywidgets.IntSlider
+    figure_size_slider : ipywidgets.IntSlider
         Controls the pixel size of one figure tile.
 
     layout_toggle : ipywidgets.ToggleButton
@@ -42,15 +42,15 @@ class DisplaySection(ipw.VBox):
     # Shared widget layout.
     _WIDGET_LAYOUT = { "width": "94%", "margin": "1% 3% 1% 3%" }
 
-    __slots__ = ( "prefs", "canvas_size_slider", "viewer_size_slider", "layout_toggle" )
+    __slots__ = ( "prefs", "figure_size_slider", "viewer_size_slider", "layout_toggle" )
 
     def __init__(self, prefs, has_viewer):
         # Store preferences for later use.
         self.prefs = prefs
 
         # Initialize canvas pixel slider.
-        self.canvas_size_slider = ipw.IntSlider(
-            value             = prefs.get_display("canvas_size"),
+        self.figure_size_slider = ipw.IntSlider(
+            value             = prefs.get_display("figure_size"),
             min               = 128,
             max               = 1280,
             step              = 1,
@@ -73,9 +73,12 @@ class DisplaySection(ipw.VBox):
         )
 
         # Initialize layout toggle.
+        toggle_value = prefs.get_display("layout") == "horizontal"
+        toggle_str = "Horizontal Layout" if toggle_value else "Vertical Layout"
+        print(f"Initial layout toggle value: {toggle_value} ({toggle_str})")
         self.layout_toggle = ipw.ToggleButton(
-            value       = prefs.get_display("layout") == "horizontal",
-            description = "Horizontal Layout",
+            value       = toggle_value,
+            description = toggle_str,
             tooltip     = ( "Toggle between horizontal and vertical layout "
                             "of the control and figure panels." ),
             layout      = self._WIDGET_LAYOUT,
@@ -86,7 +89,7 @@ class DisplaySection(ipw.VBox):
         super().__init__(
             children = [
                 make_section_title("Display Options"),
-                self.canvas_size_slider,
+                self.figure_size_slider,
                 self.viewer_size_slider if has_viewer else None, 
                 self.layout_toggle,
             ],
@@ -100,20 +103,20 @@ class DisplaySection(ipw.VBox):
 
     def lock(self):
         """Disable all display controls."""
-        self.canvas_size_slider.disabled = True
+        self.figure_size_slider.disabled = True
         self.viewer_size_slider.disabled = True
         self.layout_toggle.disabled      = True
 
 
     def unlock(self):
         """Enable all display controls."""
-        self.canvas_size_slider.disabled = False
+        self.figure_size_slider.disabled = False
         self.viewer_size_slider.disabled = False
         self.layout_toggle.disabled      = False
 
     # Observer Registration ----------------------------------------------------
 
-    def observe_canvas_size(self, fn):
+    def observe_figure_size(self, fn):
         """Register a callback for canvas size changes.
 
         Parameters
@@ -122,7 +125,7 @@ class DisplaySection(ipw.VBox):
             Called as ``fn(change)`` where *change* is the ipywidgets
             change object with ``change.new`` being the new pixel size.
         """
-        self.canvas_size_slider.observe(fn, names = "value")
+        self.figure_size_slider.observe(fn, names = "value")
 
 
     def observe_viewer_size(self, fn):

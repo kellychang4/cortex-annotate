@@ -186,7 +186,7 @@ class AnnotationTool(ipw.HBox):
         self.control_panel.observe_annotation_style(
             self._on_annotation_style_change) # TODO
         self.control_panel.observe_viewer_style(self._on_viewer_style_change)
-        self.control_panel.observe_canvas_size(self._on_canvas_size_change)
+        self.control_panel.observe_figure_size(self._on_figure_size_change)
         self.control_panel.observe_viewer_size(self._on_viewer_size_change)
         self.control_panel.observe_layout(self._on_layout_change)
         self.control_panel.observe_save(self._on_save)
@@ -413,10 +413,7 @@ class AnnotationTool(ipw.HBox):
         # Set the canvas rendering variables.
         self.figure_panel.set_canvas(
             image = ipw.Image(value = image_data, format = "png"), 
-            grid = grid, 
-            grid_shape = grid_shape, 
-            xlim = xlim, 
-            ylim = ylim
+            grid = grid, grid_shape = grid_shape, xlim = xlim, ylim = ylim
         )
 
 
@@ -435,22 +432,16 @@ class AnnotationTool(ipw.HBox):
 
         # Extract viewer data from the viewer config.
         viewer_cfg = self.config.viewer
-        faces      = viewer_cfg["faces"](target)
-
-        coordinates = [
-            viewer_cfg["coordinates"][x](target) 
-            for x in viewer_cfg["morph_between"]
-        ]
-        
-        overlays = {
-            key: fn(target, key)
-            for key, fn in viewer_cfg["overlays"].items()
-        }
-        canvas_to_viewer = partial(viewer_cfg["canvas_to_viewer"], target)
-   
-        print()
+    
+        # Set the viewer rendering variables.       
         self.figure_panel.set_viewer(
-            faces, coordinates, overlays, canvas_to_viewer)
+            faces       = viewer_cfg["faces"](target),
+            coordinates = [ viewer_cfg["coordinates"][x](target) 
+                            for x in viewer_cfg["morph_between"] ], 
+            overlays    = { key: fn(target, key) 
+                            for key, fn in viewer_cfg["overlays"].items() },
+            canvas_to_viewer = partial(viewer_cfg["canvas_to_viewer"], target)
+        )
 
     # Control Panel Event Handlers ---------------------------------------------
 
@@ -550,7 +541,7 @@ class AnnotationTool(ipw.HBox):
         )
 
 
-    def _on_canvas_size_change(self, change):
+    def _on_figure_size_change(self, change):
         """Handle a canvas size change from the display panel.
 
         Persists the new size, resizes the canvas, and triggers a
@@ -562,7 +553,7 @@ class AnnotationTool(ipw.HBox):
             The ipywidgets change object.
         """
         # Update the display setting in the preferences manager.
-        self.prefs.set_display("canvas_size", change.new)
+        self.prefs.set_display("figure_size", change.new)
 
         # Resize the canvas. 
         self.figure_panel.resize_canvas()
