@@ -49,7 +49,7 @@ from ._cache  import FigureCache
 from .control import ControlPanel
 from .figure  import FigurePanel
 
-from ._style import SAVE_TIMER
+from ._util import SAVE_TIMEOUT, ERROR_TIMEOUT
 
 # The Annotation Tool ----------------------------------------------------------
 
@@ -187,13 +187,13 @@ class AnnotationTool(ipw.HBox):
         self.control_panel.observe_selection(self._on_selection_change) #TODO
         self.control_panel.observe_annotation_style(
             self._on_annotation_style_change) # TODO
-        self.control_panel.observe_viewer_style(self._on_viewer_style_change)
+        self.control_panel.observe_viewer_style(self._on_viewer_style_change) #TODO
         self.control_panel.observe_figure_size(self._on_figure_size_change)
         self.control_panel.observe_viewer_size(self._on_viewer_size_change)
         self.control_panel.observe_layout(self._on_layout_change)
         self.control_panel.observe_save(self._on_save)
-        # self.control_panel.observe_clear_current(self._on_clear_current)
-        # self.control_panel.observe_clear_all(self._on_clear_all)
+        self.control_panel.observe_clear_current(self._on_clear_current)
+        self.control_panel.observe_clear_all(self._on_clear_all)
 
         # Refresh figure with initial values.
         self.refresh_figure()
@@ -267,7 +267,7 @@ class AnnotationTool(ipw.HBox):
            panel.
         2. Loads the target's annotation data from ``AnnotationState``
            (triggers lazy loading on first access).
-        3. Validates that all fixed-point dependencies are satisfiable.
+        3. Validates that all fixed point dependencies are satisfiable.
         4. On validation failure: locks the tool and displays an error
            message.
         5. On success: updates the ``AnnotationEditor``, loads cached
@@ -283,7 +283,7 @@ class AnnotationTool(ipw.HBox):
         # Load the target's annotation coordinates.
         target_annots = self.annotations[target_id]
 
-        # Validate that all fixed-point dependencies can be resolved.
+        # Validate that all fixed point dependencies can be resolved.
         error = self._validate_fixed_dependencies(
             target_id, annotation, target_annots)
 
@@ -291,19 +291,16 @@ class AnnotationTool(ipw.HBox):
         if error is not None:
             # Lock the tool and write the message
             self.lock()
-            self.figure_panel.write_message(error)
+            self.write_message(error)
             return
 
         # There was no error, unlock and clear any lingering error messages.
         self.unlock()
-        self.figure_panel.clear_message()
+        self.clear_message()
 
         # Update the annotation editor. 
         target_changed = self.editor.update(
             target_id, annotation, target_annots)
-
-        # If the target did not changed, no work to do.
-        if target_changed is None: return
 
         # If the target changed, load new canvas and viewer data.
         self._load_canvas(target_id, annotation)
@@ -312,6 +309,7 @@ class AnnotationTool(ipw.HBox):
         # Update viewer annotations from editor state (needed on both
         # target and annotation changes, since the active annotation
         # determines which annotations are "dependent" vs "background").
+        #TODO: need to be a little more clever with what to update.
         if self.has_viewer: self.figure_panel.update_viewer()
 
         # Full redraw.
@@ -325,13 +323,13 @@ class AnnotationTool(ipw.HBox):
 
 
     def _validate_fixed_dependencies(self, target_id, annotation, target_annots):
-        """Check that fixed-point dependencies can be resolved.
+        """Check that fixed point dependencies can be resolved.
 
         For each annotation that the active annotation depends on
         (via ``fixed_heads`` or ``fixed_tails``), verifies that:
 
         1. The dependency annotation has enough data points.
-        2. The fixed-point calculation function succeeds.
+        2. The fixed point calculation function succeeds.
 
         Parameters
         ----------
@@ -527,15 +525,18 @@ class AnnotationTool(ipw.HBox):
         self.prefs.set_viewer_style(key, change.new)
 
         if key == "morph_percent":
-            base, active, dependent, background = True, True, True, True
+            #TODO: more clever redraw only the required annotations.
+            self.figure_panel.update_viewer() # need to update the coordinates for morphing
+            clear, base, active, dependent, background = True, True, True, True, True
         elif key in ( "overlay" , "overlay_alpha" ):
-            base, active, dependent, background = True, False, False, False
+            clear, base, active, dependent, background = False, True, False, False, False
         elif key in ( "point_size", "line_width", "line_interp" ):
-            base, active, dependent, background = False, True, True, True
+            clear, base, active, dependent, background = False, False, True, True, True
 
         # Redraw the viewer (cortex + all annotation layers).
         #TODO: only redraw the viewer panel! need a new argument for that option.
         self.figure_panel.redraw(
+            clear      = clear,
             base       = base,
             active     = active,
             dependent  = dependent,
@@ -619,7 +620,7 @@ class AnnotationTool(ipw.HBox):
         self.prefs.save()
 
         # Write a temporary "Save" message to the figure panel.
-        self.write_message("Saved annotations.", timeout = SAVE_TIMER)
+        self.write_message("Saved annotations.", timeout = SAVE_TIMEOUT)
 
 
     def _on_clear_current(self, button):
@@ -633,18 +634,53 @@ class AnnotationTool(ipw.HBox):
         button : ipywidgets.Button
             The clicked button.
         """
-        pass
+        print("Clear Current button clicked:", button)
+
         # Get the current target and annotation.
-        # target_id  = self.control_panel.target
-        # annotation = self.control_panel.annotation
+        target_id     = self.target
+        annotation    = self.annotation
+        target_annots = self.annotations[target_id]
 
-        # # Reset the annotation to an empty coordinate array.
-        #TODO: There needs to be a validity check here to prevent fixed errors.
-        # self.annotations.annotations[target_id][annotation] = (
-        #     np.zeros((0, 2), dtype = float))
+        annot_cfg     = self.config.annotations
+        dependents    = annot_cfg.fixed_dependencies[annotation]
 
-        # # Refresh the figure to reflect the cleared annotation.
-        # self.refresh_figure()
+        # Check if there are any LIVE dependencies on this annotation. 
+        # If so, we cannot clear this annotation.         
+        error = None
+        if len(dependents) > 0 and target_annots[annotation].shape[0] == 1:
+            # Determine the number of fixed points for each dependent 
+            # annotation. This number is the minimum number of points that the 
+            # annotation must have be considered LIVE.
+            n_fixed = [ len(annot_cfg.fixed_points[fd]) 
+                        for fd in dependents ]
+
+            live_deps = [
+                fd for fd, n in zip(dependents, n_fixed) 
+                if target_annots[fd] is not None
+                and target_annots[fd].shape[0] > n
+            ]
+        
+            # If there are live dependencies, we cannot delete the annotation.
+            if live_deps:
+                error = (
+                    f"Cannot delete: '{annotation}'. It is required by "
+                    f"'{', '.join(live_deps)}'. Clear those annotations "
+                    f"first."
+                )
+        
+        # If there is an error, lock the tool and display the error.
+        if error is not None:
+            # Lock the tool and write the message
+            # self.lock()
+            self.write_message(error, timeout = ERROR_TIMEOUT)
+        else: 
+            # Reset the annotation to an empty coordinate array.
+            self.annotations[target_id][annotation] = (
+                np.zeros((0, 2), dtype = float))
+            print(self.annotations[target_id][annotation])
+
+            # Refresh the figure to reflect the cleared annotation.
+            self.refresh_figure()
 
 
     def _on_clear_all(self, button):
@@ -658,12 +694,13 @@ class AnnotationTool(ipw.HBox):
         button : ipywidgets.Button
             The clicked button.
         """
-        pass
-        # # Clear the annotations for the current target.
-        # target_id = self.control_panel.target # current target id
-        # for annotation in self.annotations[target_id].keys():
-        #     self.annotations[target_id][annotation] = (
-        #         self.figure_panel.empty_point_matrix())
+        # Get the current target.
+        target_id = self.target 
 
-        # # Refresh the figure to show the cleared annotations.
-        # self.refresh_figure()
+        # Clear all the annotations for the current target.
+        for annotation in self.annotations[target_id].keys():
+            self.annotations[target_id][annotation] = (
+                np.zeros((0, 2), dtype = float))
+
+        # Refresh the figure to show the cleared annotations.
+        self.refresh_figure()

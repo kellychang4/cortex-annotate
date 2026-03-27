@@ -112,6 +112,4 @@ DEFAULT_VIEWER_STYLE = {
 # Viewer style key names.
 VIEWER_STYLE_KEYS = tuple(DEFAULT_VIEWER_STYLE.keys())
 
-# Button Style Variables -------------------------------------------------------
 
-SAVE_TIMER = 2.0 # seconds

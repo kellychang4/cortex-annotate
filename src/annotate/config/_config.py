@@ -70,7 +70,8 @@ class Config:
     """
     
     __slots__ = (
-        "display", "init", "targets", "annotations", "figures", "viewer" 
+        "display", "init", "targets", "annotations", "figures", "viewer", 
+        "has_viewer"
     )
     
     def __init__(self, config_path = "/config/config.yaml"):
@@ -102,3 +103,6 @@ class Config:
         # Parse the viewer section (optional).
         viewer_yaml = config_yaml.get("viewer", None)
         self.viewer = ViewerConfig(viewer_yaml, annot_figure_names, self.init)
+
+        # Flag indicating whether the viewer section is present. 
+        self.has_viewer = self.viewer != {} 

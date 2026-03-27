@@ -14,6 +14,14 @@ helper (:func:`wrap`).
 import textwrap
 from functools import partial
 
+# Constants --------------------------------------------------------------------
+
+# timer for how long the save message is shown after saving annotations
+SAVE_TIMEOUT = 1.0 # seconds
+
+# timer for how long the error message is shown after an error occurs
+ERROR_TIMEOUT = 3.0 # seconds
+
 # Lazy Dict Type ---------------------------------------------------------------
 # The Lazy Dict type (ldict) is a mutable dictionary whose values may be delay
 # objects (also defined here). Delay objects are automatically undelayed before

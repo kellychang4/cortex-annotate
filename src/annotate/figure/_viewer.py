@@ -233,11 +233,6 @@ class ViewerPanel(ipw.VBox):
             ``fn(points, mesh_coords) → ndarray (n, 3)``.  Converts 2D
             canvas coordinates to 3D viewer coordinates.
         """
-        print("Viewer set_viewer called with data:")
-        print(f"  faces: {faces.shape if faces is not None else None}")
-        print(f"  coordinates: {[c.shape for c in coordinates] if coordinates is not None else None}")
-        print(f"  overlays: {list(overlays.keys()) if overlays is not None else None}")
-        print(f"  canvas_to_viewer: {canvas_to_viewer is not None}")
         self.faces            = faces
         self._coordinates     = coordinates
         self.overlays         = overlays
@@ -357,7 +352,6 @@ class ViewerPanel(ipw.VBox):
         # If no specific annotations provided, update all annotations.
         if annotations is None: annotations = list(self.annot_cfg.names)
 
-        print("Updating viewer annotations:")
         for annotation in annotations:
             # Get the canvas coordiantes for current annotation
             canvas_points = self.editor.annotations.get(annotation, None)
@@ -370,7 +364,6 @@ class ViewerPanel(ipw.VBox):
                 }
                 continue
             
-            print("  -> Annotation:", annotation)
             # Determine point types (fixed vs. user).
             n_points    = canvas_points.shape[0]
             point_types = np.full(n_points, self._POINT_USER)
@@ -379,26 +372,15 @@ class ViewerPanel(ipw.VBox):
             if has_fixed_head: point_types[0]  = self._POINT_FIXED
             if has_fixed_tail: point_types[-1] = self._POINT_FIXED
 
-            print(f"    canvas_points: {canvas_points.shape}")
-            print(f"    point_types: {point_types.shape}")
-            print(f"    fixed head: {has_fixed_head}")
-            print(f"    fixed tail: {has_fixed_tail}")
- 
             # Interpolate if there are segments and not all fixed points.
             if n_points > 1 and not np.all(point_types == self._POINT_FIXED):
                 canvas_points, point_types = (
                     self._interpolate_coordinates(canvas_points, point_types))
  
             # Convert 2D → 3D with the `canvas_to_viewer` function.
-            print(f"canvas_points: {canvas_points.shape}")
-            print(f"point_types: {point_types.shape}")
-            print(f"canvas_to_viewer: {self.canvas_to_viewer}")
-            print(f"coordinates: {self.coordinates.shape}")  
             viewer_coords = self.canvas_to_viewer(
                 canvas_points, self.coordinates)
             
-            print(f"viewer_coords: {viewer_coords.shape}")
-
             # Store the current annotation's viewer coordinates and point types.
             self.annotations[annotation] = {
                 "coordinates": viewer_coords,
@@ -809,16 +791,21 @@ class ViewerPanel(ipw.VBox):
             Refresh the independent background annotation layers.
             Defaults to ``False``.
         """
-
+        print("Inside _viewer.py -> _redraw_annotations()")
         # Seperate the annotaitons by type.
         active_annotation     = self.editor.active
+        print("active_annotation:", active_annotation)
         dependent_annotations = self.annot_cfg.fixed_dependencies.get(active_annotation, [])
+        print("dependent_annotations:", dependent_annotations)
 
         nonbackground_annotations = set([active_annotation, *dependent_annotations])
         background_annotations    = list(set(self.annot_cfg.names) - set(nonbackground_annotations))
+        print("background_annotations:", background_annotations)
 
         if active:
+            print("inside active redraw")
             k3d_kwargs = self._prep_single_annotation(active_annotation, None)
+            print(k3d_kwargs)
             self._redraw_layer(
                 k3d_line   = self._k3dline_active, 
                 k3d_points = self._k3dpoints_active, 
@@ -826,6 +813,7 @@ class ViewerPanel(ipw.VBox):
             )
 
         if dependent: 
+            print("inside dependent redraw")
             # Determine which annotations depend on the active annotation.
             k3d_kwargs = self._prep_multiple_annotations(
                 dependent_annotations, size_scale = 0.5)
@@ -836,6 +824,7 @@ class ViewerPanel(ipw.VBox):
             )
 
         if background:
+            print("inside background redraw")
             k3d_kwargs = self._prep_multiple_annotations(
                 background_annotations, size_scale = 0.5)
             self._redraw_layer(
@@ -872,7 +861,7 @@ class ViewerPanel(ipw.VBox):
         self._figure.auto_rendering = False
 
         # Apply updates to the figure layers based on the specified flags.
-        if clear:  self._clear_figure()
+        if clear: self._clear_figure()
         if cortex: self._redraw_cortex()
         if active or dependent or background:
             self._redraw_annotations(

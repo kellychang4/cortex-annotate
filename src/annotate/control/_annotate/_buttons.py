@@ -13,7 +13,7 @@ and Clear All buttons.
 import threading
 import ipywidgets as ipw
 
-from ..._style import SAVE_TIMER
+from ..._util import SAVE_TIMEOUT
 
 # The Button Subpanel ----------------------------------------------------------
 
@@ -133,11 +133,8 @@ class ButtonSection(ipw.HBox):
 
     # Internal Event Handlers --------------------------------------------------
 
-
-
     def _on_save(self, button):
         """DOCSTRING"""
-
         def _reset_save_button():
             """Reset the Save button to its default state."""
             self._save_button.description  = "Save"
@@ -148,7 +145,7 @@ class ButtonSection(ipw.HBox):
         self._save_button.style.button_color = "#4caf51"
 
         self._timer = None  
-        self._timer = threading.Timer(SAVE_TIMER, _reset_save_button)
+        self._timer = threading.Timer(SAVE_TIMEOUT, _reset_save_button)
         self._timer.start()
 
     def _on_clear_all(self, button):

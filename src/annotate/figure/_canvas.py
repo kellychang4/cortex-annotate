@@ -43,7 +43,6 @@ Loading screens and error messages are handled by overlays at the
 import numpy as np
 import ipycanvas as ipc
 import ipywidgets as ipw
-
 import matplotlib as mpl
  
 # The Canvas Panel -------------------------------------------------------------

@@ -18,7 +18,7 @@ supplied at runtime via ``update()``.
 # Imports ----------------------------------------------------------------------
  
 import numpy as np
- 
+
 # Annotation Editor ------------------------------------------------------------
  
 class AnnotationEditor:

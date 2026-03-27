@@ -32,6 +32,8 @@ from ._canvas  import CanvasPanel
 from ._viewer  import ViewerPanel
 from ._overlay import Overlay, LoadingContext
 
+from .._util import ERROR_TIMEOUT
+
 # Figure Panel Class -----------------------------------------------------------
 
 class FigurePanel(ipw.Box):
@@ -387,7 +389,7 @@ class FigurePanel(ipw.Box):
  
             # If error, show the error message and exit without redrawing.
             if error_msg is not None:
-                self.write_message(error_msg, timeout = 3.0)
+                self.write_message(error_msg, timeout = ERROR_TIMEOUT)
                 return
 
         elif key == "ArrowLeft":
