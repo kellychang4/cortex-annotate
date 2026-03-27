@@ -2,7 +2,7 @@
 ################################################################################
 # annotate/control/_annotate/_legend.py
 
-"""Annotation legend image subpanel.
+"""Annotation legend image section.
  
 Provides the ``LegendSection`` widget, which displays a reference image
 for the currently selected annotation and hemisphere.  Legend images
@@ -17,7 +17,7 @@ import ipywidgets as ipw
  
 from ..._widgets import make_section_title
 
-# The Legend Subpanel ----------------------------------------------------------
+# The Legend Section -----------------------------------------------------------
 
 class LegendSection(ipw.VBox):
     """Annotation legend image display.

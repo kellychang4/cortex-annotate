@@ -2,7 +2,7 @@
 ################################################################################
 # annotate/control/_annotate/_info.py
 
-"""Keyboard shortcut instructions subpanel for cortex-annotate.
+"""Keyboard shortcut instructions section for cortex-annotate.
 
 Provides the ``InfoSection`` widget, a static display of mouse and
 keyboard interaction hints shown inside the Selection tab.
@@ -12,7 +12,7 @@ keyboard interaction hints shown inside the Selection tab.
 
 import ipywidgets as ipw
 
-# The Info Subpanel ------------------------------------------------------------
+# The Info Section -------------------------------------------------------------
 
 class InfoSection(ipw.VBox):
     """Static HTML panel describing mouse and keyboard shortcuts."""

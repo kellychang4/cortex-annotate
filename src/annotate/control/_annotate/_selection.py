@@ -2,7 +2,7 @@
 ################################################################################
 # annotate/control/_annotate/_selection.py
 
-"""Target and annotation selection subpanel.
+"""Target and annotation selection section.
  
 Provides the ``SelectionSection`` widget, which manages a set of dropdown
 menus for choosing annotation targets (derived from the ``config.yaml``
@@ -28,7 +28,7 @@ from functools import partial
  
 from ..._widgets import make_section_title
 
-# The Selection Subpanel -------------------------------------------------------
+# The Selection Section --------------------------------------------------------
 
 class SelectionSection(ipw.VBox):
     """Target and annotation selection panel.

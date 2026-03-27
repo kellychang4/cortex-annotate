@@ -88,8 +88,7 @@ class StyleTab(ipw.VBox):
         self.prefs  = prefs
         self.config = config
 
-        
-        # self.has_morph  = at least get the flag 
+        # Flag to suppress observer notifications when manually refreshing widgets. 
         self._updating  = False
 
         # Initialize annotation style widgets.
@@ -110,6 +109,7 @@ class StyleTab(ipw.VBox):
 
         # Initialize viewer style widgets (if has_viewer)
         if self.config.has_viewer:
+            #TODO: figure out when there is no morph_between in config
             self.morph_slider       = self._init_morph_slider()
             self.overlay_dropdown   = self._init_overlay_dropdown()
             self.overlay_slider     = self._init_overlay_alpha_slider()

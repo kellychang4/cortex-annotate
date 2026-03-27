@@ -2,7 +2,7 @@
 ################################################################################
 # annotate/control/_annotate/_display.py
 
-"""Display subpanel for cortex-annotate.
+"""Display section for cortex-annotate.
 
 Provides the ``DisplaySection`` widget, which exposes two controls that
 affect the overall tool layout:
@@ -20,7 +20,7 @@ import ipywidgets as ipw
 
 from ..._widgets import make_section_title
 
-# The Display Subpanel ---------------------------------------------------------
+# The Display Section ----------------------------------------------------------
 
 class DisplaySection(ipw.VBox):
     """Image pixel size and layout controls.

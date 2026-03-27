@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 ################################################################################
-# annotate/control/_annotate/_buttons.py
+# annotate/control/_flexible/_buttons.py
 
 """Save and Clear action buttons for cortex-annotate.
 
