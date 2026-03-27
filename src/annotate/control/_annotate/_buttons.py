@@ -10,7 +10,10 @@ and Clear All buttons.
 
 # Imports ----------------------------------------------------------------------
 
+import threading
 import ipywidgets as ipw
+
+from ..._style import SAVE_TIMER
 
 # The Button Subpanel ----------------------------------------------------------
 
@@ -36,52 +39,122 @@ class ButtonSection(ipw.HBox):
     """
 
     __slots__ = ( 
-        "save_button", "clear_current_button", "clear_all_button", 
+        "_button_color", "_save_timer",
+        "_save_button",  "_clear_current_button", "_clear_all_button", 
+        "_cancel_button", "_confirm_button", "_button_box",
     )
 
     def __init__(self, button_color = "#e0e0e0"):
+        # Store the button color
+        self._button_color = button_color
+
+        # Initialize the save timer reference
+        self._save_timer   = None
+
         # Define the save button
-        self.save_button = ipw.Button(
+        self._save_button = ipw.Button(
             description  = "Save",
             tooltip      = "Save all annotations and preferences.",
         )
-        self.save_button.style.button_color = button_color
+        self._save_button.style.button_color = self._button_color
 
         # Define the clear current button
-        self.clear_current_button = ipw.Button(
+        self._clear_current_button = ipw.Button(
             description  = "Clear",
             tooltip      = "Clear the current annotation.",
         )
-        self.clear_current_button.style.button_color = button_color
+        self._clear_current_button.style.button_color = self._button_color
 
         # Define the clear all button
-        self.clear_all_button = ipw.Button(
+        self._clear_all_button = ipw.Button(
             description  = "Clear All",
             tooltip      = "Clear all annotations from the figure.",
-            button_style = "warning",
+        )
+        self._clear_all_button.style.button_color = self._button_color
+
+        # Define the cancel clear all button
+        self._cancel_button = ipw.Button(
+            description  = "Cancel",
+            tooltip      = "Cancel the clear all action.",
+            button_style = "info",
+        )
+
+        # Define the confirm clear all button
+        self._confirm_button = ipw.Button(
+            description  = "Confirm",
+            tooltip      = "Confirm the clear all action.",
+            button_style = "danger",
         )
 
         # Assemble the button panel
         super().__init__(
-            children = [
-                self.save_button,
-                self.clear_current_button,
-                self.clear_all_button,
-            ],
-            layout = { "margin": "3% 3% 3% 3%", "width": "94%" },
+            children = [ self._save_button, self._clear_current_button, self._clear_all_button ],
+            layout   = { "margin": "3% 3% 3% 3%", "width": "94%" },
         )
+
+        # Wire the internal button events
+        self._save_button.on_click(self._on_save)
+        self._clear_all_button.on_click(self._on_clear_all)
+        self._cancel_button.on_click(self._on_reverse_clear_all)
+        self._confirm_button.on_click(self._on_reverse_clear_all)
 
     # Lock / Unlock ------------------------------------------------------------
 
     def lock(self):
         """Disable all action buttons."""
-        self.save_button.disabled          = True
-        self.clear_current_button.disabled = True
-        self.clear_all_button.disabled     = True
+        self._save_button.disabled          = True
+        self._clear_current_button.disabled = True
+        self._clear_all_button.disabled     = True
+        self._cancel_button.disabled        = True
+        self._confirm_button.disabled       = True
 
 
     def unlock(self):
         """Enable all action buttons."""
-        self.save_button.disabled          = False
-        self.clear_current_button.disabled = False
-        self.clear_all_button.disabled     = False
+        self._save_button.disabled          = False
+        self._clear_current_button.disabled = False
+        self._clear_all_button.disabled     = False
+        self._cancel_button.disabled        = False
+        self._confirm_button.disabled       = False
+
+    # Expose Internal Buttons --------------------------------------------------
+
+    def observe_save(self, fn):
+        """Register an external callback for the Save button click event."""
+        self._save_button.on_click(fn)
+
+    def observe_clear_current(self, fn):
+        """Register an external callback for the Clear Current button click event."""
+        self._clear_current_button.on_click(fn)
+
+    def observe_clear_all(self, fn):
+        """Register an external callback for the Clear All button click event."""
+        self._confirm_button.on_click(fn)
+
+    # Internal Event Handlers --------------------------------------------------
+
+
+
+    def _on_save(self, button):
+        """DOCSTRING"""
+
+        def _reset_save_button():
+            """Reset the Save button to its default state."""
+            self._save_button.description  = "Save"
+            self._save_button.style.button_color = self._button_color 
+            self._timer = None
+
+        self._save_button.description  = "Saved!"
+        self._save_button.style.button_color = "#4caf51"
+
+        self._timer = None  
+        self._timer = threading.Timer(SAVE_TIMER, _reset_save_button)
+        self._timer.start()
+
+    def _on_clear_all(self, button):
+        """DOCSTRING"""
+        self.children = [ self._cancel_button, self._confirm_button ]
+
+    def _on_reverse_clear_all(self, button):
+        """DOCSTRING"""
+        self.children = [ self._save_button, self._clear_current_button, self._clear_all_button ]

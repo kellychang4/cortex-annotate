@@ -365,7 +365,7 @@ class ControlPanel(ipw.VBox):
         fn : callable
             Called as ``fn()`` when the Save button is clicked.
         """
-        self._annotate_tab._button.save_button.on_click(fn)
+        self._annotate_tab.observe_save(fn)
 
 
     def observe_clear_current(self, fn):
@@ -376,7 +376,7 @@ class ControlPanel(ipw.VBox):
         fn : callable
             Called as ``fn()`` when the Clear Current button is clicked.
         """
-        self._annotate_tab._button.clear_current_button.on_click(fn)
+        self._annotate_tab.observe_clear_current(fn)
 
 
     def observe_clear_all(self, fn):
@@ -387,7 +387,7 @@ class ControlPanel(ipw.VBox):
         fn : callable
             Called as ``fn()`` when the Clear All button is clicked.
         """
-        self._annotate_tab._button.clear_all_button.on_click(fn)
+        self._annotate_tab.observe_clear_all(fn)
 
     # Style Tab: Style Panel Observers -----------------------------------------
 

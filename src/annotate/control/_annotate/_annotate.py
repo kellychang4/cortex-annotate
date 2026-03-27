@@ -95,3 +95,19 @@ class AnnotateTab(ipw.VBox):
     def unlock(self):
         """Enable interactive widgets in all lockable sub-panels."""
         for panel in self._lockable: panel.unlock()
+
+    # Expose Button Events -----------------------------------------------------
+
+    def observe_save(self, fn):
+        """Register an external callback for the Save button click event."""
+        self._button.observe_save(fn)
+
+
+    def observe_clear_current(self, fn):
+        """Register an external callback for the Clear Current button click event."""
+        self._button.observe_clear_current(fn)
+
+
+    def observe_clear_all(self, fn):
+        """Register an external callback for the Clear All button click event."""
+        self._button.observe_clear_all(fn)

@@ -49,6 +49,8 @@ from ._cache  import FigureCache
 from .control import ControlPanel
 from .figure  import FigurePanel
 
+from ._style import SAVE_TIMER
+
 # The Annotation Tool ----------------------------------------------------------
 
 class AnnotationTool(ipw.HBox):
@@ -617,7 +619,7 @@ class AnnotationTool(ipw.HBox):
         self.prefs.save()
 
         # Write a temporary "Save" message to the figure panel.
-        self.write_message("Saved annotations.", timeout = 2.0)
+        self.write_message("Saved annotations.", timeout = SAVE_TIMER)
 
 
     def _on_clear_current(self, button):
