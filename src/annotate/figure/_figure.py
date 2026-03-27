@@ -113,7 +113,7 @@ class FigurePanel(ipw.Box):
         "_figure", "has_viewer", "_loading", "loading_context", "_message" 
     )
 
-    def __init__(self, prefs, editor, has_viewer):
+    def __init__(self, config, prefs, editor):
         """Initialize the figure panel and its child renderers.
  
         Parameters
@@ -128,16 +128,16 @@ class FigurePanel(ipw.Box):
             The shared annotation editing model.
         """
         # Store the editor reference for internal use.
+        self.config = config
         self.prefs  = prefs
         self.editor = editor
-        self.has_viewer = has_viewer
 
         # Build the 2D canvas renderer.
         self._canvas_panel = CanvasPanel(editor, prefs)
 
         # Build the 3D cortex viewer renderer, if specified.
         figure_children = [ self._canvas_panel ]
-        if self.has_viewer:
+        if self.config.has_viewer:
             self._viewer_panel = ViewerPanel(editor, prefs)
             figure_children.append(self._viewer_panel)
         else:
@@ -315,7 +315,7 @@ class FigurePanel(ipw.Box):
         )
  
         # Redraw the 3D viewer, if present.
-        if self.has_viewer is not None:
+        if self.config.has_viewer:
             self._viewer_panel.redraw_viewer(
                 clear      = clear, 
                 cortex     = base,
@@ -345,7 +345,7 @@ class FigurePanel(ipw.Box):
         fixed_deps = self.editor.push_point(points)
 
         # Update viewer annotation if present. TODO: annotations arguments
-        if self.has_viewer: self.update_viewer(annotations = fixed_deps)
+        if self.config.has_viewer: self.update_viewer(annotations = fixed_deps)
  
         # Redraw active annotation (redraw dependent layer if deps changed).
         self.redraw(active = True, dependent = len(fixed_deps) > 0)
@@ -407,7 +407,7 @@ class FigurePanel(ipw.Box):
             return
  
         # Update viewer annotation if present. TODO: annotations arguments
-        if self.has_viewer: self.update_viewer(annotations = fixed_deps)
+        if self.config.has_viewer: self.update_viewer(annotations = fixed_deps)
 
         # Redraw active annotation (redraw dependent layer if deps changed).
         self.redraw(active = True, dependent = len(fixed_deps) > 0)

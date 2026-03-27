@@ -92,17 +92,13 @@ class ControlPanel(ipw.VBox):
             self,
             config,
             prefs,
-            has_viewer, 
             background_color = "#f0f0f0",
             button_color     = "#e0e0e0",
-        ):
-        # Store the viewer-enabled flag for use in subpanels. 
-        self.has_viewer = has_viewer
-
+        ):  
         # Create the required subtabs/subpanels widgets.
         #TODO: I also want to automate this.
         self._annotate_tab = AnnotateTab(config, prefs, button_color)
-        self._style_tab    = StyleTab(config, prefs, self.has_viewer)
+        self._style_tab    = StyleTab(config, prefs)
  
         # Declare the tab registry and register the default tabs.
         self._tabs = []

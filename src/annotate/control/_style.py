@@ -46,7 +46,6 @@ class StyleTab(ipw.VBox):
     __slots__ = (
         "config", 
         "prefs", 
-        "has_viewer", 
         "_updating",
         # Annotation style widgets
         "style_dropdown",
@@ -84,11 +83,12 @@ class StyleTab(ipw.VBox):
         "readout": False,
     }
 
-    def __init__(self, config, prefs, has_viewer):
-        # Store arguments and determine if has_viewer from config information.
-        self.prefs      = prefs
-        self.config     = config
-        self.has_viewer = has_viewer
+    def __init__(self, config, prefs,):
+        # Store arguments. 
+        self.prefs  = prefs
+        self.config = config
+
+        
         # self.has_morph  = at least get the flag 
         self._updating  = False
 
@@ -109,7 +109,7 @@ class StyleTab(ipw.VBox):
         }
 
         # Initialize viewer style widgets (if has_viewer)
-        if self.has_viewer:
+        if self.config.has_viewer:
             self.morph_slider       = self._init_morph_slider()
             self.overlay_dropdown   = self._init_overlay_dropdown()
             self.overlay_slider     = self._init_overlay_alpha_slider()
@@ -140,7 +140,7 @@ class StyleTab(ipw.VBox):
         ]
 
         # If has_viewer, add viewer style widgets below annotation style widgets.
-        if self.has_viewer:
+        if self.config.has_viewer:
             children += [
                 make_hline(),
                 make_section_title("Cortex Viewer Options"),
@@ -168,7 +168,7 @@ class StyleTab(ipw.VBox):
             )
         
         # If has_viewer, wire viewer style widget observers.
-        if self.has_viewer:
+        if self.config.has_viewer:
             for key, widget in self._viewer_style_widgets.items():
                 widget.observe(
                     partial(self._on_viewer_style_change, key),
@@ -181,7 +181,7 @@ class StyleTab(ipw.VBox):
 
         # Initialize annotation and viewer style widgets.
         self._refresh_annotation_style()
-        if self.has_viewer: self._refresh_viewer_style()
+        if self.config.has_viewer: self._refresh_viewer_style()
 
     # Properties ---------------------------------------------------------------
 

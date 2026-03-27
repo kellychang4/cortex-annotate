@@ -44,9 +44,9 @@ class DisplaySection(ipw.VBox):
 
     __slots__ = ( "prefs", "figure_size_slider", "viewer_size_slider", "layout_toggle" )
 
-    def __init__(self, prefs, has_viewer):
+    def __init__(self, config, prefs):
         # Store preferences for later use.
-        self.prefs = prefs
+        self.prefs  = prefs
 
         # Initialize canvas pixel slider.
         self.figure_size_slider = ipw.IntSlider(
@@ -90,7 +90,7 @@ class DisplaySection(ipw.VBox):
             children = [
                 make_section_title("Display Options"),
                 self.figure_size_slider,
-                self.viewer_size_slider if has_viewer else None, 
+                self.viewer_size_slider if config.has_viewer else None, 
                 self.layout_toggle,
             ],
             layout = { "margin": "0% 0% 3% 0%" },

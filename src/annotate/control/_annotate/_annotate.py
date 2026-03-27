@@ -38,12 +38,9 @@ class AnnotateTab(ipw.VBox):
     __slots__ = ( "_lockable", )
 
     def __init__(self, config, prefs, button_color):
-        # Determine if the viewer is enabled.
-        has_viewer = config.viewer != {}
-
         # Create the required subsection widgets.
         self._selection = SelectionSection(config)
-        self._display   = DisplaySection(prefs, has_viewer)
+        self._display   = DisplaySection(prefs, config.has_viewer)
         self._legend    = LegendSection(config)
         self._button    = ButtonSection(button_color)
         self._info      = InfoSection()

@@ -122,7 +122,7 @@ class AnnotationTool(ipw.HBox):
         # UI components
         "control_panel", "figure_panel", 
         # Annotation tool state flags
-        "has_viewer", "locked",
+        "locked",
     )
 
     def __init__(
@@ -137,7 +137,6 @@ class AnnotationTool(ipw.HBox):
         ):
         # Prepare the configuration file. 
         self.config = Config(config_path)
-        self.has_viewer = self.config.viewer != {}
 
         # Prepare the path, preference, and annotation managers
         self.paths = PathManager(cache_path, save_path, git_path, username)
@@ -151,16 +150,15 @@ class AnnotationTool(ipw.HBox):
         self.control_panel = ControlPanel(
             config = self.config,
             prefs = self.prefs,
-            has_viewer = self.has_viewer,
             background_color = background_color,
             button_color = button_color,
         )
 
         # Prepare the figure panel UI.
         self.figure_panel = FigurePanel(
+            config = self.config,
             prefs = self.prefs,
             editor = self.editor,
-            has_viewer = self.has_viewer
         )
 
         # Prepare figure caching functionality.
@@ -304,13 +302,13 @@ class AnnotationTool(ipw.HBox):
 
         # If the target changed, load new canvas and viewer data.
         self._load_canvas(target_id, annotation)
-        if self.has_viewer: self._load_viewer(target_id)
+        if self.config.has_viewer: self._load_viewer(target_id)
 
         # Update viewer annotations from editor state (needed on both
         # target and annotation changes, since the active annotation
         # determines which annotations are "dependent" vs "background").
         #TODO: need to be a little more clever with what to update.
-        if self.has_viewer: self.figure_panel.update_viewer()
+        if self.config.has_viewer: self.figure_panel.update_viewer()
 
         # Full redraw.
         self.figure_panel.redraw(
@@ -574,7 +572,7 @@ class AnnotationTool(ipw.HBox):
             The ipywidgets change object.
         """
         # If there is no viewer, do nothing!
-        if not self.has_viewer: return
+        if not self.config.has_viewer: return
 
         # Update the display setting in the preferences manager.
         self.prefs.set_display("viewer_size", change.new)
