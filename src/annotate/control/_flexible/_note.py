@@ -17,9 +17,9 @@ class NoteSection(ipw.VBox):
 
     def __init__(self):
         self._note_textarea = ipw.Textarea(
-            value       = 'Hello World',
-            placeholder = 'Type something',
-            description = 'String:',
+            value       = "",
+            placeholder = "Enter your note here...",
+            description = "Note:",
         )
 
         super().__init__(

@@ -8,7 +8,6 @@
 # Imports ----------------------------------------------------------------------
 
 import re
-from secrets import choice
 import ipywidgets as ipw
 
 from ._choice  import ChoiceSection
@@ -30,6 +29,8 @@ class FlexibleTab(ipw.VBox):
         self._select  = SelectSection()
         self._note    = NoteSection()
         self._buttons = ButtonSection()
+
+        self.notes = {} # initialize
 
         # Define which sections are lockable.
         # self._lockable = [ 
@@ -92,6 +93,9 @@ class FlexibleTab(ipw.VBox):
         options = options + (new_choice,)
         self._select.set_options(options)
 
+        self.notes[new_choice] = "" # initialize the note for the new choice
+
+
     def _on_remove(self, button):
         """Register a handler for the remove button."""
         # get the selection menu options
@@ -106,8 +110,16 @@ class FlexibleTab(ipw.VBox):
         print("New Options:", options)
         self._select.set_options(options)
 
+        # remove the note for the removed choice
+        if value in self.notes:
+            del self.notes[value]
+
+
     def _on_select(self, change):
         """Register a handler for the select menu."""
+        self.notes[change.old] = self._note.get_note() # save the note for the old choice
+
         print("Selected:", change.new)
 
-        self._note.set_note(change.new)
+        # TODO: prevent saving "None" as a note.
+        self._note.set_note( self.notes[change.new] ) # load the note for the new choice

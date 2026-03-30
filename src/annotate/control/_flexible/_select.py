@@ -44,6 +44,10 @@ class SelectSection(ipw.VBox):
     def get_value(self):
         """Return the current selection."""
         return self._select_menu.value
+    
+    def set_value(self, value):
+        """Set the current selection."""
+        self._select_menu.value = value
 
     def observe_remove(self, fn):
         """Register a handler for the remove button."""
