@@ -13,7 +13,7 @@
 FROM --platform=linux/amd64 jupyter/scipy-notebook:x86_64-python-3.10 AS build-amd64
 FROM --platform=linux/arm64 jupyter/scipy-notebook:aarch64-python-3.10 AS build-arm64
 
-FROM build-$BUILDARCH
+FROM build-$TARGETARCH
 
 
 # The Root Operations ##########################################################
