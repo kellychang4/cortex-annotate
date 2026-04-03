@@ -306,7 +306,7 @@ class StyleTab(ipw.VBox):
             viewer style key that changed and *change* is the
             ipywidgets change object.
         """
-        if self.has_viewer: 
+        if self.config.has_viewer: 
             self.viewer_style_observers.append(fn)
 
     # Lock / Unlock ------------------------------------------------------------
@@ -319,7 +319,7 @@ class StyleTab(ipw.VBox):
             widget.disabled = True
 
         # If has_viewer, viewer style widgets are also locked
-        if self.has_viewer:
+        if self.config.has_viewer:
             for widget in self._viewer_style_widgets.values():
                 widget.disabled = True
 
@@ -332,7 +332,7 @@ class StyleTab(ipw.VBox):
             widget.disabled = False
         
         # If has_viewer, viewer style widgets are also unlocked
-        if self.has_viewer:
+        if self.config.has_viewer:
             for widget in self._viewer_style_widgets.values():
                 widget.disabled = False
 

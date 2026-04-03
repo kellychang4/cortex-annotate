@@ -110,7 +110,7 @@ class FigurePanel(ipw.Box):
 
     __slots__ = (
         "prefs", "editor", "locked", "_canvas_panel", "_viewer_panel",
-        "_figure", "has_viewer", "_loading", "loading_context", "_message" 
+        "_figure", "_loading", "loading_context", "_message" 
     )
 
     def __init__(self, config, prefs, editor):

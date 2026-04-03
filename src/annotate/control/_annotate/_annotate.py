@@ -40,7 +40,7 @@ class AnnotateTab(ipw.VBox):
     def __init__(self, config, prefs, button_color):
         # Create the required section widgets.
         self._selection = SelectionSection(config)
-        self._display   = DisplaySection(prefs, config.has_viewer)
+        self._display   = DisplaySection(config, prefs)
         self._legend    = LegendSection(config)
         self._button    = ButtonSection(button_color)
         self._info      = InfoSection()
