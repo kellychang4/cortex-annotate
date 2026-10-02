@@ -29,9 +29,7 @@ init: |
 
   # Define directories
   dataset  = "nsd"
-  # data_dir = op.join("/home", "jovyan", "datasets", dataset)
-  data_dir  = op.join("/Users", "kellychang", "Desktop", "cortex-annotate-votc",
-                      "datasets", dataset)
+  data_dir = op.join("/home", "jovyan", "datasets", dataset)
 
   # define flatmap kwargs
   FLATMAP_KWARGS = {
@@ -112,15 +110,38 @@ targets:
 
 
 annotations:
-  # Face area contours:
+  # Face Areas (variable)
   Face Areas:
     type: boundary
-    figure_grid:
-      - [ "faces", "curvature" ]
+    variable: true
+    variable_options: [ "IOG-faces", "pFus-faces", "mFus-faces" ]
+    figure_grid: 
+     - [ "faces", "curvature" ]
+  # Body Areas (variable)
+  Body Areas:
+    type: boundary
+    variable: true
+    variable_options: [ "ITG-bodies", "LOS-bodies" ]
+    figure_grid: 
+     - [ "bodies", "curvature" ]
+  # Place Areas (variable)
+  Place Areas:
+    type: boundary
+    variable: true
+    variable_options: [ "CoS-places" ]
+    figure_grid: 
+     - [ "places", "curvature" ]
+  # Word Areas (variable)
+  Word Areas:
+    type: boundary
+    variable: true
+    variable_options: [ "VWFA-1", "VWFA-2" ]
+    figure_grid: 
+     - [ "words", "curvature" ]
 
 
 figures:
-  faces: |
+  _: |
     ny.cortex_plot(
       mesh  = target["flatmap"], 
       color = key,

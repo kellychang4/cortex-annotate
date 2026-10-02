@@ -58,7 +58,6 @@ init: |
     ]
   )
 
-
   
 targets:
   # The "Participant" is a choice for the user. It will appear as a dropdown 
@@ -112,223 +111,48 @@ targets:
 
 
 annotations:
-  # V1 contours:
-  V1 Foveal Point:
-    type: point
-    figure_grid:
-      - ["angle", "eccen"]
-      - ["curvature", "vexpl"]
-  V1 UVM (ventral):
-    fixed_head: V1 Foveal Point
-    figure_grid:
-      - ["angle", "eccen"]
-      - ["curvature", "vexpl"]
-  V1 LVM (dorsal):
-    fixed_head: V1 Foveal Point
-    figure_grid:
-      - ["angle", "eccen"]
-      - ["curvature", "vexpl"]
-  V1 Periphery:
-    fixed_head: V1 UVM (ventral)
-    fixed_tail: V1 LVM (dorsal)
-    figure_grid:
-      - ["angle", "eccen"]
-      - ["curvature", "vexpl"]
-  # V2 contours:
-  V2 Foveal Point:
-    type: point
-    figure_grid:
-      - ["angle", "eccen"]
-      - ["curvature", "vexpl"]
-  V2 UVM (ventral):
-    fixed_head: V2 Foveal Point
-    figure_grid:
-      - ["angle", "eccen"]
-      - ["curvature", "vexpl"]
-  V2 LVM (dorsal):
-    fixed_head: V2 Foveal Point
-    figure_grid:
-      - ["angle", "eccen"]
-      - ["curvature", "vexpl"]
-  V2 Ventral Periphery:
-    fixed_head: V2 UVM (ventral)
-    fixed_tail: V1 UVM (ventral)
-    figure_grid:
-      - ["angle", "eccen"]
-      - ["curvature", "vexpl"]
-  V2 Dorsal Periphery:
-    fixed_head: V2 LVM (dorsal)
-    fixed_tail: V1 LVM (dorsal)
-    figure_grid:
-      - ["angle", "eccen"]
-      - ["curvature", "vexpl"]
-  # V3 contours:
-  V3 Foveal Point:
-    type: point
-    figure_grid:
-      - ["angle", "eccen"]
-      - ["curvature", "vexpl"]
-  V3 UVM (ventral):
-    fixed_head: V3 Foveal Point
-    figure_grid:
-      - ["angle", "eccen"]
-      - ["curvature", "vexpl"]
-  V3 LVM (dorsal):
-    fixed_head: V3 Foveal Point
-    figure_grid:
-      - ["angle", "eccen"]
-      - ["curvature", "vexpl"]
-  V3 Ventral Periphery:
-    fixed_head: V3 UVM (ventral)
-    fixed_tail: V2 UVM (ventral)
-    figure_grid:
-      - ["angle", "eccen"]
-      - ["curvature", "vexpl"]
-  V3 Dorsal Periphery:
-    fixed_head: V3 LVM (dorsal)
-    fixed_tail: V2 LVM (dorsal)
-    figure_grid:
-      - ["angle", "eccen"]
-      - ["curvature", "vexpl"]
-  # hV4 contour:
-  hV4 Outer:
-    type: contour
-    fixed_head: V3 Foveal Point
-    figure_grid:
-      - ["angle", "eccen"]
-      - ["curvature", "vexpl"]
-  # VO contour:
-  VO Outer:
-    type: contour
-    fixed_head: V3 UVM (ventral)
-    figure_grid:
-      - ["angle", "eccen"]
-      - ["curvature", "vexpl"]
-  # hV4|VO boundary:
-  hV4|VO Boundary:
-    type: contour
-    figure_grid:
-      - ["angle", "eccen"]
-      - ["curvature", "vexpl"]
-  # VO1|2 boundary:
-  VO1|2 Boundary: 
-    type: contour
-    figure_grid:
-      - ["angle", "eccen"]
-      - ["curvature", "vexpl"]
-  # V3a|b contours:
-  V3a|b Outer:
-    type: contour
-    fixed_head: V3 LVM (dorsal)
-    figure_grid:
-      - ["angle", "eccen"]
-      - ["curvature", "vexpl"]
-  V3a|b Inner Boundary:
-    type: contour
-    figure_grid:
-      - ["angle", "eccen"]
-      - ["curvature", "vexpl"]
-  # IPS0 Outer:
-  IPS0 Outer:
-    type: contour
-    figure_grid:
-      - ["angle", "eccen"]
-      - ["curvature", "vexpl"]
-  # LO1 Outer:
-  LO1 Outer:
-    type: contour
-    fixed_head: V3 Foveal Point
-    figure_grid:
-      - ["angle", "eccen"]
-      - ["curvature", "vexpl"]
-  # Isoecentricity contours:
-  0.5 Degrees Eccentricity:
-    type: contour
-    figure_grid:
-      - ["eccen_0.5", "angle"]
-      - ["eccen", "vexpl"]
-  1.0 Degrees Eccentricity:
-    type: contour
-    figure_grid:
-      - ["eccen_1.0", "angle"]
-      - ["eccen", "vexpl"]
-  2.0 Degrees Eccentricity:
-    type: contour
-    figure_grid:
-      - ["eccen_2.0", "angle"]
-      - ["eccen", "vexpl"]
-  4.0 Degrees Eccentricity:
-    type: contour
-    figure_grid:
-      - ["eccen_4.0", "angle"]
-      - ["eccen", "vexpl"]
-  7.0 Degrees Eccentricity:
-    type: contour
-    figure_grid:
-      - ["eccen_7.0", "angle"]
-      - ["eccen", "vexpl"]
+  # Face Areas (variable)
+  Face Areas:
+    type: boundary
+    variable: true
+    variable_options: [ "IOG-faces", "pFus-faces", "mFus-faces" ]
+    figure_grid: 
+     - [ "faces", "curvature" ]
+  # Body Areas (variable)
+  Body Areas:
+    type: boundary
+    variable: true
+    variable_options: [ "ITG-bodies", "LOS-bodies" ]
+    figure_grid: 
+     - [ "bodies", "curvature" ]
+  # Place Areas (variable)
+  Place Areas:
+    type: boundary
+    variable: true
+    variable_options: [ "CoS-places" ]
+    figure_grid: 
+     - [ "places", "curvature" ]
+  # Word Areas (variable)
+  Word Areas:
+    type: boundary
+    variable: true
+    variable_options: [ "VWFA-1", "VWFA-2" ]
+    figure_grid: 
+     - [ "words", "curvature" ]
 
 
 figures:
-  angle: |
-    # prepare (formatted) target information for figure code below
-    hemisphere = target["Hemisphere"]  # string
-    fs_hemi    = f"{hemisphere[0].lower()}h"
-
-    # prepare colormap name and values for figure
-    colormap_name   = f"polar_angle_{fs_hemi}"
-    colormap_values = target["flatmap"].properties["angle"]
-
+  _: |
     ny.cortex_plot(
       mesh  = target["flatmap"], 
-      color = { colormap_name: colormap_values }, 
+      color = key,
+      cmap  = "temperature_dark", 
+      vmin  = -8,
+      vmax  = 8, 
       axes  = axes
-    )
-  eccen: |
-    ny.cortex_plot(
-      mesh  = target["flatmap"], 
-      color = { "eccentricity": target["flatmap"].properties["eccen"] }, 
-      axes = axes
-    )
-  vexpl: |
-    ny.cortex_plot(
-      mesh  = target["flatmap"], 
-      color = "vexpl", 
-      cmap  = "hot", 
-      vmin  = 0, 
-      vmax  = 100, 
-      axes = axes
     )
   curvature: |
     ny.cortex_plot(mesh = target["flatmap"], axes = axes)
-  _: |
-    # Prepare property name and threshold from figure name
-    prop_name, threshold = key.split("_")
-    
-    # Compute values relative to threshold 
-    # (clipped to [0, 16] eccentricity to remove extreme outliers)
-    values = np.clip(target["flatmap"].properties[prop_name].copy(), 0, 16)
-    values = values - float(threshold) 
-  
-    # Normalize negative values to [-1, 0]
-    negative_index = values < 0
-    values[negative_index] = (values[negative_index] /
-      np.abs(np.nanmin(values[negative_index])))
-
-    # Normalize positive values to [0, 1]
-    positive_index = values > 0
-    values[positive_index] = (values[positive_index] / 
-      np.nanmax(values[positive_index]))
-
-    # Plot with diverging colormap, centered at the threshold value
-    ny.cortex_plot(
-      mesh  = target["flatmap"], 
-      color = values, 
-      cmap  = edge_cmap, 
-      vmin  = -1, 
-      vmax  = 1, 
-      axes  = axes
-    )
   term: |
     # figure aesthetics and limits
     xy = target["flatmap"].coordinates
