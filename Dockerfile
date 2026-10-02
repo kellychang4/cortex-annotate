@@ -91,21 +91,6 @@ RUN mamba install -y -cconda-forge \
         'tornado == 6.1'
 RUN pip install ipycanvas pyyaml neuropythy nibabel s3fs
 
-# Build diplib from source
-USER root
-RUN rm -rf /opt/conda/lib/python3.10/site-packages/backports && \
-    rm -rf /opt/conda/lib/python3.10/site-packages/setuptools* && \
-    rm -rf /opt/conda/lib/python3.10/site-packages/_distutils_hack && \
-    rm -rf /opt/conda/lib/python3.10/site-packages/distutils-precedence.pth && \
-    pip install build setuptools wheel --upgrade
-RUN git clone https://github.com/DIPlib/diplib.git /opt/diplib && \
-    mkdir -p /opt/diplib/target && \
-    cd /opt/diplib/target && \
-    cmake .. -DCMAKE_INSTALL_PREFIX=/opt/diplib && \
-    make -j check && \
-    make -j install && \
-    make pip_install
-
 # Install collapsible cell extensions...
 #RUN mamba install -cconda-forge jupyter_contrib_nbextensions \
 # && jupyter contrib nbextension install --user \
