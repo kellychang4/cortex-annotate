@@ -80,7 +80,7 @@ class FigurePanel(ipw.HBox):
         self.grid_shape = self.annot_cfg.grid_shape[annot0]
 
         # Calculate the canvas size (in pixels) from the figure size and grid shape.
-        self.canvas_size = self.figure_size * self.grid_shape
+        self.canvas_size = self.figure_size * self.grid_shape[::-1]
 
         # Make a multicanvas.
         canvas_width, canvas_height = self.canvas_size
@@ -125,8 +125,10 @@ class FigurePanel(ipw.HBox):
         self.cursor      = None
 
         # Initialize our parent class.
-        super().__init__([ self._make_html_header(), self.multicanvas ])
-
+        super().__init__(
+            children = [ self._make_html_header(), self.multicanvas ], 
+        )
+        
 
     @classmethod
     def _make_html_header(cls):
@@ -544,7 +546,7 @@ class FigurePanel(ipw.HBox):
         self.figure_size = np.array([new_figure_size, new_figure_size])
 
         # The canvas size is a product of the figure size and the grid shape.
-        self.canvas_size = self.figure_size * np.array(self.grid_shape)
+        self.canvas_size = self.figure_size * np.array(self.grid_shape[::-1])
         canvas_width, canvas_height = self.canvas_size.astype(int)
 
         # First resize the canvas (this clears it).
@@ -554,6 +556,10 @@ class FigurePanel(ipw.HBox):
         # Then we also resize the layout component.
         self.multicanvas.layout.width  = f"{canvas_width}px"
         self.multicanvas.layout.height = f"{canvas_height}px"
+
+        # Ensure the canvas minimum dimensions also match.
+        self.multicanvas.layout.min_width  = f"{canvas_width}px"
+        self.multicanvas.layout.min_height = f"{canvas_height}px"
 
         # Finally, because the canvas was cleared upon resize, we redraw it.
         self.redraw_canvas()

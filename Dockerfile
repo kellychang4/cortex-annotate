@@ -83,12 +83,14 @@ RUN mamba update --all -y
 RUN ln -s /opt/conda/lib/libstdc++.so.6.0.34 /opt/conda/lib/libstdc++.so.6 || true
 #RUN mamba install -y -cconda-forge nibabel s3fs
 RUN mamba install -y -cconda-forge \
-        ipywidgets \
-        pip \
-        traitlets \
-        webcolors \
-        jsonschema-with-format-nongpl \
-        'tornado == 6.1'
+      'blas=*=openblas' \
+      'libblas=*=*openblas' \
+      ipywidgets \
+      pip \
+      traitlets \
+      webcolors \
+      jsonschema-with-format-nongpl \
+      'tornado == 6.1'
 RUN pip install ipycanvas pyyaml neuropythy nibabel s3fs
 
 # Install collapsible cell extensions...

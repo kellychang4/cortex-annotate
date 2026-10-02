@@ -503,7 +503,7 @@ class ControlPanel(ipw.VBox):
         # Finally, call the VBox initializer. 
         super().__init__(
             children = [ self._make_html_header(background_color), accordion ],  
-            layout   = { "border": "0px", "height": "100%" }
+            layout   = { "border": "0px", "height": "100%", "flex": "0 0 auto" }
         )
     
 
