@@ -17,20 +17,26 @@ in `_figure.py` as appropriate.
 import os.path as op
 import ipywidgets as ipw
 from functools import partial
+from traitlets.utils.bunch import Bunch
 
 # The Selection Subpanel Widget ------------------------------------------------
 
 class SelectionPanel(ipw.VBox):
     """The subpanel of the control panel for target selection."""
-    
+
     __slots__ = (
-        "state", "target_dropdowns", "annotations_dropdown", 
-        "target_observers", "annotation_observers"
+        "state", "target_dropdowns", "annotations_dropdown", "annotation_note", 
+        "variable_select", "variable_add_button", "variable_remove_button", 
+        "variable_label", "variable_note", "variable_box",
+        "target_observers", "annotation_observers", "_suppress"
     )
-    
+
     def __init__(self, state):
         # Store the state
         self.state = state
+        
+        # Suppress our own observers when we update the menus ourselves.
+        self._suppress = False
 
         # Initialize the dropdowns.
         self.target_dropdowns = {}
@@ -59,6 +65,53 @@ class SelectionPanel(ipw.VBox):
         )
         children.append(self.annotations_dropdown)
 
+        # The metadata controls of the selected annotation.
+        self.annotation_note = ipw.Textarea(
+            placeholder = "Overall notes (e.g., data quality).", 
+            tooltip     = "Overall notes (e.g., data quality).", 
+            rows        = 2, 
+            layout      = dd_layout
+        )
+        children.append(self.annotation_note)
+
+        # The variable annotation controls: a menu of the annotations of the
+        # selected variable annotation, with buttons to add and remove them.
+        self.variable_select = ipw.Select(
+            options = [], 
+            rows    = 4, 
+            layout  = dd_layout
+        )
+        self.variable_add_button = ipw.Button(
+            description = "+", 
+            tooltip     = "Add a new annotation.",
+            layout      = { "width": "46%", "margin": "1% 1% 1% 3%" }
+        )
+        self.variable_remove_button = ipw.Button(
+            description = "-", 
+            tooltip     = "Remove the selected annotation.",
+            layout      = { "width": "46%", "margin": "1% 3% 1% 1%" }
+        )
+        self.variable_label = ipw.Combobox(
+            placeholder       = "Label (choose or type)",
+            tooltip           = "Label of the selected annotation.",
+            ensure_option     = False, 
+            continuous_update = False, 
+            layout            = dd_layout
+        )
+        self.variable_note = ipw.Textarea(
+            placeholder = "Notes on the selected annotation.", 
+            tooltip     = "Notes on the selected annotation.",
+            rows        = 2, 
+            layout      = dd_layout
+        )
+        self.variable_box = ipw.VBox([
+            self.variable_select, 
+            ipw.HBox([ self.variable_add_button, self.variable_remove_button ]), 
+            self.variable_label, 
+            self.variable_note
+        ])
+        children.append(self.variable_box)
+
         super().__init__(children)
         
         # Because we want to control the order of a few things, we actually
@@ -72,6 +125,20 @@ class SelectionPanel(ipw.VBox):
                 partial(self.on_target_change, key), names = "value")
         self.annotations_dropdown.observe(
             self.on_annotation_change, names = "value")
+
+        # Set up observers for the variable annotation controls.
+        self.variable_select.observe(
+            self.on_variable_change, names = "value")
+        self.variable_add_button.on_click(self.on_variable_add)
+        self.variable_remove_button.on_click(self.on_variable_remove)
+        
+        # Set up observers for the metadata controls.
+        self.annotation_note.observe(
+            partial(self.on_metadata_change, "note"), names = "value")
+        self.variable_label.observe(
+            partial(self.on_variable_metadata_change, "label"), names = "value")
+        self.variable_note.observe(
+            partial(self.on_variable_metadata_change, "note"), names = "value")
         
         # Initialize the observer lists.
         self.target_observers     = []
@@ -91,12 +158,88 @@ class SelectionPanel(ipw.VBox):
     def annotation(self):
         """Compute the current annotation selection."""
         return self.annotations_dropdown.value
-    
 
+    
+    @property
+    def active(self):
+        """Compute the name of the annotation that is currently edited."""
+        annotation = self.annotation
+        if self.state.config.annotations[annotation].variable:
+            return self.variable_select.value
+        return annotation
+
+    
     @property
     def selection(self):
         """Compute the current selection (target + annotation)."""
         return self.target + (self.annotation, )
+
+
+    def refresh_variable(self, active = None):
+        """Refreshes the variable annotation menu based on the current selection.
+
+        If `active` is given, it is selected in the menu; otherwise, the first 
+        annotation of the menu is selected.
+        """
+        # Only variable annotations show the variable annotation controls.
+        annotation = self.annotation
+        variable   = self.state.config.annotations[annotation].variable
+        self.variable_box.layout.display = None if variable else "none"
+
+        # The menu lists the annotations of the variable annotation.
+        options = []
+        if variable:
+            metadata = self.state.metadata[self.target][annotation]
+            options  = [
+                (f"{i+1}. {md['label'] or '(unlabeled)'}", annot) 
+                for (i, (annot, md)) 
+                in enumerate(metadata["annotations"].items())
+            ]
+        if active is None and len(options) > 0:
+            active = options[0][1]
+
+        # Update the menu, without alerting our observers.
+        self._suppress = True
+        self.variable_select.options = options
+        self.variable_select.value   = active
+        self._suppress = False
+
+        # Refresh the metadata controls for the new selection.
+        self.refresh_metadata()
+
+
+    def refresh_metadata(self):
+        """Refreshes the metadata controls based on the current selection."""
+        # Get the metadata of the selected annotation.
+        annotation = self.annotation
+        metadata   = self.state.metadata[self.target][annotation]
+
+        # Get the label and note of the annotation selected in the menu, if any.
+        active = self.variable_select.value
+        if active is None:
+            (label, note, labels) = ("", "", [])
+        else:
+            label = metadata["annotations"][active]["label"]
+            note  = metadata["annotations"][active]["note"]
+
+            # Suggest the label options that the other annotations don't use.
+            used = [
+                md["label"] for (annot, md) in metadata["annotations"].items()
+                if annot != active
+            ]
+            labels = self.state.config.annotations[annotation].variable_options
+            labels = [ x for x in (labels or []) if x not in used ]
+
+        # Update the controls, without alerting our observers.
+        self._suppress = True
+        self.annotation_note.value   = metadata["note"]
+        self.variable_label.options  = labels
+        self.variable_label.value    = label
+        self.variable_note.value     = note
+        self.variable_label.disabled = active is None
+        self.variable_note.disabled  = active is None
+        self.variable_remove_button.disabled = active is None
+        self._suppress = False
 
 
     def refresh_annotations(self):
@@ -109,13 +252,16 @@ class SelectionPanel(ipw.VBox):
         target = self.state.config.targets[target_id]
     
         # Recalculate the annotations for this target and update the menu.
-        annotion_options = [ 
+        annotation_options = [ 
             annotation for (annotation, annotation_data) 
             in self.state.config.annotations.items()
             if annotation_data.filter is None or annotation_data.filter(target) 
         ]
-        self.annotations_dropdown.options = annotion_options
-        self.annotations_dropdown.value   = annotion_options[0]
+        self.annotations_dropdown.options = annotation_options
+        self.annotations_dropdown.value   = annotation_options[0]
+
+        # Refresh the variable annotation menu for the new selection.
+        self.refresh_variable()
 
 
     def on_target_change(self, key, change):
@@ -130,9 +276,81 @@ class SelectionPanel(ipw.VBox):
 
     def on_annotation_change(self, change):
         """Alert our observers that the annotation selection has changed."""
+        # Refresh the variable annotation menu.
+        self.refresh_variable()
+
         # Alert our observers.
         for fn in self.annotation_observers:
             fn(change)
+
+
+    def on_variable_change(self, change):
+        """Alert our observers that the variable annotation selection has changed."""
+        # Skip the changes that we made ourselves.
+        if self._suppress: return
+
+        # Refresh the metadata controls for the new selection.
+        self.refresh_metadata()
+
+        # Alert our observers.
+        for fn in self.annotation_observers:
+            fn(change)
+
+
+    def on_metadata_change(self, key, change):
+        """Stores a change in the metadata of the selected annotation."""
+        # Skip the changes that we made ourselves.
+        if self._suppress: return
+
+        # Update the metadata.
+        metadata = self.state.metadata[self.target][self.annotation]
+        metadata[key] = change.new
+
+
+    def on_variable_metadata_change(self, key, change):
+        """Stores a change in the metadata of the annotation selected in the menu."""
+        # Skip the changes that we made ourselves.
+        if self._suppress: return
+
+        # Update the metadata.
+        active   = self.variable_select.value
+        metadata = self.state.metadata[self.target][self.annotation]
+        value    = change.new.strip() if key == "label" else change.new
+        metadata["annotations"][active][key] = value
+        
+        # The menu shows the labels, so a new label needs a menu refresh.
+        if key == "label": self.refresh_variable(active)
+
+
+    def on_variable_add(self, button):
+        """Adds an annotation to the selected variable annotation."""
+        # Add the annotation and select it in the menu.
+        old = self.variable_select.value
+        new = self.state.add_annotation(self.target, self.annotation)
+        self.refresh_variable(new)
+
+        # Alert our observers.
+        self.on_variable_change(Bunch(
+            name = "value", old = old, new = new, 
+            owner = self.variable_select, type = "change"
+        ))
+
+
+    def on_variable_remove(self, button):
+        """Removes the selected annotation of the selected variable annotation."""
+        # If there is nothing selected, there is nothing to remove.
+        old = self.variable_select.value
+        if old is None: return
+
+        # Remove the annotation and refresh the menu.
+        self.state.remove_annotation(self.target, old)
+        self.refresh_variable()
+
+        # Alert our observers.
+        self.on_variable_change(Bunch(
+            name = "value", old = old, new = self.variable_select.value, 
+            owner = self.variable_select, type = "change"
+        ))
 
 
     def observe_target(self, fn):
@@ -422,6 +640,8 @@ class LegendPanel(ipw.VBox):
         """Updates the legend image to the given legend name."""
         hemisphere = target_id[self.hemisphere_index]
         image_path = op.join(self.image_dir, hemisphere, f"{annotation}.png")
+        # Without a legend image, the legend panel is hidden.
+        self.layout.display = None if op.isfile(image_path) else "none"
         if not op.isfile(image_path): # if the image does not exist, use empty
             image_path = op.join(self.image_dir, "empty.png")
         self.image_widget.value = self._read_image(image_path)
@@ -441,7 +661,10 @@ class ControlPanel(ipw.VBox):
 
         # Create the selection panel.
         self.selection_panel = SelectionPanel(state)
-
+        #TODO: temporary, redo later
+        self.selection_panel.variable_add_button.style.button_color    = button_color
+        self.selection_panel.variable_remove_button.style.button_color = button_color
+    
         # Create the figure size slider.
         self.figure_size_slider = ipw.IntSlider(
             value             = state.preferences["figure_size"],
@@ -573,7 +796,12 @@ class ControlPanel(ipw.VBox):
     def annotation(self):
         """Compute the current annotation selection."""
         return self.selection_panel.annotation
-    
+
+
+    @property
+    def active(self):
+        """Compute the name of the annotation that is currently edited."""
+        return self.selection_panel.active
 
     @property
     def selection(self):

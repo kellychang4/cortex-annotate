@@ -15,6 +15,7 @@ FigurePanel widget in the _figure.py file.
 import os
 import re
 import json
+import uuid
 import yaml
 import numpy as np
 import pandas as pd
@@ -58,8 +59,8 @@ class AnnotationState:
 
     __slots__ = (
         "config", "cache_path", "save_path", "git_path", "username",
-        "annotations", "preferences", "loading_context", "save_hooks", 
-        "locked"
+        "metadata", "annotations", "preferences", "loading_context", 
+        "save_hooks", "locked"
     )
     
     def __init__(
@@ -96,6 +97,9 @@ class AnnotationState:
         if loading_context is None:
             loading_context = NoOpContext()
         self.loading_context = loading_context
+
+        # (Lazily) load the annotations metadata.
+        self.metadata = self.load_metadata()
 
         # (Lazily) load the annotations.
         self.annotations = self.load_annotations()
@@ -184,6 +188,19 @@ class AnnotationState:
         if annotation is not None:
             path = op.join(path, f"{annotation}.tsv")
         return path
+
+
+    def target_metadata_path(self, target, annotation):
+        """Returns the path of the metadata file for a target's annotation."""
+        path = self.target_save_path(target)
+        return op.join(path, f"{annotation}.json")
+
+
+    def template(self, annotation):
+        """Returns the config annotation name for an annotation or handle."""
+        if annotation in self.config.annotations:
+            return annotation
+        return annotation.rsplit(" - ", 1)[0]
     
     # Figure/Grid Methods ------------------------------------------------------
     
@@ -328,6 +345,40 @@ class AnnotationState:
 
     # Annotation Methods -------------------------------------------------------
 
+    def load_annotation_metadata(self, target_id, annotation):
+        """Loads the metadata of a single annotation for a given target."""
+        # Define the current target's metadata file
+        json_file = self.target_metadata_path(target_id, annotation)
+
+        # If there is no file, we return the default (empty) metadata.
+        if not op.isfile(json_file):
+            metadata = { "reviewed": False, "note": "" }
+            if self.config.annotations[annotation].variable:
+                metadata["annotations"] = {}
+            return metadata
+
+        # Otherwise, read the metadata from the file.
+        with open(json_file, "rt") as f:
+            return json.load(f)
+
+
+    def load_target_metadata(self, target_id):
+        """Loads (lazily) the metadata for a single target."""
+        return ldict({
+            annotation: delay(
+                self.load_annotation_metadata, target_id, annotation)
+                for annotation in self.config.annotations.keys()
+            })
+    
+
+    def load_metadata(self):
+        """Loads (lazily) the metadata for the current tool user."""
+        return ldict({
+            target_id: delay(self.load_target_metadata, target_id)
+                for target_id in self.config.targets.keys()
+            })
+
+
     def load_target_annotation(self, target_id, annotation):
         """Loads a single annotation from the save path for a given target."""
         # Get the path for this annotation.
@@ -350,13 +401,22 @@ class AnnotationState:
         # Return the coordinates.
         return coords
     
-    
+ 
     def load_target_annotations(self, target_id):
         """Loads (lazily) the annotations for the current tool user for a single target"""
+        # Load the annotations for this target.
         target_annotations = ldict() # initialize
-        for annotation in self.config.annotations.keys():
-            target_annotations[annotation] = delay(
-                self.load_target_annotation, target_id, annotation)
+        for (annotation, annotation_data) in self.config.annotations.items():
+            # If a variable annotation, the "annotations" label key.
+            if annotation_data.variable:
+                annot_name = self.metadata[target_id][annotation]["annotations"].keys()
+            else: # else, not a variable annotation.
+                annot_name = [ annotation ]
+
+            # for each annotation name, load the annotation lazily.
+            for annot in annot_name:
+                target_annotations[annot] = delay(
+                    self.load_target_annotation, target_id, annot)
         return target_annotations
 
     
@@ -400,14 +460,79 @@ class AnnotationState:
             df = pd.DataFrame(coords)
             df.to_csv(tsv_file, index = False, header = None, sep = "\t")
     
-    
+
+    def save_target_metadata(self, target_id):
+        """Saves the metadata for the current tool user for a single target."""
+        # Get the target's metadata.
+        target_metadata = self.metadata[target_id]
+
+        for annotation in target_metadata.keys():
+            # Skip anything lazy; not read in yet.
+            if target_metadata.is_lazy(annotation): continue
+
+            # Get this annotation's metadata and file.
+            metadata  = target_metadata[annotation]
+            json_file = self.target_metadata_path(target_id, annotation)
+
+            # The unlabeled (empty) annotations of a variable annotation are
+            # not saved.
+            if "annotations" in metadata:
+                annots   = self.annotations[target_id]
+                metadata = { **metadata, "annotations": {
+                    annot: md for (annot, md) in metadata["annotations"].items()
+                    if any(md.values()) or len(annots[annot]) > 0
+                }}
+
+            # If the metadata is all defaults, no need to save it.
+            if not any(metadata.values()):
+                # delete the file if it exists instead.
+                if op.isfile(json_file): os.remove(json_file)
+                continue
+
+            # Save the metadata as a json file.
+            with open(json_file, "wt") as f:
+                json.dump(metadata, f, indent = 2)
+
+
     def save_annotations(self):
         """Saves the annotations for a given target."""
         annotations = self.annotations
         for target_id in annotations.keys():
             # Skip lazy keys; these targets have not even been loaded yet.
             if not annotations.is_lazy(target_id):
+                # Save the annotations for this target.
                 self.save_target_annotations(target_id)
+
+            if not self.metadata.is_lazy(target_id):
+                # Save the metadata for this target.
+                self.save_target_metadata(target_id)
+
+
+    def add_annotation(self, target_id, annotation):
+        """Adds an annotation to a variable annotation."""
+        # The name is the variable annotation's name plus a unique stamp.
+        annot = f"{annotation} - {uuid.uuid4().hex[:8]}"
+
+        # Iniitialize metadata and coordinates for the new annotation.
+        self.metadata[target_id][annotation]["annotations"][annot] = {
+            "label": "", "note": ""
+        }
+        self.annotations[target_id][annot] = np.zeros((0, 2), dtype = float)
+        
+        # Return the new variable annotation.
+        return annot
+
+
+    def remove_annotation(self, target_id, annot):
+        """Removes an annotation from a variable annotation."""
+        # Delete the metadata and coordinates for the annotation.
+        annotation = self.template(annot)
+        del self.metadata[target_id][annotation]["annotations"][annot]
+        del self.annotations[target_id][annot]
+
+        # Delete the saved coordinates, if there are any.
+        tsv_file = self.target_save_path(target_id, annot)
+        if op.isfile(tsv_file): os.remove(tsv_file)
     
     # Preferences Methods ------------------------------------------------------
 
@@ -416,27 +541,31 @@ class AnnotationState:
 
         If no preferences file is found, an empty dictionary is returned.
         """
+        # Initialize the default preferences.
+        preferences = { "style": {}, "figure_size": 256 } 
+
+        # For each annotation, set the default style dictionary.
+        # DEFAULT_STYLE << config.display.default_style
+        styledict = AnnotationState.DEFAULT_STYLE.copy()
+        styledict = { **styledict, **self.config.display.default_style }
+        for annotation in self.config.annotations.keys():
+            preferences["style"][annotation] = styledict.copy()
+        
+        # Set the annotation for the active style as None.
+        # DEFAULT_STYLE << config.display.default_style << config.display.active_style
+        styledict = { **styledict, **self.config.display.active_style }
+        preferences["style"][None] = styledict.copy()
+
+        # If there is a preferences file, its values replace the defaults.
         preferences_yaml = op.join(self.save_path, ".annot-prefs.yaml")
-        if not op.isfile(preferences_yaml):
-            # If there is no preferences file, initailize the preferences
-            preferences = { "style": {}, "figure_size": 256 } 
+        if op.isfile(preferences_yaml):
+            with open(preferences_yaml, "rt") as f:
+                saved = yaml.safe_load(f)
+            preferences["style"].update(saved["style"])
+            preferences["figure_size"] = saved["figure_size"]
 
-            # For each annotation, set the default style dictionary.
-            # DEFAULT_STYLE << config.display.default_style
-            styledict = AnnotationState.DEFAULT_STYLE.copy()
-            styledict = { **styledict, **self.config.display.default_style }
-            for annotation in self.config.annotations.keys():
-                preferences["style"][annotation] = styledict.copy()
-            
-            # Set the annotation for the active style as None.
-            # DEFAULT_STYLE << config.display.default_style << config.display.active_style
-            styledict = { **styledict, **self.config.display.active_style }
-            preferences["style"][None] = styledict.copy()
-
-            # Return the preferences.
-            return preferences
-        with open(preferences_yaml, "rt") as f:
-            return yaml.safe_load(f)
+        # Return the preferences.
+        return preferences
     
     
     def save_preferences(self):
@@ -705,10 +834,12 @@ class AnnotationTool(ipw.HBox):
             self.figure_panel.clear_message()
 
             # Update the figure panel state variables.
-            self.figure_panel.update_state(target_id, annotation, target_annots)
-
-            # Redraw the figure. 
-            self.figure_panel.redraw_canvas()
+            self.figure_panel.update_state(
+                target_id, annotation, self.control_panel.active, target_annots
+            )
+            
+            # Resize the canvas (also redraws).
+            self.figure_panel.resize_canvas()
 
     # Event Handler Methods ----------------------------------------------------
 

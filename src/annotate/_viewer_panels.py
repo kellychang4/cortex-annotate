@@ -20,6 +20,7 @@ CortexViewer is implmented in _viewer.py.
 # Imports ----------------------------------------------------------------------
 
 import k3d
+import html
 import numpy as np
 import ipywidgets as ipw
 from matplotlib.colors import to_rgb
@@ -43,9 +44,10 @@ class CortexControlPanel(ipw.VBox):
 
         # Create information boxes
         self.infobox = {} # initialize infobox dictionary
-        infobox_keys = ( "dataset", *self.target_keys, "annotation" ) 
+        infobox_keys = ( "dataset", *self.target_keys, "annotation", "label" ) 
         for key in infobox_keys: # for each key in dataset and selection
             self.infobox[key] = self._init_infobox(key)
+        self.refresh_infobox("label") # hidden without an active label
         
         # Create the inflation slider widget
         self.inflation_slider = self._init_inflation_slider()
@@ -75,6 +77,8 @@ class CortexControlPanel(ipw.VBox):
             *[ self.infobox[key] for key in self.target_keys ],
             # Annotation infobox
             self.infobox["annotation"],
+            # Variable annotation label infobox
+            self.infobox["label"],
             # Horizontal line
             self._make_hline(), 
             # Style Options title
@@ -167,14 +171,16 @@ class CortexControlPanel(ipw.VBox):
             return self.state.dataset
         elif key == "annotation":
             return self.state.annotation
+        elif key == "label":
+            return self.state.active_label
         else: # key in state.targets
             return self.state.targets[key]
 
 
     def _make_infobox_value(self, value):
         """Make the infobox value for display."""
-        return f"""<div class="info-value">{value}</div>"""
-    
+        return f"""<div class="info-value">{html.escape(str(value))}</div>"""
+        
 
     def _init_infobox(self, key):
         """Update an information box for the given key and state."""
@@ -212,7 +218,11 @@ class CortexControlPanel(ipw.VBox):
                 ( "None", "curvature" ), 
                 ( "Polar Angle", "angle" ), 
                 ( "Eccentricity", "eccen" ), 
-                ( "Variance Explained", "vexpl" )
+                ( "Variance Explained", "vexpl" ), 
+                ( "Faces", "faces" ),
+                ( "Bodies", "bodies" ),
+                ( "Places", "places" ),
+                ( "Words", "words" ),
             ],
             value       = self.state.style["overlay"],    
             description = "Overlay:",
@@ -277,6 +287,9 @@ class CortexControlPanel(ipw.VBox):
         """Refresh the control panel display to reflect updated infobox values."""
         value = self._prep_infobox_value(key)
         self.infobox[key].children[1].value = self._make_infobox_value(value)
+
+        # An infobox without a value (no active variable annotation) is hidden.
+        self.infobox[key].layout.display = "none" if value is None else "flex"
 
 
     def observe_inflation_slider(self, callback): 
@@ -542,9 +555,9 @@ class CortexFigurePanel(ipw.GridBox):
 
     def _prep_active_annotation(self):
         """Prepare the data for the active annotation."""
-        # Get the currnet active surface annotation
-        annotation         = self.state.annotation
-        surface_annotation = self.state.surface_annotations[annotation]
+        # Get the current active surface annotation (if there is one)
+        active             = self.state.active
+        surface_annotation = self.state.surface_annotations.get(active, {})
 
         # If no coordinates, return None to skip plotting.
         coordinates = surface_annotation.get("coordinates", None)
@@ -594,10 +607,12 @@ class CortexFigurePanel(ipw.GridBox):
 
     def _prep_background_annotations(self):
         """Prepare the data for the background annotations."""
-        # Get the list of annotations excluding the selected one
-        annotation      = self.state.annotation
-        annotation_list = list(self.state.surface_annotations.keys())
-        annotation_list.remove(annotation)
+        # Get the list of annotations excluding the active one
+        active = self.state.active
+        annotation_list = [
+            annotation for annotation in self.state.surface_annotations.keys()
+            if annotation != active
+        ]
         
         # Initialize empty arrays for all coordinates and colors
         all_vertices  = np.empty((0, 3)) 
@@ -619,7 +634,7 @@ class CortexFigurePanel(ipw.GridBox):
 
             # Get the annotation style from the styler (active = None)
             # If not visible, return None to skip plotting.
-            annotation_style = self.state.styler(annotation)
+            annotation_style = self.state.styler(self.state.template(annotation))
             if not annotation_style["visible"]: continue
 
             # Get annotation color and point types for the current annotation

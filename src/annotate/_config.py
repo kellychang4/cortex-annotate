@@ -319,9 +319,10 @@ class TargetsConfig(ldict):
 
 Annotation = namedtuple(
     typename    = "Annotation",
-    field_names = ( "type", "fixed_head", "fixed_tail", "figure_grid", 
-                    "style_options", "filter" ),
-    defaults    = ( "contour", None, None, None, {}, None )
+    field_names = ( "type",  "fixed_head", "fixed_tail", "variable", 
+                    "variable_options", "figure_grid", "style_options", 
+                    "filter" ),
+    defaults    = ( "contour", None, None, False, None, None, {}, None )
 )
 
 
@@ -483,12 +484,14 @@ class AnnotationsConfig(dict):
                 raise err(f"Invalid annotation key: {key}")
 
         # Extract annotation values or assign default values.
-        ctype         = annotation_spec.get("type", "contour")
-        fixed_head    = annotation_spec.get("fixed_head", None)
-        fixed_tail    = annotation_spec.get("fixed_tail", None)
-        figure_grid   = annotation_spec.get("figure_grid", None)
-        style_options = annotation_spec.get("style_options", {}) #TODO: I think this is unused
-        filter        = annotation_spec.get("filter", None)
+        ctype            = annotation_spec.get("type", "contour")
+        fixed_head       = annotation_spec.get("fixed_head", None)
+        fixed_tail       = annotation_spec.get("fixed_tail", None)
+        variable         = annotation_spec.get("variable", False)
+        variable_options = annotation_spec.get("variable_options", None)
+        figure_grid      = annotation_spec.get("figure_grid", None)
+        style_options    = annotation_spec.get("style_options", {}) #TODO: I think this is unused
+        filter           = annotation_spec.get("filter", None)
         
         # Check that the annotation type is valid.
         if ctype not in ( "contour", "boundary", "point"):
@@ -519,12 +522,14 @@ class AnnotationsConfig(dict):
 
         # Return the annotation as an Annotation object.    
         return Annotation(
-            type          = ctype,
-            fixed_head    = fixed_head,
-            fixed_tail    = fixed_tail,
-            figure_grid   = figure_grid,
-            style_options = style_options,
-            filter        = filter,
+            type             = ctype,
+            fixed_head       = fixed_head,
+            fixed_tail       = fixed_tail,
+            variable         = variable,
+            variable_options = variable_options,
+            figure_grid      = figure_grid,
+            style_options    = style_options,
+            filter           = filter,
         )
 
 

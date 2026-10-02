@@ -117,6 +117,7 @@ class FigurePanel(ipw.HBox):
 
         # Initialize the annotation variables.
         self.target      = None
+        self.template    = None
         self.active      = None
         self.annotations = {}
         self.fixed_heads = {}
@@ -180,7 +181,7 @@ class FigurePanel(ipw.HBox):
                 # Skip background annotations if background is False.
                 if not background: continue
                 canvas     = self.background_canvas
-                styletag   = annotation
+                styletag   = self.state.template(annotation)
                 cursor     = None
 
             # Determine if the head or tail of this annotation is fixed.
@@ -195,7 +196,7 @@ class FigurePanel(ipw.HBox):
             
             # Check annotation type to see if the path is closed. Only the 
             # boundary type is closed.
-            atype  = self.annot_cfg.types[annotation]
+            atype  = self.annot_cfg.types[self.state.template(annotation)]
             closed = atype == "boundary" 
             
             # Okay, points needs to be drawn, so convert the figure points
@@ -407,6 +408,7 @@ class FigurePanel(ipw.HBox):
             raise ValueError(f"Invalid fixed point: {fixed_point}")
 
         # Get the fixed head or tail attribute for the given annotation.
+        annotation  = self.state.template(annotation)
         fixed_point = getattr(self.annot_cfg[annotation], fixed_point)
 
         # If there is a fixed head, we need to calculate it using the provided function.
@@ -444,29 +446,33 @@ class FigurePanel(ipw.HBox):
         return np.where(~fixed_index)[0]
 
 
-    def update_state(self, target_id, annotation, target_annotations):
+    def update_state(self, target_id, annotation, active, target_annotations):
         """Updates the state to reflect the given target and annotation."""
     
         # If neither the target nor the annotation is changing, we can skip the update.
-        if self.target == target_id and self.active == annotation: return
+        if self.target == target_id and self.template == annotation and \
+            self.active == active: return
 
         # Store the previous state.
         prev_target     = self.target
+        prev_template   = self.template
         prev_annotation = self.active
 
-        # Update the target, active annotation, and annotations.
+        # Update the target, (config) annotation, active annotation, and annotations.
         self.target      = target_id
-        self.active      = annotation
+        self.template    = annotation
+        self.active      = active
         self.annotations = target_annotations
 
         # Update the image data, grid shape, and figure limits from the state.
-        image_data, grid_shape, meta_data = self.state.grid(
-            self.target, self.active)
-        self.image = ipw.Image(value = image_data, format = "png")
-        self.grid       = self.annot_cfg.figure_grid[self.active]
-        self.grid_shape = grid_shape
-        self.xlim = meta_data["xlim"]
-        self.ylim = meta_data["ylim"]
+        if prev_target != self.target or prev_template != self.template:
+            image_data, grid_shape, meta_data = self.state.grid(
+                self.target, self.template)
+            self.image = ipw.Image(value = image_data, format = "png")
+            self.grid  = self.annot_cfg.figure_grid[self.template]
+            self.grid_shape = grid_shape
+            self.xlim = meta_data["xlim"]
+            self.ylim = meta_data["ylim"]
 
         # If the target is changing, we need to reset the fixed heads and tails, 
         # since they are target specific. Recalculating everything.
@@ -479,8 +485,8 @@ class FigurePanel(ipw.HBox):
         # tails for dependencies of the previous annotation.
         else:
             prev_deps = self.annot_cfg.fixed_dependencies.get(prev_annotation, [])
-            recalc_fixed = { self.active, *prev_deps}
-            
+            recalc_fixed = { self.active, *prev_deps} - { None }
+                        
         # Recalculate the fixed head and tails of the given fixed annotations.
         for annotation in recalc_fixed:
             self.fixed_heads[annotation] = self.calc_fixed_point(
@@ -488,9 +494,16 @@ class FigurePanel(ipw.HBox):
             self.fixed_tails[annotation] = self.calc_fixed_point(
                 annotation, self.annotations, "fixed_tail")
         
+        # If there is no active annotation (a variable annotation without any
+        # annotations yet), there are no points to edit.
+        if self.active is None:
+            self.editable = self._init_editable()
+            self.cursor   = None
+            return
+
         # Get the points and annotation type for the active annotation.
         points = self.annotations[self.active]
-        atype  = self.annot_cfg.types[self.active]
+        atype  = self.annot_cfg.types[self.template]
 
         # If there are no points for the current annotation, initialize.
         if points is None or points.shape[0] == 0:
@@ -624,7 +637,7 @@ class FigurePanel(ipw.HBox):
     def canvas_to_figure(self, points):
         """Converts the `N x 2` matrix of canvas points into figure coordinates."""
         # Check the shape of the input and convert it into an `N x 2` matrix if necessary.
-        points = np.asarray(points)
+        points = np.asarray(points, dtype = float)
         if len(points.shape) == 1:
             return self.canvas_to_figure([points])[0]
         
@@ -743,7 +756,7 @@ class FigurePanel(ipw.HBox):
         if points is None: points = self.empty_point_matrix()
 
         # Get the annotation type for this annotation.
-        atype = self.annot_cfg.types[self.active]
+        atype = self.annot_cfg.types[self.template]  
         
         # Depending on the annotation type, we add the newest point to the
         # annotation in different ways.
@@ -788,7 +801,7 @@ class FigurePanel(ipw.HBox):
         self.annotations[self.active] = points
 
         # Update dependent annotations, if this active annotation has them.
-        fixed_deps = self.annot_cfg.fixed_dependencies[self.active]
+        fixed_deps = self.annot_cfg.fixed_dependencies[self.template] 
         has_deps   = len(fixed_deps) > 0
         if has_deps: self._recalculate_deps(self.active)
 
@@ -833,7 +846,7 @@ class FigurePanel(ipw.HBox):
         if self.state.locked: return
 
         # Extract current annotation type.
-        atype  = self.annot_cfg.types[self.active]
+        atype = self.annot_cfg.types[self.template]
 
         # For a point annotation, there is only one point. Toggling the 
         # cursor position does not do anything, so we can skip it.
@@ -866,7 +879,7 @@ class FigurePanel(ipw.HBox):
 
         # Get the current annotation and annotation type.
         points = self.annotations[self.active]
-        atype  = self.annot_cfg.types[self.active]
+        atype = self.annot_cfg.types[self.template]  
 
         # If there are no points, we cannot delete anything. Skip.
         if points is None or points.shape[0] == 0 or \
@@ -875,7 +888,7 @@ class FigurePanel(ipw.HBox):
         # Check if there are any LIVE dependencies on this annotation. If so, 
         # we cannot delete the last point of this annotation because the 
         # dependent annotations rely on it. 
-        fixed_deps = self.annot_cfg.fixed_dependencies[self.active]
+        fixed_deps = self.annot_cfg.fixed_dependencies[self.template] 
         has_deps   = len(fixed_deps) > 0
         if has_deps and self.editable.shape[0] == 1:
             # Determine the number of fixed points for each dependent 

@@ -39,6 +39,9 @@ class CortexViewerState:
                      "kwargs": { } },
         "vexpl" : { "func": lambda prop, _: prop, 
                      "kwargs": { "cmap": "hot", "vmin": 0, "vmax": 100 } },
+        **{ key : { "func": lambda prop, _: prop, 
+                    "kwargs": { "cmap": "temperature_dark", "vmin": -8, "vmax": 8 } }
+            for key in ( "faces", "bodies", "places", "words" ) },
     }
 
     # Point type constants
@@ -183,6 +186,20 @@ class CortexViewerState:
         return selection_panel.annotation
 
 
+    @property
+    def active(self):
+        """Get the name of the annotation that is currently edited (or `None`)."""
+        selection_panel = self._get_active_selection_panel()
+        return selection_panel.active
+
+
+    @property
+    def active_label(self):
+        """Get the menu label of the active variable annotation (or `None`)."""
+        selection_panel = self._get_active_selection_panel()
+        return selection_panel.variable_select.label
+    
+
     def get_style_annotation(self):
         """Get the current style annotation selection widget."""
         return self.style_panel.annotation
@@ -193,7 +210,8 @@ class CortexViewerState:
         """Update the annotation configuration based on current state."""
         active_tool = self._get_active_annotation_tool()
         self.annot_cfg = active_tool.state.config.annotations
-    
+        self.template  = active_tool.state.template
+            
 
     def update_styler(self):
         """Update the styler options based on current state."""
@@ -359,12 +377,20 @@ class CortexViewerState:
                 continue
             
             # If there are flatmap coordinates, figure out each point type
+            annotation  = self.template(key) # the (config) annotation
             n_points    = flatmap_coordinates.shape[0]
             point_types = np.full(n_points, self.POINT_USER)
-            fixed_head  = bool(self.annot_cfg.fixed_head[key])
-            fixed_tail  = bool(self.annot_cfg.fixed_tail[key])
+            fixed_head  = bool(self.annot_cfg.fixed_head[annotation])
+            fixed_tail  = bool(self.annot_cfg.fixed_tail[annotation])
             if fixed_head: point_types[0]  = self.POINT_FIXED
             if fixed_tail: point_types[-1] = self.POINT_FIXED
+
+            # A boundary is closed: add its first point to the end as an
+            # interpolated point, which draws the line but not another point.
+            if self.annot_cfg.types[annotation] == "boundary" and n_points > 2:
+                flatmap_coordinates = np.vstack(
+                    [ flatmap_coordinates, flatmap_coordinates[:1] ])
+                point_types = np.append(point_types, self.POINT_INTERP)
 
             # Interpolate coordinate if there are more than 1 point (to make a 
             # segment) and if the points are NOT all fixed points.
@@ -456,6 +482,12 @@ class CortexViewerState:
             style_panel.color_picker.observe(callback, names = "value")
 
 
+    def observe_variable_label(self, callback):
+        """Assign a callback function to variable annotation label changes."""
+        for annotation_widget in self.annotation_widgets.children:
+            selection_panel = annotation_widget.control_panel.selection_panel
+            selection_panel.variable_select.observe(callback, names = "label")
+
 # The Cortex Viewer Widget -----------------------------------------------------
 
 class CortexViewer(ipw.GridBox):
@@ -510,6 +542,9 @@ class CortexViewer(ipw.GridBox):
 
         # Assign user annotation input observers
         self.state.observe_annotation_change(self.on_annotation_change)
+
+        # Assign variable annotation label observers
+        self.state.observe_variable_label(self.on_variable_label_change)
 
         # Assign style option observers
         for key in self._style_observers.keys():
@@ -588,6 +623,11 @@ class CortexViewer(ipw.GridBox):
         # Refresh the figure with annotation changes
         self.figure_panel.refresh_figure(
             clear = False, cortex = False, points = True)
+
+
+    def on_variable_label_change(self, _):
+        """Handle changes to the label of the active variable annotation."""
+        self.control_panel.refresh_infobox("label")
         
 
     def on_style_change(self, key, change):
