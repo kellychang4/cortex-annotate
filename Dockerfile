@@ -26,48 +26,48 @@ FROM build-$TARGETARCH
 USER root
 # Make some directories
 RUN mkdir /cache \
- && mkdir /save \
- && mkdir /src \
- && mkdir /git \
- && mkdir /build \
- && mkdir /config \
- && mkdir /data \
- && mkdir -p /data/freesurfer/subjects \
- && mkdir -p /data/hcp/subjects \
- && mkdir -p /data/hcp/lines \
- && mkdir -p /data/hcp/meta \
- && chown -R $NB_USER /cache /save /src /git /config /data \
- && chmod -R 755 /cache /save /src /git /config /data
+      && mkdir /save \
+      && mkdir /src \
+      && mkdir /git \
+      && mkdir /build \
+      && mkdir /config \
+      && mkdir /data \
+      && mkdir -p /data/freesurfer/subjects \
+      && mkdir -p /data/hcp/subjects \
+      && mkdir -p /data/hcp/lines \
+      && mkdir -p /data/hcp/meta \
+      && chown -R $NB_USER /cache /save /src /git /config /data \
+      && chmod -R 755 /cache /save /src /git /config /data
 # Fix the ownership of the .ipython and .local directory if needed.
 RUN [ -d /home/$NB_USER/.ipython/jupyter ] \
- || mkdir -p /home/$NB_USER/.ipython/jupyter
+      || mkdir -p /home/$NB_USER/.ipython/jupyter
 RUN [ -d /home/$NB_USER/.ipython/profile_default ] \
- || mkdir -p /home/$NB_USER/.ipython/profile_default
+      || mkdir -p /home/$NB_USER/.ipython/profile_default
 RUN chown -R $NB_USER /home/$NB_USER/.ipython \
- && chmod 700 /home/$NB_USER/.ipython
+      && chmod 700 /home/$NB_USER/.ipython
 RUN [ -d /home/$NB_USER/.local ] \
- || mkdir /home/$NB_USER/.local
+      || mkdir /home/$NB_USER/.local
 RUN chown -R $NB_USER /home/$NB_USER/.local 
 
 # Next, we want to make sure that we have an fsaverage and an fsaverage_sym
 # subject for neuropythy to use if needed.
 # Download the required FreeSurfer subjects.
 RUN apt-get update \
- && apt-get install --yes --no-install-recommends build-essential cmake curl git
+      && apt-get install --yes --no-install-recommends build-essential cmake curl git
 RUN curl -L -o /data/freesurfer/subjects/fsaverage.tar.gz \
       https://github.com/noahbenson/neuropythy/wiki/files/fsaverage.tar.gz \
- && cd /data/freesurfer/subjects \
- && tar zxf fsaverage.tar.gz \
- && chown -R root.root ./fsaverage \
- && chmod -R 775 ./fsaverage \
- && rm fsaverage.tar.gz
+      && cd /data/freesurfer/subjects \
+      && tar zxf fsaverage.tar.gz \
+      && chown -R root.root ./fsaverage \
+      && chmod -R 775 ./fsaverage \
+      && rm fsaverage.tar.gz
 RUN curl -L -o /data/freesurfer/subjects/fsaverage_sym.tar.gz \
       https://github.com/noahbenson/neuropythy/wiki/files/fsaverage_sym.tar.gz \
- && cd /data/freesurfer/subjects \
- && tar zxf fsaverage_sym.tar.gz \
- && chown -R root.root ./fsaverage_sym \
- && chmod -R 775 ./fsaverage_sym \
- && rm ./fsaverage_sym.tar.gz
+      && cd /data/freesurfer/subjects \
+      && tar zxf fsaverage_sym.tar.gz \
+      && chown -R root.root ./fsaverage_sym \
+      && chmod -R 775 ./fsaverage_sym \
+      && rm ./fsaverage_sym.tar.gz
 
 
 # The User Operations ##########################################################
@@ -83,12 +83,14 @@ RUN mamba update --all -y
 RUN ln -s /opt/conda/lib/libstdc++.so.6.0.34 /opt/conda/lib/libstdc++.so.6 || true
 #RUN mamba install -y -cconda-forge nibabel s3fs
 RUN mamba install -y -cconda-forge \
-        ipywidgets \
-        pip \
-        traitlets \
-        webcolors \
-        jsonschema-with-format-nongpl \
-        'tornado == 6.1'
+      'blas=*=openblas' \
+      'libblas=*=*openblas' \
+      ipywidgets \
+      pip \
+      traitlets \
+      webcolors \
+      jsonschema-with-format-nongpl \
+      'tornado == 6.1'
 RUN pip install ipycanvas pyyaml neuropythy nibabel s3fs
 
 # Install collapsible cell extensions...
